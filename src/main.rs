@@ -1,5 +1,8 @@
 mod app;
+mod event;
+mod pane;
 mod terminal;
+mod tree;
 mod tui;
 
 use color_eyre::Result;
