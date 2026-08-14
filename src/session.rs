@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +25,8 @@ pub struct SavedWorkspace {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedTab {
     pub focused: usize,
+    #[serde(default)]
+    pub name: Option<String>,
     pub tree: SavedNode,
 }
 
@@ -32,7 +34,8 @@ pub struct SavedTab {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SavedNode {
     Leaf {
-        #[serde(default)]
+        #[serde(default, skip_serializing)]
+        #[allow(dead_code)]
         cwd: Option<PathBuf>,
     },
     Split {
@@ -44,17 +47,16 @@ pub enum SavedNode {
 }
 
 impl SavedNode {
-    pub fn from_live(node: &Node, cwds: &HashMap<u64, PathBuf>) -> Option<Self> {
+    pub fn from_live(node: &Node, keep: &HashSet<u64>) -> Option<Self> {
         match node {
-            Node::Leaf(id) => cwds.get(id).map(|cwd| Self::Leaf {
-                cwd: Some(cwd.clone()),
-            }),
+            Node::Leaf(id) if keep.contains(id) => Some(Self::Leaf { cwd: None }),
+            Node::Leaf(_) => None,
             Node::Split {
                 dir,
                 percent,
                 first,
                 second,
-            } => match (Self::from_live(first, cwds), Self::from_live(second, cwds)) {
+            } => match (Self::from_live(first, keep), Self::from_live(second, keep)) {
                 (None, None) => None,
                 (Some(kept), None) | (None, Some(kept)) => Some(kept),
                 (Some(a), Some(b)) => Some(Self::Split {
@@ -67,21 +69,10 @@ impl SavedNode {
         }
     }
 
-    pub fn leaf_cwds(&self, fallback: &Path) -> Vec<PathBuf> {
+    pub fn leaf_count(&self) -> usize {
         match self {
-            Self::Leaf { cwd } => {
-                let path = cwd
-                    .as_ref()
-                    .filter(|path| path.is_dir())
-                    .cloned()
-                    .unwrap_or_else(|| fallback.to_path_buf());
-                vec![path]
-            }
-            Self::Split { first, second, .. } => {
-                let mut paths = first.leaf_cwds(fallback);
-                paths.extend(second.leaf_cwds(fallback));
-                paths
-            }
+            Self::Leaf { .. } => 1,
+            Self::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
         }
     }
 

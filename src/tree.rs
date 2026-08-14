@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use color_eyre::Result;
 use portable_pty::PtySize;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Position, Rect};
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,20 @@ pub enum FocusDir {
     Right,
     Up,
     Down,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Branch {
+    First,
+    Second,
+}
+
+#[derive(Clone)]
+pub struct Divider {
+    pub path: Vec<Branch>,
+    pub dir: SplitDir,
+    pub parent: Rect,
+    pub hit: Rect,
 }
 
 pub enum Node {
@@ -67,6 +81,17 @@ impl PaneTree {
 
     pub fn grow_focused(&mut self, amount: i16) {
         grow_leaf(&mut self.root, self.focused, amount);
+    }
+
+    pub fn dividers(&self, area: Rect) -> Vec<Divider> {
+        let mut out = Vec::new();
+        collect_dividers(&self.root, area, &[], &mut out);
+        out
+    }
+
+    pub fn drag_split(&mut self, path: &[Branch], dir: SplitDir, parent: Rect, pos: Position) {
+        let percent = percent_from_pos(parent, dir, pos);
+        apply_percent(&mut self.root, path, percent);
     }
 
     pub fn pane_count(&self) -> usize {
@@ -254,6 +279,84 @@ fn collect_areas(node: &Node, area: Rect, out: &mut Vec<(u64, Rect)>) {
             collect_areas(first, a, out);
             collect_areas(second, b, out);
         }
+    }
+}
+
+fn collect_dividers(node: &Node, area: Rect, path: &[Branch], out: &mut Vec<Divider>) {
+    let Node::Split {
+        dir,
+        percent,
+        first,
+        second,
+    } = node
+    else {
+        return;
+    };
+
+    let (a, b) = split_rect(area, *dir, *percent);
+    out.push(Divider {
+        path: path.to_vec(),
+        dir: *dir,
+        parent: area,
+        hit: divider_hit(*dir, a, b),
+    });
+
+    let mut first_path = path.to_vec();
+    first_path.push(Branch::First);
+    collect_dividers(first, a, &first_path, out);
+
+    let mut second_path = path.to_vec();
+    second_path.push(Branch::Second);
+    collect_dividers(second, b, &second_path, out);
+}
+
+fn divider_hit(dir: SplitDir, first: Rect, second: Rect) -> Rect {
+    match dir {
+        SplitDir::Columns => Rect {
+            x: second.x.saturating_sub(1),
+            y: first.y.min(second.y),
+            width: 2,
+            height: first.height.max(second.height),
+        },
+        SplitDir::Rows => Rect {
+            x: first.x.min(second.x),
+            y: second.y.saturating_sub(1),
+            width: first.width.max(second.width),
+            height: 2,
+        },
+    }
+}
+
+fn percent_from_pos(parent: Rect, dir: SplitDir, pos: Position) -> u16 {
+    match dir {
+        SplitDir::Columns => ratio(pos.x.saturating_sub(parent.x), parent.width),
+        SplitDir::Rows => ratio(pos.y.saturating_sub(parent.y), parent.height),
+    }
+}
+
+fn ratio(rel: u16, span: u16) -> u16 {
+    if span == 0 {
+        return 50;
+    }
+    ((u32::from(rel) * 100) / u32::from(span)).clamp(15, 85) as u16
+}
+
+fn apply_percent(node: &mut Node, path: &[Branch], percent: u16) -> bool {
+    match node {
+        Node::Split {
+            first,
+            second,
+            percent: current,
+            ..
+        } => match path.first() {
+            None => {
+                *current = percent.clamp(15, 85);
+                true
+            }
+            Some(Branch::First) => apply_percent(first, &path[1..], percent),
+            Some(Branch::Second) => apply_percent(second, &path[1..], percent),
+        },
+        Node::Leaf(_) => false,
     }
 }
 

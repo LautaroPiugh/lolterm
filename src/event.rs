@@ -2,12 +2,14 @@ use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-pub fn is_quit_key(key: KeyEvent) -> bool {
-    key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL)
+use crate::config::Chord;
+
+pub fn is_quit_key(key: KeyEvent, chord: Chord) -> bool {
+    chord.matches(key)
 }
 
-pub fn is_prefix_key(key: KeyEvent) -> bool {
-    key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL)
+pub fn is_prefix_key(key: KeyEvent, chord: Chord) -> bool {
+    chord.matches(key)
 }
 
 pub fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {

@@ -22,8 +22,17 @@ impl Shell {
         Self::spawn_cmd(size, cwd, CommandBuilder::new_default_prog())
     }
 
-    pub fn spawn_program(size: PtySize, cwd: &Path, program: &str) -> Result<Self> {
-        Self::spawn_cmd(size, cwd, CommandBuilder::new(program))
+    pub fn spawn_program(
+        size: PtySize,
+        cwd: &Path,
+        program: &str,
+        args: &[String],
+    ) -> Result<Self> {
+        let mut cmd = CommandBuilder::new(program);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        Self::spawn_cmd(size, cwd, cmd)
     }
 
     fn spawn_cmd(size: PtySize, cwd: &Path, mut cmd: CommandBuilder) -> Result<Self> {

@@ -1,6 +1,8 @@
 mod app;
 mod commands;
+mod config;
 mod event;
+mod git;
 mod pane;
 mod session;
 mod terminal;

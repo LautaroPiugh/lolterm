@@ -14,6 +14,7 @@ pub enum CommandId {
     NextTab,
     PrevTab,
     CloseTab,
+    RenameTab,
     NewWorkspace,
     NextWorkspace,
     CloseWorkspace,
@@ -21,7 +22,12 @@ pub enum CommandId {
     LaunchCodex,
     LaunchClaude,
     LaunchOpencode,
+    LaunchCline,
     LaunchGemini,
+    LaunchLazygit,
+    LaunchSsh,
+    LaunchTailscale,
+    GitStatus,
     ScrollUp,
     ScrollDown,
     Quit,
@@ -106,6 +112,11 @@ pub const COMMANDS: &[CommandSpec] = &[
         hint: "cerrar tab",
     },
     CommandSpec {
+        id: CommandId::RenameTab,
+        slash: "tab-rename",
+        hint: "renombrar tab: /tab-rename nombre",
+    },
+    CommandSpec {
         id: CommandId::NewWorkspace,
         slash: "workspace-new",
         hint: "workspace desde el cwd del pane",
@@ -141,9 +152,34 @@ pub const COMMANDS: &[CommandSpec] = &[
         hint: "abrir OpenCode",
     },
     CommandSpec {
+        id: CommandId::LaunchCline,
+        slash: "cline",
+        hint: "abrir Cline",
+    },
+    CommandSpec {
         id: CommandId::LaunchGemini,
         slash: "gemini",
         hint: "abrir Gemini CLI",
+    },
+    CommandSpec {
+        id: CommandId::LaunchLazygit,
+        slash: "lazygit",
+        hint: "abrir lazygit",
+    },
+    CommandSpec {
+        id: CommandId::LaunchSsh,
+        slash: "ssh",
+        hint: "abrir ssh: /ssh user@host",
+    },
+    CommandSpec {
+        id: CommandId::LaunchTailscale,
+        slash: "tailscale",
+        hint: "abrir Tailscale: /tailscale ssh host",
+    },
+    CommandSpec {
+        id: CommandId::GitStatus,
+        slash: "git-status",
+        hint: "git status --short del workspace",
     },
     CommandSpec {
         id: CommandId::ScrollUp,
@@ -162,15 +198,87 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
 ];
 
+pub fn split_query(query: &str) -> (String, Vec<String>) {
+    let trimmed = query.trim().trim_start_matches('/');
+    let mut parts = trimmed.split_whitespace();
+    let head = parts.next().unwrap_or("").to_ascii_lowercase();
+    let args = parts.map(ToString::to_string).collect();
+    (head, args)
+}
+
 pub fn filter_commands(query: &str) -> Vec<&'static CommandSpec> {
-    let needle = query.trim().trim_start_matches('/').to_ascii_lowercase();
+    let (needle, _) = split_query(query);
     if needle.is_empty() {
         return COMMANDS.iter().collect();
     }
-    COMMANDS
+    let mut scored: Vec<(u32, &'static CommandSpec)> = COMMANDS
         .iter()
-        .filter(|command| {
-            command.slash.contains(&needle) || command.hint.to_ascii_lowercase().contains(&needle)
+        .filter_map(|command| {
+            let slash = fuzzy_score(&needle, command.slash)?;
+            let hint = fuzzy_score(&needle, command.hint).unwrap_or(0);
+            Some((slash.max(hint / 2), command))
         })
-        .collect()
+        .collect();
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.slash.len().cmp(&b.1.slash.len()))
+    });
+    scored.into_iter().map(|(_, command)| command).collect()
+}
+
+pub fn fuzzy_score(needle: &str, haystack: &str) -> Option<u32> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let hay: Vec<char> = haystack.chars().map(|ch| ch.to_ascii_lowercase()).collect();
+    let mut start = 0;
+    let mut score = 0u32;
+    let mut prev = None;
+    for (index, needle_ch) in needle.chars().map(|ch| ch.to_ascii_lowercase()).enumerate() {
+        let found = hay
+            .iter()
+            .enumerate()
+            .skip(start)
+            .find(|(_, ch)| **ch == needle_ch);
+        let (at, _) = found?;
+        score += 16;
+        if index == 0 && at == 0 {
+            score += 32;
+        }
+        if prev.is_some_and(|prev| at == prev + 1) {
+            score += 24;
+        }
+        prev = Some(at);
+        start = at + 1;
+    }
+    Some(score)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_query_keeps_ssh_args() {
+        let (head, args) = split_query("/ssh user@host -t tmux");
+        assert_eq!(head, "ssh");
+        assert_eq!(args, vec!["user@host", "-t", "tmux"]);
+    }
+
+    #[test]
+    fn fuzzy_ranks_ssh_for_full_token() {
+        let matches = filter_commands("/ssh");
+        assert_eq!(matches[0].slash, "ssh");
+        assert!(
+            filter_commands("/sh")
+                .iter()
+                .any(|command| command.slash == "ssh")
+        );
+    }
+
+    #[test]
+    fn substring_still_matches() {
+        assert!(fuzzy_score("tab", "tab-rename").is_some());
+        assert!(fuzzy_score("xyz", "tab-rename").is_none());
+    }
 }

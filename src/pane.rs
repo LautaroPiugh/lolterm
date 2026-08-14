@@ -13,12 +13,18 @@ pub struct Pane {
 }
 
 impl Pane {
-    pub fn spawn_program(id: u64, size: PtySize, cwd: &Path, program: &str) -> Result<Self> {
+    pub fn spawn_program(
+        id: u64,
+        size: PtySize,
+        cwd: &Path,
+        program: &str,
+        args: &[String],
+    ) -> Result<Self> {
         Ok(Self {
             id,
             program: Some(program.to_string()),
-            label: program.to_string(),
-            shell: Shell::spawn_program(size, cwd, program)?,
+            label: program_label(program, args),
+            shell: Shell::spawn_program(size, cwd, program, args)?,
         })
     }
 
@@ -41,6 +47,15 @@ impl Pane {
 
     pub fn cwd(&self) -> Option<PathBuf> {
         self.shell.cwd()
+    }
+}
+
+fn program_label(program: &str, args: &[String]) -> String {
+    match (program, args.first().map(String::as_str)) {
+        ("ssh", Some(host)) => format!("ssh:{host}"),
+        ("tailscale", Some(sub)) => format!("ts:{sub}"),
+        ("git", _) => "git-status".to_string(),
+        _ => program.to_string(),
     }
 }
 
