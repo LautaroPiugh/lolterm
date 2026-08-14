@@ -1,18 +1,23 @@
+use std::io::Read;
+use std::sync::{Arc, PoisonError, RwLock};
+
 use color_eyre::Result;
 use color_eyre::eyre::eyre;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use tui_term::vt100;
 
 pub struct Shell {
-    master: Box<dyn MasterPty + Send>,
+    _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
+    parser: Arc<RwLock<vt100::Parser>>,
     child_exited: bool,
 }
 
 impl Shell {
-    pub fn spawn() -> Result<Self> {
+    pub fn spawn(size: PtySize) -> Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system
-            .openpty(PtySize::default())
+            .openpty(size)
             .map_err(|err| eyre!("failed to open pty: {err:#}"))?;
 
         let mut cmd = CommandBuilder::new_default_prog();
@@ -23,25 +28,44 @@ impl Shell {
             .spawn_command(cmd)
             .map_err(|err| eyre!("failed to spawn user shell: {err:#}"))?;
 
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|err| eyre!("failed to clone pty reader: {err:#}"))?;
+
+        let parser = Arc::new(RwLock::new(vt100::Parser::new(size.rows, size.cols, 0)));
+        {
+            let parser = Arc::clone(&parser);
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 8192];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if let Ok(mut parser) = parser.write() {
+                                parser.process(&buf[..n]);
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
         Ok(Self {
-            master: pair.master,
+            _master: pair.master,
             child,
+            parser,
             child_exited: false,
         })
     }
 
+    pub fn parser(&self) -> std::sync::RwLockReadGuard<'_, vt100::Parser> {
+        self.parser.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
-    }
-
-    pub fn size(&self) -> Result<PtySize> {
-        self.master
-            .get_size()
-            .map_err(|err| eyre!("failed to read pty size: {err:#}"))
-    }
-
-    pub fn child_exited(&self) -> bool {
-        self.child_exited
     }
 
     pub fn poll_exit(&mut self) -> Result<()> {

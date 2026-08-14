@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use color_eyre::Result;
+use portable_pty::PtySize;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::layout::Alignment;
-use ratatui::text::Line;
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::layout::Size;
+use ratatui::widgets::Block;
 use ratatui::{DefaultTerminal, Frame};
+use tui_term::widget::PseudoTerminal;
 
 use crate::terminal::Shell;
 
@@ -13,10 +16,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Result<Self> {
+    pub fn new(term_size: Size) -> Result<Self> {
         Ok(Self {
             running: true,
-            shell: Shell::spawn()?,
+            shell: Shell::spawn(pty_size_from_term(term_size))?,
         })
     }
 
@@ -30,43 +33,22 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let block = Block::bordered().title(" LolTerm ");
-        let inner = block.inner(frame.area());
-        frame.render_widget(block, frame.area());
-
+        let parser = self.shell.parser();
         let pid = self
             .shell
             .process_id()
             .map(|id| id.to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let size = self
-            .shell
-            .size()
-            .map(|s| format!("{}x{}", s.cols, s.rows))
-            .unwrap_or_else(|_| "unknown".to_string());
-
-        let status = if self.shell.child_exited() {
-            "shell exited"
-        } else {
-            "shell running"
-        };
-
-        let text = vec![
-            Line::from("PTY + shell (incremento 2)"),
-            Line::from(""),
-            Line::from(format!("status: {status}")),
-            Line::from(format!("pid: {pid}")),
-            Line::from(format!("pty size: {size}")),
-            Line::from(""),
-            Line::from("Aun no hay I/O: las teclas no van al shell."),
-            Line::from("Presiona 'q' o Ctrl-C para salir"),
-        ];
-        let paragraph = Paragraph::new(text).alignment(Alignment::Center);
-        frame.render_widget(paragraph, inner);
+            .unwrap_or_else(|| "?".to_string());
+        let block = Block::bordered().title(format!(" LolTerm · pid {pid} · q / Ctrl-C sale "));
+        let term = PseudoTerminal::new(parser.screen()).block(block);
+        frame.render_widget(term, frame.area());
     }
 
     fn handle_events(&mut self) -> Result<()> {
+        if !event::poll(Duration::from_millis(16))? {
+            return Ok(());
+        }
+
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
@@ -79,5 +61,14 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+fn pty_size_from_term(size: Size) -> PtySize {
+    PtySize {
+        rows: size.height.saturating_sub(2).max(1),
+        cols: size.width.saturating_sub(2).max(1),
+        pixel_width: 0,
+        pixel_height: 0,
     }
 }
