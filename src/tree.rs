@@ -4,9 +4,12 @@ use color_eyre::Result;
 use portable_pty::PtySize;
 use ratatui::layout::{Constraint, Layout, Rect};
 
+use serde::{Deserialize, Serialize};
+
 use crate::pane::Pane;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SplitDir {
     Columns,
     Rows,
@@ -37,6 +40,20 @@ pub struct PaneTree {
 }
 
 impl PaneTree {
+    pub fn leaf_ids(&self) -> Vec<u64> {
+        let mut ids = Vec::new();
+        collect_ids(&self.root, &mut ids);
+        ids
+    }
+
+    pub fn from_parts(root: Node, panes: HashMap<u64, Pane>, focused: u64) -> Self {
+        Self {
+            root,
+            panes,
+            focused,
+        }
+    }
+
     pub fn new(pane: Pane) -> Self {
         let focused = pane.id;
         let mut panes = HashMap::new();
@@ -69,16 +86,22 @@ impl PaneTree {
     }
 
     pub fn close_focused(&mut self) -> bool {
-        let id = self.focused;
+        self.close_id(self.focused)
+    }
+
+    fn close_id(&mut self, id: u64) -> bool {
         self.panes.remove(&id);
         match remove_leaf(std::mem::replace(&mut self.root, Node::Leaf(0)), id) {
             Some(root) => {
                 self.root = root;
-                self.focused = first_leaf(&self.root).unwrap_or(id);
+                if self.focused == id {
+                    self.focused = first_leaf(&self.root).unwrap_or(id);
+                }
                 true
             }
             None => {
                 self.root = Node::Leaf(0);
+                self.panes.clear();
                 false
             }
         }
@@ -137,18 +160,8 @@ impl PaneTree {
         }
 
         for id in dead {
-            self.panes.remove(&id);
-            match remove_leaf(std::mem::replace(&mut self.root, Node::Leaf(0)), id) {
-                Some(root) => self.root = root,
-                None => {
-                    self.panes.clear();
-                    return Ok(false);
-                }
-            }
-            if self.focused == id
-                && let Some(next) = first_leaf(&self.root)
-            {
-                self.focused = next;
+            if !self.close_id(id) {
+                return Ok(false);
             }
         }
 

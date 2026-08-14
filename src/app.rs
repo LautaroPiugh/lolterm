@@ -1,23 +1,33 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use color_eyre::Result;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
 use ratatui::layout::{Constraint, Layout, Position, Rect, Size};
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Tabs};
+use ratatui::widgets::{Block, Clear, Paragraph, Tabs};
 use ratatui::{DefaultTerminal, Frame};
 use tui_term::widget::PseudoTerminal;
 
+use crate::commands::{CommandId, CommandSpec, filter_commands};
 use crate::event::{encode_key, encode_mouse, is_prefix_key, is_quit_key};
 use crate::pane::Pane;
-use crate::tree::{FocusDir, PaneTree, SplitDir, pty_size_from_rect};
+use crate::session::{SavedNode, SavedTab, SavedWorkspace, Session};
+use crate::tree::{FocusDir, Node, PaneTree, SplitDir, pty_size_from_rect};
 
 const MAX_PANES: usize = 8;
 const MAX_TABS: usize = 8;
 const MAX_WORKSPACES: usize = 6;
-const PREFIX_TIMEOUT: Duration = Duration::from_millis(1000);
+
+struct Palette {
+    query: String,
+    selected: usize,
+}
 
 struct Tab {
     tree: PaneTree,
@@ -26,6 +36,7 @@ struct Tab {
 struct Workspace {
     name: String,
     root: PathBuf,
+    branch: Option<String>,
     tabs: Vec<Tab>,
     active: usize,
 }
@@ -35,39 +46,33 @@ pub struct App {
     workspaces: Vec<Workspace>,
     active_ws: usize,
     next_id: u64,
-    prefix: bool,
-    prefix_at: Option<Instant>,
+    palette: Option<Palette>,
     term_size: Size,
 }
 
 impl App {
     pub fn new(term_size: Size) -> Result<Self> {
-        let root = workspace_root();
-        let name = workspace_name(&root);
         let mut app = Self {
             running: true,
             workspaces: Vec::new(),
             active_ws: 0,
             next_id: 1,
-            prefix: false,
-            prefix_at: None,
+            palette: None,
             term_size,
         };
-        let pane = app.spawn_pane(body_area(term_rect(term_size)), &root)?;
-        app.workspaces.push(Workspace {
-            name,
-            root,
-            tabs: vec![Tab {
-                tree: PaneTree::new(pane),
-            }],
-            active: 0,
-        });
+        if crate::session::exists()
+            && let Ok(session) = crate::session::load()
+        {
+            app.restore_session(session)?;
+        }
+        if app.workspaces.is_empty() {
+            app.open_default_workspace()?;
+        }
         Ok(app)
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while self.running {
-            self.expire_prefix();
             self.reap()?;
             if !self.running {
                 break;
@@ -77,21 +82,17 @@ impl App {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
         }
+        let _ = crate::session::save(&self.snapshot());
         Ok(())
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let [ws_bar, tab_bar, body] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .areas(frame.area());
+        let [ws_bar, tab_bar, body] = chrome(frame.area());
 
         let ws_titles: Vec<Line> = self
             .workspaces
             .iter()
-            .map(|ws| Line::from(format!(" {} ", ws.name)))
+            .map(|ws| Line::from(workspace_label(ws)))
             .collect();
         frame.render_widget(
             Tabs::new(ws_titles)
@@ -129,22 +130,12 @@ impl App {
             };
             let focused = id == tab.tree.focused;
             let parser = pane.shell.parser();
-            let pid = pane
-                .shell
-                .process_id()
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let marker = if focused && self.prefix {
-                "PREFIX"
-            } else if focused {
-                "*"
-            } else {
-                " "
-            };
+            let marker = if focused { "*" } else { " " };
+            let name = pane.title();
             let title = if focused {
-                format!(" {marker} {pid} · C-b %/\" +/− x o ←↑↓→ · c n p · w W · C-q ")
+                format!(" {marker} {name} · C-b comandos · C-q sale ")
             } else {
-                format!(" {marker} {pid} ")
+                format!(" {marker} {name} ")
             };
             let border = if focused {
                 Style::default().fg(Color::Cyan)
@@ -157,6 +148,8 @@ impl App {
                 area,
             );
         }
+
+        self.draw_palette(frame);
     }
 
     fn handle_events(&mut self) -> Result<()> {
@@ -168,7 +161,10 @@ impl App {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.handle_key(key)?,
             Event::Mouse(mouse) => self.handle_mouse(mouse)?,
             Event::Paste(text) => {
-                if let Some(shell) = self.focused_shell() {
+                if let Some(palette) = &mut self.palette {
+                    palette.query.push_str(&text);
+                    palette.selected = 0;
+                } else if let Some(shell) = self.focused_shell() {
                     shell.write_input(text.as_bytes())?;
                 }
             }
@@ -187,13 +183,14 @@ impl App {
             self.running = false;
             return Ok(());
         }
-        if self.prefix {
-            self.handle_prefix(key)?;
-            return Ok(());
+        if self.palette.is_some() {
+            return self.handle_palette_key(key);
         }
         if is_prefix_key(key) {
-            self.prefix = true;
-            self.prefix_at = Some(Instant::now());
+            self.palette = Some(Palette {
+                query: "/".to_string(),
+                selected: 0,
+            });
             return Ok(());
         }
         if let Some(bytes) = encode_key(key)
@@ -204,47 +201,153 @@ impl App {
         Ok(())
     }
 
-    fn handle_prefix(&mut self, key: KeyEvent) -> Result<()> {
-        self.clear_prefix();
-
-        if is_prefix_key(key) {
-            if let Some(shell) = self.focused_shell() {
-                shell.write_input(&[0x02])?;
-            }
+    fn handle_palette_key(&mut self, key: KeyEvent) -> Result<()> {
+        if is_prefix_key(key) || key.code == KeyCode::Esc {
+            self.palette = None;
             return Ok(());
         }
 
         match key.code {
-            KeyCode::Char('%') => self.split(SplitDir::Columns)?,
-            KeyCode::Char('"') => self.split(SplitDir::Rows)?,
-            KeyCode::Char('+') | KeyCode::Char('=') => self.grow_focused(5),
-            KeyCode::Char('-') => self.grow_focused(-5),
-            KeyCode::Char('o') => {
-                if let Some(tab) = self.active_tab_mut() {
-                    tab.tree.focus_next();
+            KeyCode::Enter => {
+                if let Some(command) = self.selected_command() {
+                    let id = command.id;
+                    self.palette = None;
+                    self.run_command(id)?;
                 }
             }
-            KeyCode::Char('x') => self.close_pane(),
-            KeyCode::Char('c') => self.new_tab()?,
-            KeyCode::Char('n') => self.cycle_tab(1),
-            KeyCode::Char('p') => self.cycle_tab(-1),
-            KeyCode::Char('&') => self.close_tab(),
-            KeyCode::Char('w') => self.cycle_workspace(1),
-            KeyCode::Char('W') => self.new_workspace()?,
-            KeyCode::PageUp => self.scroll_focused(5),
-            KeyCode::PageDown => self.scroll_focused(-5),
-            KeyCode::Left => self.focus_dir(FocusDir::Left),
-            KeyCode::Right => self.focus_dir(FocusDir::Right),
-            KeyCode::Up => self.focus_dir(FocusDir::Up),
-            KeyCode::Down => self.focus_dir(FocusDir::Down),
+            KeyCode::Up => self.move_palette_selection(-1),
+            KeyCode::Down => self.move_palette_selection(1),
+            KeyCode::Backspace => {
+                if let Some(palette) = &mut self.palette
+                    && palette.query.len() > 1
+                {
+                    palette.query.pop();
+                    palette.selected = 0;
+                }
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(palette) = &mut self.palette {
+                    palette.query.push(ch);
+                    palette.selected = 0;
+                }
+            }
             _ => {}
         }
 
         Ok(())
     }
 
+    fn selected_command(&self) -> Option<&'static CommandSpec> {
+        let palette = self.palette.as_ref()?;
+        let matches = filter_commands(&palette.query);
+        matches.get(palette.selected).copied()
+    }
+
+    fn move_palette_selection(&mut self, delta: i32) {
+        let Some(palette) = &mut self.palette else {
+            return;
+        };
+        let count = filter_commands(&palette.query).len() as i32;
+        if count == 0 {
+            palette.selected = 0;
+            return;
+        }
+        palette.selected = (palette.selected as i32 + delta).rem_euclid(count) as usize;
+    }
+
+    fn run_command(&mut self, id: CommandId) -> Result<()> {
+        match id {
+            CommandId::SplitRight => self.split(SplitDir::Columns)?,
+            CommandId::SplitDown => self.split(SplitDir::Rows)?,
+            CommandId::Grow => self.grow_focused(5),
+            CommandId::Shrink => self.grow_focused(-5),
+            CommandId::FocusNext => {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.tree.focus_next();
+                }
+            }
+            CommandId::FocusLeft => self.focus_dir(FocusDir::Left),
+            CommandId::FocusRight => self.focus_dir(FocusDir::Right),
+            CommandId::FocusUp => self.focus_dir(FocusDir::Up),
+            CommandId::FocusDown => self.focus_dir(FocusDir::Down),
+            CommandId::ClosePane => self.close_pane(),
+            CommandId::NewTab => self.new_tab()?,
+            CommandId::NextTab => self.cycle_tab(1),
+            CommandId::PrevTab => self.cycle_tab(-1),
+            CommandId::CloseTab => self.close_tab(),
+            CommandId::NewWorkspace => self.new_workspace()?,
+            CommandId::NextWorkspace => self.cycle_workspace(1),
+            CommandId::CloseWorkspace => self.close_workspace(),
+            CommandId::LaunchAi => self.launch_ai()?,
+            CommandId::LaunchCodex => self.launch_named("codex")?,
+            CommandId::LaunchClaude => self.launch_named("claude")?,
+            CommandId::LaunchOpencode => self.launch_named("opencode")?,
+            CommandId::LaunchGemini => self.launch_named("gemini")?,
+            CommandId::ScrollUp => self.scroll_focused(5),
+            CommandId::ScrollDown => self.scroll_focused(-5),
+            CommandId::Quit => self.running = false,
+        }
+        Ok(())
+    }
+
+    fn draw_palette(&self, frame: &mut Frame) {
+        let Some(palette) = &self.palette else {
+            return;
+        };
+        let matches = filter_commands(&palette.query);
+        let list_height = matches.len().min(8) as u16;
+        let height = list_height.saturating_add(3).max(4);
+        let full = frame.area();
+        let area = Rect {
+            x: full.x.saturating_add(2),
+            y: full.bottom().saturating_sub(height.saturating_add(1)),
+            width: full.width.saturating_sub(4).max(20),
+            height,
+        };
+        frame.render_widget(Clear, area);
+        let block = Block::bordered().title(" comandos · Enter ejecuta · Esc cierra ");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let [input, list] =
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
+        frame.render_widget(Paragraph::new(palette.query.as_str()), input);
+
+        let lines: Vec<Line> = matches
+            .iter()
+            .enumerate()
+            .map(|(index, command)| {
+                let text = format!(" /{}  {}", command.slash, command.hint);
+                if index == palette.selected {
+                    Line::from(text).style(Style::default().fg(Color::Black).bg(Color::Cyan))
+                } else {
+                    Line::from(text)
+                }
+            })
+            .collect();
+        frame.render_widget(Paragraph::new(lines), list);
+    }
+
     fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
-        let body = self.content_area();
+        let [ws_bar, tab_bar, body] = chrome(term_rect(self.term_size));
+        let pos = Position::new(mouse.column, mouse.row);
+
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            if ws_bar.contains(pos) {
+                if let Some(index) = index_at(mouse.column, ws_bar, self.workspaces.len()) {
+                    self.active_ws = index;
+                    self.refresh_active_branch();
+                }
+                return Ok(());
+            }
+            if tab_bar.contains(pos)
+                && let Some(ws) = self.workspaces.get_mut(self.active_ws)
+                && let Some(index) = index_at(mouse.column, tab_bar, ws.tabs.len())
+            {
+                ws.active = index;
+                return Ok(());
+            }
+        }
+
         let Some(tab) = self.active_tab_mut() else {
             return Ok(());
         };
@@ -253,12 +356,15 @@ impl App {
             .tree
             .areas(body)
             .into_iter()
-            .find(|(_, rect)| rect.contains(Position::new(mouse.column, mouse.row)))
+            .find(|(_, rect)| rect.contains(pos))
         else {
             return Ok(());
         };
 
-        tab.tree.focused = id;
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            tab.tree.focused = id;
+        }
+
         let inner = Rect {
             x: area.x.saturating_add(1),
             y: area.y.saturating_add(1),
@@ -266,18 +372,26 @@ impl App {
             height: area.height.saturating_sub(2),
         };
 
+        let wants_mouse = tab
+            .tree
+            .panes
+            .get(&id)
+            .is_some_and(|pane| pane.shell.wants_mouse());
+
         match mouse.kind {
-            event::MouseEventKind::ScrollUp => {
+            MouseEventKind::ScrollUp if !wants_mouse => {
                 if let Some(pane) = tab.tree.panes.get(&id) {
                     pane.shell.scroll_by(3);
                 }
             }
-            event::MouseEventKind::ScrollDown => {
+            MouseEventKind::ScrollDown if !wants_mouse => {
                 if let Some(pane) = tab.tree.panes.get(&id) {
                     pane.shell.scroll_by(-3);
                 }
             }
-            _ if inner.contains(Position::new(mouse.column, mouse.row)) => {
+            MouseEventKind::Moved | MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
+                if !wants_mouse => {}
+            _ if wants_mouse && inner.contains(pos) => {
                 let col = mouse.column.saturating_sub(inner.x).saturating_add(1);
                 let row = mouse.row.saturating_sub(inner.y).saturating_add(1);
                 if let Some(bytes) = encode_mouse(mouse, col, row)
@@ -380,16 +494,23 @@ impl App {
         if self.workspaces.len() >= MAX_WORKSPACES {
             return Ok(());
         }
-        let root = workspace_root();
-        if let Some(index) = self.workspaces.iter().position(|ws| ws.root == root) {
+        let root = canonicalize_dir(&self.focused_project_root());
+        if let Some(index) = self
+            .workspaces
+            .iter()
+            .position(|ws| canonicalize_dir(&ws.root) == root)
+        {
             self.active_ws = index;
+            self.refresh_active_branch();
             return Ok(());
         }
         let name = workspace_name(&root);
+        let branch = git_branch(&root);
         let pane = self.spawn_pane(self.content_area(), &root)?;
         self.workspaces.push(Workspace {
             name,
             root,
+            branch,
             tabs: vec![Tab {
                 tree: PaneTree::new(pane),
             }],
@@ -405,6 +526,7 @@ impl App {
         }
         let len = self.workspaces.len() as i32;
         self.active_ws = (self.active_ws as i32 + delta).rem_euclid(len) as usize;
+        self.refresh_active_branch();
     }
 
     fn close_workspace(&mut self) {
@@ -498,19 +620,193 @@ impl App {
         Pane::spawn(id, pty_size_from_rect(area), cwd)
     }
 
-    fn expire_prefix(&mut self) {
-        if self.prefix
-            && self
-                .prefix_at
-                .is_some_and(|at| at.elapsed() >= PREFIX_TIMEOUT)
-        {
-            self.clear_prefix();
+    fn spawn_program_pane(&mut self, area: Rect, cwd: &Path, program: &str) -> Result<Pane> {
+        let id = self.next_id;
+        self.next_id += 1;
+        Pane::spawn_program(id, pty_size_from_rect(area), cwd, program)
+    }
+
+    fn launch_ai(&mut self) -> Result<()> {
+        match first_ai_cli() {
+            Some(program) => self.launch_named(program),
+            None => Ok(()),
         }
     }
 
-    fn clear_prefix(&mut self) {
-        self.prefix = false;
-        self.prefix_at = None;
+    fn launch_named(&mut self, program: &str) -> Result<()> {
+        if !command_exists(program) {
+            return Ok(());
+        }
+        let area = self.content_area();
+        let root = self.active_root();
+        let spawn_area = {
+            let Some(tab) = self.active_tab() else {
+                return Ok(());
+            };
+            if tab.tree.pane_count() >= MAX_PANES {
+                return Ok(());
+            }
+            let focused = tab.tree.focused;
+            tab.tree
+                .areas(area)
+                .iter()
+                .find(|(id, _)| *id == focused)
+                .map(|(_, rect)| half_rect(*rect, SplitDir::Columns))
+                .unwrap_or(area)
+        };
+        let pane = self.spawn_program_pane(spawn_area, &root, program)?;
+        if let Some(tab) = self.active_tab_mut() {
+            tab.tree.split_focused(SplitDir::Columns, pane);
+        }
+        Ok(())
+    }
+
+    fn focused_project_root(&self) -> PathBuf {
+        self.active_tab()
+            .and_then(|tab| tab.tree.panes.get(&tab.tree.focused))
+            .and_then(|pane| pane.cwd())
+            .map(|cwd| workspace_root_from(&cwd))
+            .unwrap_or_else(|| self.active_root())
+    }
+
+    fn refresh_active_branch(&mut self) {
+        if let Some(ws) = self.workspaces.get_mut(self.active_ws) {
+            ws.branch = git_branch(&ws.root);
+        }
+    }
+
+    fn open_default_workspace(&mut self) -> Result<()> {
+        let root = canonicalize_dir(&workspace_root_from(
+            &std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        ));
+        let name = workspace_name(&root);
+        let branch = git_branch(&root);
+        let pane = self.spawn_pane(self.content_area(), &root)?;
+        self.workspaces.push(Workspace {
+            name,
+            root,
+            branch,
+            tabs: vec![Tab {
+                tree: PaneTree::new(pane),
+            }],
+            active: 0,
+        });
+        self.active_ws = self.workspaces.len() - 1;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Session {
+        Session {
+            active_workspace: self.active_ws,
+            workspaces: self
+                .workspaces
+                .iter()
+                .map(|ws| SavedWorkspace {
+                    name: ws.name.clone(),
+                    root: ws.root.clone(),
+                    active_tab: ws.active,
+                    tabs: ws
+                        .tabs
+                        .iter()
+                        .map(|tab| {
+                            let cwds: HashMap<u64, PathBuf> = tab
+                                .tree
+                                .panes
+                                .iter()
+                                .filter(|(_, pane)| pane.is_shell())
+                                .map(|(id, pane)| {
+                                    (*id, pane.cwd().unwrap_or_else(|| ws.root.clone()))
+                                })
+                                .collect();
+                            let persistable: Vec<u64> = tab
+                                .tree
+                                .leaf_ids()
+                                .into_iter()
+                                .filter(|id| cwds.contains_key(id))
+                                .collect();
+                            let focused = persistable
+                                .iter()
+                                .position(|id| *id == tab.tree.focused)
+                                .unwrap_or(0);
+                            SavedTab {
+                                focused,
+                                tree: SavedNode::from_live(&tab.tree.root, &cwds).unwrap_or(
+                                    SavedNode::Leaf {
+                                        cwd: Some(ws.root.clone()),
+                                    },
+                                ),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+
+    fn restore_session(&mut self, session: Session) -> Result<()> {
+        let area = self.content_area();
+        for saved_ws in session.workspaces {
+            if !saved_ws.root.is_dir() {
+                continue;
+            }
+            let root = canonicalize_dir(&saved_ws.root);
+
+            let mut tabs = Vec::new();
+            for saved_tab in saved_ws.tabs {
+                let Some(tab) = self.restore_tab(&root, area, saved_tab)? else {
+                    continue;
+                };
+                tabs.push(tab);
+            }
+            if tabs.is_empty() {
+                continue;
+            }
+            let active = saved_ws.active_tab.min(tabs.len() - 1);
+            let branch = git_branch(&root);
+            self.workspaces.push(Workspace {
+                name: saved_ws.name,
+                root,
+                branch,
+                tabs,
+                active,
+            });
+        }
+
+        if !self.workspaces.is_empty() {
+            self.active_ws = session.active_workspace.min(self.workspaces.len() - 1);
+            self.refresh_active_branch();
+        }
+        Ok(())
+    }
+
+    fn restore_tab(&mut self, root: &Path, area: Rect, saved_tab: SavedTab) -> Result<Option<Tab>> {
+        let cwds = saved_tab.tree.leaf_cwds(root);
+        let mut ordered = Vec::with_capacity(cwds.len().max(1));
+        let mut panes = HashMap::new();
+        for cwd in cwds {
+            let pane = self.spawn_pane(area, &cwd)?;
+            ordered.push(pane.id);
+            panes.insert(pane.id, pane);
+        }
+        if ordered.is_empty() {
+            let pane = self.spawn_pane(area, root)?;
+            ordered.push(pane.id);
+            panes.insert(pane.id, pane);
+        }
+
+        let mut ids = ordered.iter().copied();
+        let live = match saved_tab.tree.to_live(&mut ids) {
+            Ok(node) => node,
+            Err(_) => Node::Leaf(ordered[0]),
+        };
+        let focused = ordered
+            .get(saved_tab.focused.min(ordered.len() - 1))
+            .copied()
+            .unwrap_or(ordered[0]);
+
+        Ok(Some(Tab {
+            tree: PaneTree::from_parts(live, panes, focused),
+        }))
     }
 
     fn content_area(&self) -> Rect {
@@ -521,7 +817,9 @@ impl App {
         self.workspaces
             .get(self.active_ws)
             .map(|ws| ws.root.clone())
-            .unwrap_or_else(workspace_root)
+            .unwrap_or_else(|| {
+                workspace_root_from(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+            })
     }
 
     fn active_tab(&self) -> Option<&Tab> {
@@ -535,16 +833,78 @@ impl App {
     }
 }
 
-fn workspace_root() -> PathBuf {
+fn workspace_root_from(dir: &Path) -> PathBuf {
+    let dir = canonicalize_dir(dir);
     std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
+        .args(["-C", &dir.to_string_lossy(), "rev-parse", "--show-toplevel"])
         .output()
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|stdout| PathBuf::from(stdout.trim()))
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
+        .map(|stdout| canonicalize_dir(Path::new(stdout.trim())))
+        .filter(|root| root.is_dir())
+        .unwrap_or(dir)
+}
+
+fn git_branch(root: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args([
+            "-C",
+            &root.to_string_lossy(),
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|stdout| stdout.trim().to_string())
+        .filter(|branch| !branch.is_empty())
+}
+
+fn canonicalize_dir(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn workspace_label(ws: &Workspace) -> String {
+    match &ws.branch {
+        Some(branch) => format!(" {}:{} ", ws.name, branch),
+        None => format!(" {} ", ws.name),
+    }
+}
+
+fn chrome(area: Rect) -> [Rect; 3] {
+    Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ])
+    .areas(area)
+}
+
+fn index_at(x: u16, area: Rect, count: usize) -> Option<usize> {
+    if count == 0 || x < area.x || x >= area.x.saturating_add(area.width) {
+        return None;
+    }
+    let rel = u32::from(x.saturating_sub(area.x));
+    let width = u32::from(area.width.max(1));
+    Some(((rel * count as u32) / width).min(count as u32 - 1) as usize)
+}
+
+fn first_ai_cli() -> Option<&'static str> {
+    ["codex", "claude", "opencode", "gemini"]
+        .into_iter()
+        .find(|name| command_exists(name))
+}
+
+fn command_exists(name: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| {
+            let candidate = dir.join(name);
+            candidate.is_file()
+        })
+    })
 }
 
 fn workspace_name(root: &Path) -> String {
@@ -559,12 +919,7 @@ fn term_rect(size: Size) -> Rect {
 }
 
 fn body_area(area: Rect) -> Rect {
-    Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ])
-    .areas::<3>(area)[2]
+    chrome(area)[2]
 }
 
 fn half_rect(area: Rect, dir: SplitDir) -> Rect {

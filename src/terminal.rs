@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use color_eyre::Result;
@@ -19,12 +19,19 @@ pub struct Shell {
 
 impl Shell {
     pub fn spawn(size: PtySize, cwd: &Path) -> Result<Self> {
+        Self::spawn_cmd(size, cwd, CommandBuilder::new_default_prog())
+    }
+
+    pub fn spawn_program(size: PtySize, cwd: &Path, program: &str) -> Result<Self> {
+        Self::spawn_cmd(size, cwd, CommandBuilder::new(program))
+    }
+
+    fn spawn_cmd(size: PtySize, cwd: &Path, mut cmd: CommandBuilder) -> Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(size)
             .map_err(|err| eyre!("failed to open pty: {err:#}"))?;
 
-        let mut cmd = CommandBuilder::new_default_prog();
         cmd.env("TERM", "xterm-256color");
         cmd.cwd(cwd);
 
@@ -116,6 +123,10 @@ impl Shell {
         self.parser.read().unwrap_or_else(PoisonError::into_inner)
     }
 
+    pub fn wants_mouse(&self) -> bool {
+        self.parser().screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None
+    }
+
     pub fn child_exited(&self) -> bool {
         self.child_exited
     }
@@ -124,16 +135,42 @@ impl Shell {
         self.child.process_id()
     }
 
+    pub fn cwd(&self) -> Option<PathBuf> {
+        self.process_id().and_then(process_cwd)
+    }
+
     pub fn poll_exit(&mut self) -> Result<()> {
         if self.child_exited {
             return Ok(());
         }
 
-        if self.child.try_wait()?.is_some() {
-            self.child_exited = true;
+        match self.child.try_wait() {
+            Ok(Some(_)) | Err(_) => self.child_exited = true,
+            Ok(None) => {}
         }
 
         Ok(())
+    }
+}
+
+fn process_cwd(pid: u32) -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = std::process::Command::new("lsof")
+            .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8(output.stdout)
+            .ok()?
+            .lines()
+            .find_map(|line| line.strip_prefix('n').map(PathBuf::from))
     }
 }
 

@@ -1,6 +1,8 @@
 mod app;
+mod commands;
 mod event;
 mod pane;
+mod session;
 mod terminal;
 mod tree;
 mod tui;
