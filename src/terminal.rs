@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use color_eyre::Result;
@@ -9,6 +9,7 @@ use tui_term::vt100;
 pub struct Shell {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
+    writer: Box<dyn Write + Send>,
     parser: Arc<RwLock<vt100::Parser>>,
     child_exited: bool,
 }
@@ -33,6 +34,11 @@ impl Shell {
             .try_clone_reader()
             .map_err(|err| eyre!("failed to clone pty reader: {err:#}"))?;
 
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|err| eyre!("failed to take pty writer: {err:#}"))?;
+
         let parser = Arc::new(RwLock::new(vt100::Parser::new(size.rows, size.cols, 0)));
         {
             let parser = Arc::clone(&parser);
@@ -55,13 +61,24 @@ impl Shell {
         Ok(Self {
             _master: pair.master,
             child,
+            writer,
             parser,
             child_exited: false,
         })
     }
 
+    pub fn write_input(&mut self, bytes: &[u8]) -> Result<()> {
+        self.writer.write_all(bytes)?;
+        self.writer.flush()?;
+        Ok(())
+    }
+
     pub fn parser(&self) -> std::sync::RwLockReadGuard<'_, vt100::Parser> {
         self.parser.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn child_exited(&self) -> bool {
+        self.child_exited
     }
 
     pub fn process_id(&self) -> Option<u32> {
