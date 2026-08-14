@@ -7,7 +7,7 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 use tui_term::vt100;
 
 pub struct Shell {
-    _master: Box<dyn MasterPty + Send>,
+    master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     writer: Box<dyn Write + Send>,
     parser: Arc<RwLock<vt100::Parser>>,
@@ -59,12 +59,31 @@ impl Shell {
         }
 
         Ok(Self {
-            _master: pair.master,
+            master: pair.master,
             child,
             writer,
             parser,
             child_exited: false,
         })
+    }
+
+    pub fn resize(&self, size: PtySize) -> Result<()> {
+        let current = self
+            .master
+            .get_size()
+            .map_err(|err| eyre!("failed to read pty size: {err:#}"))?;
+        if current.rows == size.rows && current.cols == size.cols {
+            return Ok(());
+        }
+
+        self.master
+            .resize(size)
+            .map_err(|err| eyre!("failed to resize pty: {err:#}"))?;
+
+        let mut parser = self.parser.write().unwrap_or_else(PoisonError::into_inner);
+        parser.screen_mut().set_size(size.rows, size.cols);
+
+        Ok(())
     }
 
     pub fn write_input(&mut self, bytes: &[u8]) -> Result<()> {

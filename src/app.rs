@@ -30,6 +30,7 @@ impl App {
                 self.running = false;
                 break;
             }
+            self.shell.resize(pty_size_from_term(terminal.size()?))?;
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
         }
@@ -64,6 +65,10 @@ impl App {
                 }
             }
             Event::Paste(text) => self.shell.write_input(text.as_bytes())?,
+            Event::Resize(width, height) => {
+                self.shell
+                    .resize(pty_size_from_term(Size { width, height }))?;
+            }
             _ => {}
         }
 
