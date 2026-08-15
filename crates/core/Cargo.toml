@@ -1,0 +1,15 @@
+[package]
+name = "lolterm-core"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "lolterm-core"
+path = "src/bin/lolterm-core.rs"
+
+[dependencies]
+color-eyre.workspace = true
+portable-pty.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true

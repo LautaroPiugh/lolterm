@@ -1,0 +1,687 @@
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+
+use color_eyre::Result;
+use color_eyre::eyre::eyre;
+use portable_pty::PtySize;
+use serde::Serialize;
+
+use crate::config::{RemoteConfig, Theme};
+use crate::files;
+use crate::git;
+use crate::layout::{LayoutNode, SplitDir};
+use crate::pty::BytePty;
+use crate::session::{self, SavedTab, SavedWorkspace, Session};
+use crate::ssh;
+
+pub const RUN_CLIS: &[&str] = &[
+    "nvim", "lazygit", "btop", "yazi", "codex", "claude", "opencode", "gemini", "cline",
+];
+
+pub const COMMANDS: &[(&str, &str)] = &[
+    ("run", "abrir una CLI en un pane o tab"),
+    ("split-right", "partir el pane a la derecha"),
+    ("split-down", "partir el pane abajo"),
+    ("tab-new", "nueva tab"),
+    ("tab-close", "cerrar tab"),
+    ("files", "buscar archivos"),
+    ("lazygit", "abrir lazygit"),
+    ("ts-ssh", "máquina Tailscale, después usuario"),
+    ("ssh", "hosts de ~/.ssh/config"),
+    ("sidebar", "mostrar u ocultar explorer"),
+    ("theme", "sage, dusk o mono"),
+];
+
+#[derive(Serialize)]
+pub struct Snapshot {
+    pub root: PathBuf,
+    pub name: String,
+    pub branch: Option<String>,
+    pub active_tab: usize,
+    pub tabs: Vec<TabSnap>,
+    pub git: Option<git::Status>,
+    pub git_log: Vec<String>,
+    pub tree: Vec<files::TreeRow>,
+    pub tailscale: crate::tailscale::Status,
+    pub run_clis: Vec<RunCli>,
+    pub notice: Option<String>,
+    pub theme: Theme,
+    pub ssh_user: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TabSnap {
+    pub name: String,
+    pub focused: u64,
+    pub layout: LayoutNode,
+    pub panes: Vec<PaneSnap>,
+}
+
+#[derive(Serialize)]
+pub struct PaneSnap {
+    pub id: u64,
+    pub title: String,
+    pub program: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RunCli {
+    pub name: String,
+    pub available: bool,
+}
+
+struct LivePane {
+    title: String,
+    program: Option<String>,
+    pty: BytePty,
+}
+
+struct Tab {
+    name: Option<String>,
+    focused: u64,
+    layout: LayoutNode,
+    panes: HashMap<u64, LivePane>,
+}
+
+pub struct Mux {
+    next_id: u64,
+    root: PathBuf,
+    name: String,
+    branch: Option<String>,
+    tabs: Vec<Tab>,
+    active: usize,
+    expanded: HashSet<String>,
+    tx: Sender<(u64, Vec<u8>)>,
+    remote: RemoteConfig,
+    recents: Vec<String>,
+    recent_projects: Vec<PathBuf>,
+    notice: Option<String>,
+    theme: Theme,
+}
+
+impl Mux {
+    pub fn boot(open: Option<PathBuf>, tx: Sender<(u64, Vec<u8>)>) -> Result<Self> {
+        let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let root = open
+            .map(|path| canonicalize(&path))
+            .unwrap_or_else(|| canonicalize(&start));
+        let cfg = crate::config::load();
+        let mut mux = Self {
+            next_id: 1,
+            name: workspace_name(&root),
+            branch: git::branch_label(&root),
+            root: root.clone(),
+            tabs: Vec::new(),
+            active: 0,
+            expanded: files::default_expanded(),
+            tx,
+            remote: cfg.remote,
+            recents: Vec::new(),
+            recent_projects: Vec::new(),
+            notice: None,
+            theme: cfg.theme,
+        };
+        if session::exists()
+            && let Ok(session) = session::load()
+        {
+            mux.recents = session.recents;
+            mux.recent_projects = session.recent_projects;
+            if let Some(ws) = session.workspaces.first() {
+                mux.root = canonicalize(&ws.root);
+                mux.name = ws.name.clone();
+                mux.branch = git::branch_label(&mux.root);
+                mux.restore_tabs(&ws.tabs, ws.active_tab)?;
+            }
+        }
+        if mux.tabs.is_empty() {
+            mux.new_tab(None, None, &[], true)?;
+        }
+        session::push_unique_path(&mut mux.recent_projects, mux.root.clone(), 12);
+        Ok(mux)
+    }
+
+    fn restore_tabs(&mut self, saved: &[SavedTab], active: usize) -> Result<()> {
+        for tab in saved {
+            let mut live = Tab {
+                name: tab.name.clone(),
+                focused: 0,
+                layout: LayoutNode::leaf(0),
+                panes: HashMap::new(),
+            };
+            let cwds = tab.tree.leaf_cwds();
+            let mut ids = Vec::new();
+            for cwd in &cwds {
+                let cwd = cwd.clone().unwrap_or_else(|| self.root.clone());
+                let id = self.spawn_pane(&cwd, None, &[])?;
+                ids.push(id);
+            }
+            if ids.is_empty() {
+                continue;
+            }
+            live.layout = layout_from_saved(&tab.tree, &ids);
+            live.focused = ids.get(tab.focused).copied().unwrap_or(ids[0]);
+            self.tabs.push(live);
+        }
+        if !self.tabs.is_empty() {
+            self.active = active.min(self.tabs.len() - 1);
+        }
+        Ok(())
+    }
+
+    fn spawn_pane(&mut self, cwd: &Path, program: Option<&str>, args: &[String]) -> Result<u64> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let env = self.context_env();
+        let pty = BytePty::spawn(
+            id,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            cwd,
+            program,
+            args,
+            &env,
+            self.tx.clone(),
+        )?;
+        let title = program
+            .map(|name| name.to_string())
+            .unwrap_or_else(shell_label);
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.panes.insert(
+                id,
+                LivePane {
+                    title,
+                    program: program.map(ToString::to_string),
+                    pty,
+                },
+            );
+        } else {
+            let mut panes = HashMap::new();
+            panes.insert(
+                id,
+                LivePane {
+                    title,
+                    program: program.map(ToString::to_string),
+                    pty,
+                },
+            );
+            self.tabs.push(Tab {
+                name: program.map(ToString::to_string),
+                focused: id,
+                layout: LayoutNode::leaf(id),
+                panes,
+            });
+            self.active = self.tabs.len() - 1;
+            return Ok(id);
+        }
+        Ok(id)
+    }
+
+    fn context_env(&self) -> Vec<(String, String)> {
+        vec![("LOLTERM_ROOT".into(), self.root.display().to_string())]
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let marks = git::path_marks(&self.root);
+        Snapshot {
+            root: self.root.clone(),
+            name: self.name.clone(),
+            branch: self.branch.clone(),
+            active_tab: self.active,
+            tabs: self
+                .tabs
+                .iter()
+                .map(|tab| TabSnap {
+                    name: tab.name.clone().unwrap_or_else(|| tab_label(tab)),
+                    focused: tab.focused,
+                    layout: tab.layout.clone(),
+                    panes: tab
+                        .panes
+                        .iter()
+                        .map(|(id, pane)| PaneSnap {
+                            id: *id,
+                            title: pane.title.clone(),
+                            program: pane.program.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            git: git::status(&self.root),
+            git_log: git::oneline(&self.root, 8),
+            tree: files::visible_tree(&self.root, &self.expanded, &marks),
+            tailscale: crate::tailscale::probe(),
+            run_clis: RUN_CLIS
+                .iter()
+                .map(|name| RunCli {
+                    name: (*name).to_string(),
+                    available: files::command_on_path(name),
+                })
+                .collect(),
+            notice: self.notice.clone(),
+            theme: self.theme,
+            ssh_user: self.remote.user.clone(),
+        }
+    }
+
+    pub fn set_theme(&mut self, name: &str) -> Result<()> {
+        let theme = Theme::parse(name)
+            .ok_or_else(|| eyre!("tema desconocido: {name} (sage, dusk, mono)"))?;
+        self.theme = theme;
+        let mut cfg = crate::config::load();
+        cfg.theme = theme;
+        crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))?;
+        Ok(())
+    }
+
+    pub fn persist(&self) {
+        let session = Session {
+            active_workspace: 0,
+            workspaces: vec![SavedWorkspace {
+                name: self.name.clone(),
+                root: self.root.clone(),
+                active_tab: self.active,
+                tabs: self
+                    .tabs
+                    .iter()
+                    .map(|tab| {
+                        let keep: HashSet<u64> = tab.panes.keys().copied().collect();
+                        let cwds: Vec<(u64, PathBuf)> = tab
+                            .panes
+                            .iter()
+                            .filter_map(|(id, pane)| pane.pty.cwd().map(|cwd| (*id, cwd)))
+                            .collect();
+                        SavedTab {
+                            focused: tab
+                                .layout
+                                .ids()
+                                .iter()
+                                .position(|id| *id == tab.focused)
+                                .unwrap_or(0),
+                            name: tab.name.clone(),
+                            tree: session::SavedNode::from_layout(&tab.layout, &keep, &cwds),
+                        }
+                    })
+                    .collect(),
+            }],
+            recents: self.recents.clone(),
+            recent_projects: self.recent_projects.clone(),
+        };
+        let _ = session::save(&session);
+    }
+
+    pub fn write(&mut self, pane: u64, bytes: &[u8]) -> Result<()> {
+        let tab = self
+            .tabs
+            .get_mut(self.active)
+            .ok_or_else(|| eyre!("no tab"))?;
+        let live = tab
+            .panes
+            .get_mut(&pane)
+            .ok_or_else(|| eyre!("unknown pane"))?;
+        live.pty.write_input(bytes)
+    }
+
+    pub fn resize(&mut self, pane: u64, cols: u16, rows: u16) -> Result<()> {
+        for tab in &self.tabs {
+            if let Some(live) = tab.panes.get(&pane) {
+                return live.pty.resize(cols, rows);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn focus(&mut self, pane: u64) {
+        if let Some(tab) = self.tabs.get_mut(self.active)
+            && tab.panes.contains_key(&pane)
+        {
+            tab.focused = pane;
+        }
+    }
+
+    pub fn select_tab(&mut self, index: usize) {
+        if index < self.tabs.len() {
+            self.active = index;
+        }
+    }
+
+    pub fn new_tab(
+        &mut self,
+        program: Option<&str>,
+        cwd: Option<&Path>,
+        args: &[String],
+        _shell_ok: bool,
+    ) -> Result<u64> {
+        let cwd = cwd.unwrap_or(&self.root);
+        let id = self.next_id;
+        self.next_id += 1;
+        let env = self.context_env();
+        let pty = BytePty::spawn(
+            id,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            cwd,
+            program,
+            args,
+            &env,
+            self.tx.clone(),
+        )?;
+        let title = program.map(ToString::to_string).unwrap_or_else(shell_label);
+        let mut panes = HashMap::new();
+        panes.insert(
+            id,
+            LivePane {
+                title,
+                program: program.map(ToString::to_string),
+                pty,
+            },
+        );
+        self.tabs.push(Tab {
+            name: program.map(ToString::to_string),
+            focused: id,
+            layout: LayoutNode::leaf(id),
+            panes,
+        });
+        self.active = self.tabs.len() - 1;
+        Ok(id)
+    }
+
+    pub fn close_tab(&mut self, index: usize) -> Result<()> {
+        if self.tabs.len() <= 1 {
+            self.notice = Some("solo hay una tab".into());
+            return Ok(());
+        }
+        if index < self.tabs.len() {
+            self.tabs.remove(index);
+            if self.active >= self.tabs.len() {
+                self.active = self.tabs.len() - 1;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn split(&mut self, dir: SplitDir, program: Option<&str>, args: &[String]) -> Result<u64> {
+        let cwd = self.focused_cwd().unwrap_or_else(|| self.root.clone());
+        let id = self.spawn_pane(&cwd, program, args)?;
+        let tab = self
+            .tabs
+            .get_mut(self.active)
+            .ok_or_else(|| eyre!("no tab"))?;
+        let focused = tab.focused;
+        if tab.layout.split_pane(focused, dir, id) {
+            tab.focused = id;
+        }
+        Ok(id)
+    }
+
+    pub fn close_pane(&mut self, pane: u64) -> Result<()> {
+        let tab = self
+            .tabs
+            .get_mut(self.active)
+            .ok_or_else(|| eyre!("no tab"))?;
+        if tab.panes.len() <= 1 {
+            return self.close_tab(self.active);
+        }
+        tab.panes.remove(&pane);
+        tab.layout.remove_pane(pane);
+        tab.focused = tab.layout.first_leaf().unwrap_or(pane);
+        Ok(())
+    }
+
+    pub fn run(&mut self, program: &str, args: &[String]) -> Result<u64> {
+        if !files::command_on_path(program) {
+            self.notice = Some(format!("`{program}` no está en PATH"));
+            return Ok(0);
+        }
+        if wants_own_tab(program) {
+            self.new_tab(Some(program), None, args, false)
+        } else {
+            self.split(SplitDir::Columns, Some(program), args)
+        }
+    }
+
+    pub fn open_file(&mut self, rel: &str) -> Result<u64> {
+        let path = files::join_root(&self.root, rel);
+        if path.is_dir() {
+            if rel.is_empty() || !self.expanded.remove(rel) {
+                self.expanded.insert(rel.to_string());
+            }
+            return Ok(0);
+        }
+        let Some((editor, extra)) = files::editor() else {
+            self.notice = Some("no hay $EDITOR / nvim".into());
+            return Ok(0);
+        };
+        let mut args = extra;
+        args.push(path.display().to_string());
+        self.new_tab(Some(&editor), None, &args, false)
+    }
+
+    pub fn toggle_expand(&mut self, rel: &str) {
+        if !self.expanded.remove(rel) {
+            self.expanded.insert(rel.to_string());
+        }
+    }
+
+    pub fn open_project(&mut self, path: &Path) -> Result<()> {
+        self.root = canonicalize(path);
+        self.name = workspace_name(&self.root);
+        self.branch = git::branch_label(&self.root);
+        self.expanded = files::default_expanded();
+        self.tabs.clear();
+        let root = self.root.clone();
+        self.new_tab(None, Some(&root), &[], true)?;
+        session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
+        Ok(())
+    }
+
+    pub fn ssh(&mut self, dest: &str) -> Result<u64> {
+        let dest = dest.trim();
+        if dest.is_empty() {
+            self.notice = Some("hace falta user@host".into());
+            return Ok(0);
+        }
+        session::push_unique(&mut self.recents, dest.to_string(), 12);
+        let id = self.new_tab(Some("ssh"), None, &["-tt".into(), dest.to_string()], false)?;
+        self.name_active_tab(tab_name_from_dest(dest));
+        Ok(id)
+    }
+
+    pub fn ts_ssh(&mut self, target: &str, user: Option<&str>) -> Result<u64> {
+        let user = user
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .or(self.remote.user.as_deref());
+        let Some(user) = user else {
+            self.notice = Some("hace falta un usuario ssh".into());
+            return Ok(0);
+        };
+        if !ssh::ssh_user_ok(user) {
+            self.notice = Some("usuario ssh inválido".into());
+            return Ok(0);
+        }
+        let args = ssh::ts_ssh_args(target, Some(user), &self.remote.tmux);
+        let dest = ssh::ts_ssh_dest(target, Some(user));
+        if dest.is_empty() {
+            self.notice = Some("máquina Tailscale vacía".into());
+            return Ok(0);
+        }
+        session::push_unique(&mut self.recents, dest.clone(), 12);
+        let id = self.new_tab(Some("ssh"), None, &args, false)?;
+        self.name_active_tab(tab_name_from_dest(&dest));
+        Ok(id)
+    }
+
+    fn name_active_tab(&mut self, name: String) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.name = Some(name);
+        }
+    }
+
+    pub fn search_files(&self, query: &str) -> Vec<files::FileEntry> {
+        files::filter_files(&files::list_files(&self.root), query)
+    }
+
+    pub fn ssh_hosts(&self) -> Vec<ssh::HostItem> {
+        let mut hosts: Vec<ssh::HostItem> = self
+            .recents
+            .iter()
+            .map(|dest| ssh::HostItem {
+                name: dest.clone(),
+                target: dest.clone(),
+                hint: "reciente".into(),
+            })
+            .collect();
+        for name in ssh::ssh_config_hosts() {
+            if hosts.iter().any(|host| host.target == name) {
+                continue;
+            }
+            hosts.push(ssh::HostItem {
+                name: name.clone(),
+                target: name,
+                hint: "config".into(),
+            });
+        }
+        hosts
+    }
+
+    pub fn ts_peers(&self) -> Vec<crate::tailscale::Peer> {
+        crate::tailscale::peers()
+    }
+
+    pub fn recent_projects(&self) -> Vec<PathBuf> {
+        self.recent_projects.clone()
+    }
+
+    pub fn commands(&self, query: &str) -> Vec<CommandHit> {
+        let needle = query.trim().trim_start_matches('/');
+        COMMANDS
+            .iter()
+            .filter(|(slash, hint)| {
+                needle.is_empty()
+                    || slash.contains(needle)
+                    || hint
+                        .to_ascii_lowercase()
+                        .contains(&needle.to_ascii_lowercase())
+            })
+            .map(|(slash, hint)| CommandHit {
+                slash: (*slash).to_string(),
+                hint: (*hint).to_string(),
+            })
+            .collect()
+    }
+
+    pub fn reap(&mut self) {
+        for tab in &mut self.tabs {
+            let mut dead = Vec::new();
+            for (id, pane) in &mut tab.panes {
+                let _ = pane.pty.poll_exit();
+                if pane.pty.child_exited() {
+                    dead.push(*id);
+                }
+            }
+            for id in dead {
+                if tab.panes.len() > 1 {
+                    tab.panes.remove(&id);
+                    tab.layout.remove_pane(id);
+                    tab.focused = tab.layout.first_leaf().unwrap_or(id);
+                }
+            }
+        }
+    }
+
+    fn focused_cwd(&self) -> Option<PathBuf> {
+        let tab = self.tabs.get(self.active)?;
+        tab.panes.get(&tab.focused).and_then(|pane| pane.pty.cwd())
+    }
+}
+
+#[derive(Serialize)]
+pub struct CommandHit {
+    pub slash: String,
+    pub hint: String,
+}
+
+fn wants_own_tab(program: &str) -> bool {
+    matches!(
+        program,
+        "nvim"
+            | "vim"
+            | "lazygit"
+            | "btop"
+            | "htop"
+            | "yazi"
+            | "opencode"
+            | "claude"
+            | "codex"
+            | "gemini"
+            | "cline"
+    )
+}
+
+fn shell_label() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .as_deref()
+        .map(Path::new)
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("sh")
+        .to_string()
+}
+
+fn workspace_name(root: &Path) -> String {
+    root.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("workspace")
+        .to_string()
+}
+
+fn canonicalize(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn tab_name_from_dest(dest: &str) -> String {
+    dest.rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(dest)
+        .split('.')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(dest)
+        .to_string()
+}
+
+fn tab_label(tab: &Tab) -> String {
+    tab.panes
+        .get(&tab.focused)
+        .map(|pane| pane.title.clone())
+        .unwrap_or_else(|| "tab".into())
+}
+
+fn layout_from_saved(node: &session::SavedNode, ids: &[u64]) -> LayoutNode {
+    fn walk(node: &session::SavedNode, ids: &mut std::slice::Iter<'_, u64>) -> LayoutNode {
+        match node {
+            session::SavedNode::Leaf { .. } => LayoutNode::leaf(*ids.next().unwrap_or(&0)),
+            session::SavedNode::Split {
+                dir,
+                percent,
+                first,
+                second,
+            } => LayoutNode::Split {
+                dir: *dir,
+                percent: *percent,
+                first: Box::new(walk(first, ids)),
+                second: Box::new(walk(second, ids)),
+            },
+        }
+    }
+    walk(node, &mut ids.iter())
+}

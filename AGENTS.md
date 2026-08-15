@@ -1,16 +1,28 @@
 # LolTerm
 
-Workspace de terminal personal, portátil y extensible. Inspirado en tmux, Zellij y
-multiplexers modernos, pero orientado a integrar en una misma experiencia: terminales
-locales, múltiples panes y tabs, workspaces por proyecto, cualquier CLI dentro de PTYs,
-CLIs de IA (Codex, Claude Code, OpenCode, Gemini), contexto automático del proyecto,
-SSH, Tailscale, sesiones remotas persistentes (tmux inicialmente), herramientas Git y,
-más adelante, música.
+Multiplexor gráfico de terminal, local-first. Inspirado en tmux/Zellij y en el
+producto de [@sammwy](https://x.com/sammwy) / [@vql3n](https://x.com/vql3n):
+parece un IDE (chrome tipo VS Code/Cursor, mint Sage) pero **no es un IDE ni un
+orquestador de agentes**. Abre CLIs en PTYs (local o SSH) y multiplexea el trabajo.
+
+Ella lo dijo así: es más como tmux. No maneja agentes. Abrís las CLIs y, como
+con ssh, las usás en esta PC o en un remoto. Agnóstico a qué corra adentro.
+
+```text
+ventana Electron (chrome Sage)
+    → lolterm-core (Rust)
+        → PTY → bash | nvim | lazygit | claude | ssh | lo que sea
+```
+
+Referencia visual: TUI mint
+([bancan](https://x.com/sammwy/status/2087658292088545473)) → ventana de OS
+([antes/después](https://x.com/vql3n/status/2087720358283514149),
+[gatekeep](https://x.com/vql3n/status/2088333982316306920)).
 
 ## Regla fundamental de trabajo
 
-No escribir código sin explicar. Cada cambio debe ser explicativo y educativo, porque el
-autor está aprendiendo Rust y arquitectura de aplicaciones de terminal mientras construye.
+No escribir código sin explicar. El autor aprende Rust **y** el stack del GUI
+(Electron, React, TypeScript, xterm.js, IPC) mientras construye.
 
 ### Antes de modificar código, explicar
 
@@ -27,148 +39,132 @@ autor está aprendiendo Rust y arquitectura de aplicaciones de terminal mientras
 1. Qué cambió.
 2. Cómo funciona.
 3. Partes importantes del código.
-4. Sintaxis de Rust nueva que apareció.
+4. Sintaxis nueva (Rust o TS) que apareció.
 5. Cómo probarlo (comandos concretos).
 6. Qué errores podrían aparecer.
 7. Qué aprendimos.
 
-No dar por sentada la terminología. Explicar brevemente términos como PTY, TUI, async,
-runtime, trait, ownership, borrowing, lifetime, channel, thread, process, IPC, event
-loop, renderer, buffer, mutex, daemon. No repetir explicaciones ya dadas salvo que
-aparezca un uso nuevo. Hacer comparaciones con PHP, JavaScript/TypeScript cuando ayude.
+No dar por sentada la terminología. Explicar PTY, GUI, Electron (main vs
+renderer), preload, IPC, sidecar, xterm.js, ANSI, JSON-RPC, ownership, borrowing,
+channel, thread, event loop. Comparar con PHP/JS cuando ayude. No repetir
+explicaciones ya dadas salvo un uso nuevo.
 
-## Filosofía arquitectónica
+## Filosofía
 
-1. **CLI agnostic**: LolTerm no depende de ninguna CLI específica. Un pane ejecuta
-   cualquier programa (`bash`, `zsh`, `fish`, `nvim`, `vim`, `lazygit`, `btop`, `codex`,
-   `claude`, `opencode`, `gemini`, `ssh`, `tmux`, etc.). Abstracción principal:
+1. **CLI agnostic.** Un pane es un proceso. No hay runtime de agentes, ni ACP,
+   ni chat propio. Codex/Claude/nvim son el mismo objeto: `spawn` en un PTY.
+2. **Multiplexor, no editor.** El chrome (rail, explorer, tabs, status) es de
+   LolTerm. El contenido se edita en nvim/`$EDITOR` dentro del PTY. Monaco/LSP
+   es fase posterior, no el producto ahora.
+3. **Local-first.** Sin cuenta, nube, ni backend HTTP. Config y sesión en
+   `~/.config/lolterm/`.
+4. **Composable.** No reimplementar Git pesado, file manager ni tmux remoto.
+   Overlay de `git log` ≠ cliente Git. `/ts-ssh` = PTY → ssh → tmux.
+5. **Portable.** Linux primero (dev actual); macOS después; Windows más tarde.
+6. **Solo GUI.** Ratatui/`crates/tui` se eliminó. El trabajo va a `apps/desktop` + `crates/core`. Prompt visual: `apps/desktop/figma-prompt.txt`.
 
-   ```text
-   LolTerm → PTY → Proceso CLI
-   ```
+## Stack
 
-2. **Local-first**: funciona localmente sin servidor central, cuenta, nube, BD remota ni
-   backend HTTP. Las capacidades remotas vendrán después.
+- **Rust** (edition 2024): `crates/core` — PTY bytes, mux, git, files, sesión,
+  SSH/Tailscale. Binario sidecar `lolterm-core`.
+- **Electron + React + TypeScript + Vite:** `apps/desktop` — chrome Sage.
+- **xterm.js:** emulador VT en el DOM. Recibe bytes ANSI del core.
+- **portable-pty:** el proceso cree que tiene una terminal de verdad.
+- **Serde / TOML / JSON lines:** config, sesión, IPC.
 
-3. **Composable**: orquestar herramientas existentes (lazygit para Git, codex/claude/
-   opencode/gemini para IA, ssh para remoto, tmux para persistencia remota, Tailscale con
-   sus propias herramientas). No reimplementar lo que ya existe.
+No agregar dependencias sin explicar por qué. El core no usa Tokio; hilos +
+canales. El GUI es el event loop de Chromium/React.
 
-4. **Portable**: Linux y macOS primero; Windows se evaluará después.
-
-## Stack tecnológico
-
-- **Rust** (edition 2024)
-- **Ratatui**: framework para interfaces de terminal.
-- **TUI**: Terminal User Interface, interfaz visual dentro de una terminal.
-- **portable-pty**: librería para crear pseudoterminales.
-- **tui-term**: renderiza terminales dentro de Ratatui (usa `vt100` como parser ANSI).
-- **Tokio**: runtime asíncrono para Rust.
-- **color-eyre**: manejo y presentación amigable de errores.
-- **Serde** / **TOML**: serialización y configuración (futuro).
-
-Regla: antes de agregar una dependencia, explicar por qué es necesaria. No agregar por
-comodidad si se puede resolver razonablemente con las existentes.
-
-## Hitos
-
-### LOL-001 — Interactive PTY (en curso)
-
-`cargo run` abre una TUI con una terminal interactiva real. Flujo:
-
-```text
-LolTerm → Ratatui dibuja la interfaz → PTY → shell del usuario
-```
-
-Dentro deben funcionar `ls`, `pwd`, `echo hola`, `vim`, `nvim`, `htop`, `lazygit`, etc.,
-como en una terminal normal.
-
-**Criterios de aceptación**: inicia correctamente; entra en pantalla apropiada para TUI;
-crea un PTY; inicia el shell del usuario; recibe output; lo renderiza; envía teclas
-(Enter, Backspace y comunes); apps interactivas funcionan razonablemente; recibe resize;
-cierra de forma controlada; restaura la terminal original al salir; restaura ante
-error/panic; código organizado para evolucionar a múltiples panes.
-
-### Progresión recomendada
-
-1. verificar proyecto y dependencias
-2. crear una TUI mínima
-3. entrar y salir del alternate screen
-4. crear un PTY
-5. lanzar el shell
-6. leer output del PTY
-7. renderizar output
-8. enviar teclado al PTY
-9. manejar resize
-10. probar programas interactivos
-11. mejorar manejo de errores y cleanup
+En Linux, `npm run dev` lanza Electron con `--no-sandbox` porque el helper SUID
+`chrome-sandbox` no queda en 4755/root tras un `npm install` de usuario.
 
 ## Arquitectura
 
-Estructura deseada (guía, no obligación; no construir componentes que aún no se
-necesitan):
-
 ```text
-src/
-├── main.rs     # arranque de aplicación
-├── app.rs      # estado general
-├── tui.rs      # configuración y renderizado de Ratatui
-├── event.rs    # teclado, resize y otros eventos
-└── terminal.rs # PTY y proceso del shell
+lolterm/
+├── crates/core/          # lib + bin lolterm-core (dueño de PTYs)
+│   └── src/bin/lolterm-core.rs   # JSON-RPC por stdin/stdout
+└── apps/desktop/         # Electron main/preload + React
+    ├── electron/main.mjs
+    ├── electron/preload.cjs
+    ├── figma-prompt.txt  # brief para Figma Make
+    └── src/              # App, xterm panes, tema Sage
 ```
 
-### Event loop (dirección futura)
-
 ```text
-teclado + PTY → EVENT LOOP → App State → Render
+teclado/mouse (React)
+    → IPC (preload)
+    → Electron main
+    → JSON line → lolterm-core
+    → PTY write
+PTY read → evento data (base64) → xterm.write
 ```
 
-### Alternate screen
-
-Segunda pantalla temporal del terminal. Apps como vim/less/htop/tmux la usan para ocupar
-toda la pantalla y devolver la terminal intacta. LolTerm la usa.
-
-## Visión futura (no implementar todavía)
+Remoto:
 
 ```text
-LolTerm
-├── Workspaces ├── Tabs ├── Panes ├── Projects ├── Context
-├── AI launcher (Codex, Claude, OpenCode, Gemini)
-├── SSH ├── Tailscale ├── Remote tmux ├── Git tools └── Music
+LolTerm → PTY → ssh → MagicDNS → tmux new-session -A -s lolterm
 ```
 
-Para remoto, inicialmente: `LolTerm → PTY → ssh → Tailscale → máquina remota → tmux`,
-antes de desarrollar un daemon o protocolo propio.
+**Main** = proceso Node con APIs de OS (spawnea el sidecar, diálogos).
+**Renderer** = página web (React). **Preload** = puente seguro (`window.lolterm`).
+**Sidecar** = proceso Rust; un crash del UI no debería ser el único dueño del PTY.
+
+## Estado actual (2026-08-15)
+
+El GUI **arranca**: ventana Sage, un PTY bash real, rail, inicio/abrir carpeta,
+tabs `+`/`×`, splits, paleta Ctrl-b, explorer, overlay `git log`, status.
+
+Huecos vs la referencia vql3n (próximos pasos, no un volcado):
+
+- Titlebar nativa de GTK (File/Edit/View) en vez de chrome propio `— □ ×`.
+- Rail/glifos y tabs tipo card todavía crudos (no el mint “IDE” del screenshot).
+- Overlay git tapando el prompt; notices pegajosos (`solo hay una tab`).
+- Splits sin arrastrar el divisor; un workspace a la vez.
+- xterm: resize/focus/truecolor/nvim hay que endurecerlos (el test es nvim, no `ls`).
+- Sesión: se persiste al salir; rehidratar layout+PTYs con más fidelidad.
+- Electron en Linux: sandbox SUID; en dev usamos `--no-sandbox`.
+
+Arranque:
+
+```bash
+cd apps/desktop && npm install && npm run dev   # GUI
+cargo test -p lolterm-core
+```
+
+Paleta: `Ctrl-b` / `Ctrl-p`. Config: `~/.config/lolterm/config.toml`.
+Sesión: `~/.config/lolterm/session.toml`.
+
+## Próximos pasos (orden, un corte por vez)
+
+No implementar esta lista de golpe. Cada ítem es una unidad con explicación +
+`cargo test` / probar el GUI.
+
+1. **Chrome de ventana.** `frame: false` o ocultar menú nativo; titlebar Sage
+   (`lolterm`, workspaces, `— □ ×`). Que deje de parecer “Chromium genérico”.
+2. **Rail y tabs.** Iconos `⌂ F ± > ☁` legibles; pills de tab como el screenshot
+   (nombre + ×; `+` nueva). Default al explorer, no a Inicio vacío.
+3. **Panes honestos.** Quitar o hacer dismissable el float de git; notices con
+   TTL. Drag del split. Foco/resize de xterm estable (nvim, lazygit, `btop`).
+4. **Explorer útil.** Files / Search como ahora; abrir archivo = `$EDITOR` en
+   tab PTY; marcas git en el árbol; `/reveal`.
+5. **Mux completo.** Varios workspaces; `/run` pulido; CLIs a pantalla completa
+   en tab propia (nvim, lazygit, claude) como `tmux new-window`.
+6. **Remoto.** `/ssh` y `/ts-ssh` con usuario; password en el PTY; recientes.
+7. **Sesión.** Restaurar tabs, cwd de shells, proyecto al reabrir la app.
+8. **Pulido.** Clipboard, copy-mode básico, tema dusk/mono además de Sage.
+
+**Después (no ahora):** Monaco/LSP, música, yazi, daemon propio, Windows,
+empaquetado `.deb`, Tauri si Electron pesa demasiado (el core Rust se reusa).
+
+**Nunca (producto):** runtime de agentes, ACP, reescribir nvim o lazygit,
+depender de una CLI de IA concreta.
 
 ## Forma de trabajar
 
-- Avanzar iterativamente, por pasos pequeños.
-- No saltar a una implementación enorme.
-- Verificar cada paso con `cargo fmt`, `cargo check`, `cargo clippy`.
-- No usar `unwrap()` indiscriminadamente; si se usa, explicar por qué la invariancia lo
-  hace razonable. Preferir errores manejables y código legible.
-
-## Calidad
-
-`cargo fmt`, `cargo check`, `cargo clippy` sin errores relevantes. No silenciar warnings
-innecesariamente. No agregar comentarios al código salvo que se pidan explícitamente.
-
-## Git
-
-- Revisar estado del repo (`git status`, `git diff`, `git log`).
-- No hacer commits automáticamente; solo sugerir mensaje de commit al terminar una unidad
-  lógica de trabajo.
-- Estilo de mensajes: `feat: add interactive pty`, `fix: restore terminal on panic`,
-  `refactor: separate terminal state`.
-
-## Estado actual
-
-- Repo sin commits todavía. Dependencias ya declaradas en `Cargo.toml`.
-- LOL-001, incremento 1 completado: TUI mínima con entrada/salida limpia del alternate
-  screen.
-  - `src/main.rs`: arranque + `color_eyre::install()` + `tui::init()`/`tui::restore()`.
-  - `src/tui.rs`: `init()` y `restore()` (wrappers de `ratatui::init`/`restore`).
-  - `src/app.rs`: `App { running }` con `run()` (event loop), `draw()` y `handle_events()`.
-- Próximo paso: crear el PTY y lanzar el shell (pasos 4-5), en un nuevo `src/terminal.rs`
-  usando `portable_pty::native_pty_system()`, `openpty(...)` y
-  `CommandBuilder::new_default_prog()`.
+- Pasos pequeños. Verificar `cargo fmt`, `cargo test`, `cargo clippy -p lolterm-core`.
+- El GUI: no romper el contrato JSON (`snapshot`, `write`, `resize`, `run`, …)
+  sin actualizar main y React juntos.
+- No `unwrap()` indiscriminado en Rust.
+- No comentarios en código salvo que se pidan.
+- No commits automáticos. Mensajes: `feat: …`, `fix: …`.

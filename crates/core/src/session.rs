@@ -6,12 +6,17 @@ use color_eyre::Result;
 use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 
-use crate::tree::{Node, SplitDir};
+use crate::layout::{LayoutNode, SplitDir};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Session {
     pub active_workspace: usize,
+    #[serde(default)]
     pub workspaces: Vec<SavedWorkspace>,
+    #[serde(default)]
+    pub recents: Vec<String>,
+    #[serde(default)]
+    pub recent_projects: Vec<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,8 +39,7 @@ pub struct SavedTab {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SavedNode {
     Leaf {
-        #[serde(default, skip_serializing)]
-        #[allow(dead_code)]
+        #[serde(default)]
         cwd: Option<PathBuf>,
     },
     Split {
@@ -47,56 +51,55 @@ pub enum SavedNode {
 }
 
 impl SavedNode {
-    pub fn from_live(node: &Node, keep: &HashSet<u64>) -> Option<Self> {
+    pub fn from_layout(node: &LayoutNode, keep: &HashSet<u64>, cwds: &[(u64, PathBuf)]) -> Self {
         match node {
-            Node::Leaf(id) if keep.contains(id) => Some(Self::Leaf { cwd: None }),
-            Node::Leaf(_) => None,
-            Node::Split {
+            LayoutNode::Leaf { pane } => Self::Leaf {
+                cwd: cwds
+                    .iter()
+                    .find(|(id, _)| keep.contains(id) && *id == *pane)
+                    .map(|(_, cwd)| cwd.clone()),
+            },
+            LayoutNode::Split {
                 dir,
                 percent,
                 first,
                 second,
-            } => match (Self::from_live(first, keep), Self::from_live(second, keep)) {
-                (None, None) => None,
-                (Some(kept), None) | (None, Some(kept)) => Some(kept),
-                (Some(a), Some(b)) => Some(Self::Split {
-                    dir: *dir,
-                    percent: *percent,
-                    first: Box::new(a),
-                    second: Box::new(b),
-                }),
+            } => Self::Split {
+                dir: *dir,
+                percent: *percent,
+                first: Box::new(Self::from_layout(first, keep, cwds)),
+                second: Box::new(Self::from_layout(second, keep, cwds)),
             },
         }
     }
 
-    pub fn leaf_count(&self) -> usize {
-        match self {
-            Self::Leaf { .. } => 1,
-            Self::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
-        }
+    pub fn leaf_cwds(&self) -> Vec<Option<PathBuf>> {
+        let mut out = Vec::new();
+        collect_cwds(self, &mut out);
+        out
     }
+}
 
-    pub fn to_live(&self, ids: &mut impl Iterator<Item = u64>) -> Result<Node> {
-        match self {
-            Self::Leaf { .. } => {
-                let id = ids
-                    .next()
-                    .ok_or_else(|| eyre!("session tree has more leaves than panes"))?;
-                Ok(Node::Leaf(id))
-            }
-            Self::Split {
-                dir,
-                percent,
-                first,
-                second,
-            } => Ok(Node::Split {
-                dir: *dir,
-                percent: *percent,
-                first: Box::new(first.to_live(ids)?),
-                second: Box::new(second.to_live(ids)?),
-            }),
+fn collect_cwds(node: &SavedNode, out: &mut Vec<Option<PathBuf>>) {
+    match node {
+        SavedNode::Leaf { cwd } => out.push(cwd.clone()),
+        SavedNode::Split { first, second, .. } => {
+            collect_cwds(first, out);
+            collect_cwds(second, out);
         }
     }
+}
+
+pub fn push_unique_path(list: &mut Vec<PathBuf>, value: PathBuf, max: usize) {
+    list.retain(|item| item != &value);
+    list.insert(0, value);
+    list.truncate(max);
+}
+
+pub fn push_unique(list: &mut Vec<String>, value: String, max: usize) {
+    list.retain(|item| item != &value);
+    list.insert(0, value);
+    list.truncate(max);
 }
 
 pub fn path() -> PathBuf {
