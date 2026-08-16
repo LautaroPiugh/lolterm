@@ -7,6 +7,10 @@ edition.workspace = true
 name = "lolterm-core"
 path = "src/bin/lolterm-core.rs"
 
+[[bin]]
+name = "lolterm"
+path = "src/bin/lolterm.rs"
+
 [dependencies]
 color-eyre.workspace = true
 portable-pty.workspace = true

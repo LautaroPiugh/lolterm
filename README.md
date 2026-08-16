@@ -6,7 +6,17 @@ No reemplaza nvim, lazygit ni tmux: los abre en una ventana (Electron). No orque
 ```text
 ventana Electron → lolterm-core → PTY → cualquier CLI
 ventana Electron → lolterm-core → PTY → ssh → tmux
+lolterm CLI      → el mismo crate (config / workspaces, sin PTY todavía)
 ```
+
+## CLI
+
+```bash
+cargo run -p lolterm-core --bin lolterm -- status
+cargo run -p lolterm-core --bin lolterm -- workspace list
+```
+
+Lee `~/.config/lolterm/` (no habla con Electron). `status` muestra workspace actual, branch, máquinas y la sesión tmux remota que usaría este workspace. No imprime env ni secretos.
 
 ## Correr (GUI)
 
