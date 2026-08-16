@@ -140,6 +140,26 @@ pub fn remove_root(list: &mut Vec<WorkspaceDef>, root: &Path) {
     list.retain(|item| canonical_root(&expand_root(&item.root)) != key);
 }
 
+pub fn ensure_in_catalog(list: &mut Vec<WorkspaceDef>, name: &str, root: &Path) {
+    let key = canonical_root(root);
+    let compact = compact_root(root);
+    if let Some(existing) = list
+        .iter_mut()
+        .find(|item| canonical_root(&expand_root(&item.root)) == key)
+    {
+        if existing.name.trim().is_empty() {
+            existing.name = name.to_string();
+        }
+        return;
+    }
+    list.push(WorkspaceDef {
+        name: name.to_string(),
+        root: compact,
+        startup: Vec::new(),
+        notes: String::new(),
+    });
+}
+
 pub fn notes_for(root: &Path) -> String {
     let key = canonical_root(root);
     load()
@@ -148,6 +168,14 @@ pub fn notes_for(root: &Path) -> String {
         .find(|item| canonical_root(&expand_root(&item.root)) == key)
         .map(|item| item.notes)
         .unwrap_or_default()
+}
+
+pub fn name_from_root(root: &Path) -> String {
+    root.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("workspace")
+        .to_string()
 }
 
 pub fn slug(name: &str) -> String {
@@ -243,6 +271,23 @@ mod tests {
         assert_eq!(session.workspaces[0].startup[0].program, "nvim");
         assert_eq!(session.workspaces[0].env[0].value, "secret");
         assert_eq!(session.workspaces[0].active_tab, 1);
+    }
+
+    #[test]
+    fn ensure_in_catalog_keeps_notes_and_name() {
+        let mut list = vec![WorkspaceDef {
+            name: "named".into(),
+            root: "/tmp/ws".into(),
+            startup: vec![],
+            notes: "keep".into(),
+        }];
+        ensure_in_catalog(&mut list, "other", Path::new("/tmp/ws"));
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "named");
+        assert_eq!(list[0].notes, "keep");
+        ensure_in_catalog(&mut list, "fresh", Path::new("/tmp/other"));
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1].name, "fresh");
     }
 
     #[test]

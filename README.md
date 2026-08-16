@@ -14,9 +14,12 @@ lolterm CLI      → el mismo crate (config / workspaces, sin PTY todavía)
 ```bash
 cargo run -p lolterm-core --bin lolterm -- status
 cargo run -p lolterm-core --bin lolterm -- workspace list
+cargo run -p lolterm-core --bin lolterm -- .
+cargo run -p lolterm-core --bin lolterm -- workspace open lolterm
+cargo run -p lolterm-core --bin lolterm -- workspace forget desktop
 ```
 
-Lee `~/.config/lolterm/` (no habla con Electron). `status` muestra workspace actual, branch, máquinas y la sesión tmux remota que usaría este workspace. No imprime env ni secretos.
+Lee y escribe `~/.config/lolterm/` (no habla con Electron). `lolterm .` registra el directorio en el catálogo y lo deja como workspace activo para el próximo arranque del Desktop. `status` no imprime env ni secretos.
 
 ## Correr (GUI)
 

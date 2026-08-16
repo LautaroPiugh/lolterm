@@ -12,6 +12,9 @@ use crate::workspaces;
 pub enum Command {
     Status,
     WorkspaceList,
+    Ensure(String),
+    Open(String),
+    Forget(String),
     Help,
     Version,
 }
@@ -51,6 +54,20 @@ pub fn run(args: &[String]) -> Result<i32, String> {
             print!("{}", format_workspace_list(&load_workspace_rows()));
             Ok(0)
         }
+        Command::Ensure(raw) => {
+            let root = resolve_dir(&raw)?;
+            print!("{}", format_status(&ensure_workspace(&root)?));
+            Ok(0)
+        }
+        Command::Open(name) => {
+            print!("{}", format_status(&open_workspace(&name)?));
+            Ok(0)
+        }
+        Command::Forget(name) => {
+            forget_workspace(&name)?;
+            print!("{}", format_workspace_list(&load_workspace_rows()));
+            Ok(0)
+        }
     }
 }
 
@@ -78,12 +95,36 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 }
                 Ok(Command::WorkspaceList)
             }
+            Some("forget") | Some("rm") => {
+                let Some(name) = args.next() else {
+                    return Err("hace falta un nombre: lolterm workspace forget <nombre>".into());
+                };
+                if args.next().is_some() {
+                    return Err("workspace forget admite un solo nombre".into());
+                }
+                Ok(Command::Forget(name.to_string()))
+            }
+            Some("open") => {
+                let Some(name) = args.next() else {
+                    return Err("hace falta un nombre: lolterm workspace open <nombre>".into());
+                };
+                if args.next().is_some() {
+                    return Err("workspace open admite un solo nombre".into());
+                }
+                Ok(Command::Open(name.to_string()))
+            }
             Some(other) => Err(format!(
-                "subcomando desconocido: workspace {other}\nprobá: lolterm workspace list"
+                "subcomando desconocido: workspace {other}\nprobá: lolterm workspace list | lolterm workspace open <nombre>"
             )),
         },
+        other if looks_like_dir(other) => {
+            if args.next().is_some() {
+                return Err("lolterm . admite un solo path".into());
+            }
+            Ok(Command::Ensure(other.to_string()))
+        }
         other => Err(format!(
-            "comando desconocido: {other}\nprobá: lolterm status | lolterm workspace list"
+            "comando desconocido: {other}\nprobá: lolterm status | lolterm . | lolterm workspace list"
         )),
     }
 }
@@ -94,12 +135,17 @@ pub fn help_text() -> String {
 lolterm {VERSION} — control del mismo core que el Desktop
 
 Uso:
+  lolterm .
+  lolterm ~/dev/api
   lolterm status
   lolterm workspace list
+  lolterm workspace open <nombre>
+  lolterm workspace forget <nombre>
   lolterm -h | --help
   lolterm -V | --version
 
-Todavía no abre la GUI ni PTYs: lee config y workspaces locales.
+Registra workspaces en ~/.config/lolterm (el mismo catálogo que el Desktop).
+No abre la GUI: el próximo arranque de LoLTerm usa el workspace activo.
 "
     )
 }
@@ -158,42 +204,160 @@ fn truncate_name(name: &str, width: usize) -> String {
     cut
 }
 
-fn load_status() -> StatusView {
-    let cfg = config::load();
+fn looks_like_dir(arg: &str) -> bool {
+    matches!(arg, "." | "..")
+        || arg.starts_with('/')
+        || arg.starts_with('~')
+        || arg.starts_with("./")
+        || arg.starts_with("../")
+        || arg.contains('/')
+        || Path::new(arg).is_dir()
+}
+
+fn resolve_dir(raw: &str) -> Result<PathBuf, String> {
+    let path = workspaces::expand_root(raw);
+    if !path.is_dir() {
+        return Err(format!("no es un directorio: {raw}"));
+    }
+    Ok(workspaces::canonical_root(&path))
+}
+
+pub fn activate_in_session(session: &mut Session, name: &str, root: PathBuf) {
+    let root = workspaces::canonical_root(&root);
+    if let Some(index) = session.workspaces.iter().position(|ws| ws.root == root) {
+        session.active_workspace = index;
+        return;
+    }
+    session.workspaces.push(SavedWorkspace {
+        name: name.to_string(),
+        root,
+        active_tab: 0,
+        tabs: Vec::new(),
+        startup: Vec::new(),
+        env: Vec::new(),
+    });
+    session.active_workspace = session.workspaces.len() - 1;
+}
+
+fn persist_active(name: &str, root: &Path) -> Result<(), String> {
+    let mut catalog = workspaces::load();
+    workspaces::ensure_in_catalog(&mut catalog.workspaces, name, root);
+    workspaces::save(&catalog).map_err(|err| err.to_string())?;
+    let mut session = session::load().unwrap_or_default();
+    activate_in_session(&mut session, name, root.to_path_buf());
+    session::save(&session).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn ensure_workspace(root: &Path) -> Result<StatusView, String> {
     let session = loaded_session();
-    let cwd = env::current_dir().ok();
-    let current = current_workspace(&session, cwd.as_deref());
-    let workspace = current
-        .map(|ws| ws.name.clone())
-        .unwrap_or_else(|| "—".into());
-    let root_path = current
-        .map(|ws| ws.root.clone())
-        .or_else(|| cwd.clone())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let root = workspaces::compact_root(&root_path);
-    let branch = git::branch_label(&root_path);
-    let tmux_session = current
-        .map(|ws| ssh::tmux_session_name(&cfg.remote.tmux, &ws.name))
-        .unwrap_or_default();
+    if let Some(parent) = enclosing_workspace(&session, root) {
+        let name = parent.name.clone();
+        let parent_root = parent.root.clone();
+        eprintln!(
+            "lolterm: {} está dentro de {} ({}); no creé un workspace anidado",
+            workspaces::compact_root(root),
+            name,
+            workspaces::compact_root(&parent_root)
+        );
+        persist_active(&name, &parent_root)?;
+        return Ok(status_for(Some(&name), &parent_root));
+    }
+    let name = workspaces::name_from_root(root);
+    persist_active(&name, root)?;
+    Ok(status_for(Some(name.as_str()), root))
+}
+
+fn open_workspace(name: &str) -> Result<StatusView, String> {
+    let needle = name.trim();
+    let session = loaded_session();
+    let Some(ws) = session
+        .workspaces
+        .iter()
+        .find(|ws| ws.name == needle || workspaces::slug(&ws.name) == workspaces::slug(needle))
+    else {
+        return Err(format!(
+            "workspace desconocido: {needle}\nprobá: lolterm workspace list"
+        ));
+    };
+    persist_active(&ws.name, &ws.root)?;
+    Ok(status_for(Some(&ws.name), &ws.root))
+}
+
+fn forget_workspace(name: &str) -> Result<(), String> {
+    let needle = name.trim();
+    let mut session = loaded_session();
+    let Some(index) = session
+        .workspaces
+        .iter()
+        .position(|ws| ws.name == needle || workspaces::slug(&ws.name) == workspaces::slug(needle))
+    else {
+        return Err(format!(
+            "workspace desconocido: {needle}\nprobá: lolterm workspace list"
+        ));
+    };
+    let removed = session.workspaces.remove(index);
+    if session.active_workspace > index {
+        session.active_workspace -= 1;
+    }
+    if session.workspaces.is_empty() {
+        session.active_workspace = 0;
+    } else {
+        session.active_workspace = session.active_workspace.min(session.workspaces.len() - 1);
+    }
+    let mut catalog = workspaces::load();
+    workspaces::remove_root(&mut catalog.workspaces, &removed.root);
+    workspaces::save(&catalog).map_err(|err| err.to_string())?;
+    session::save(&session).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn enclosing_workspace<'a>(session: &'a Session, root: &Path) -> Option<&'a SavedWorkspace> {
+    let root = workspaces::canonical_root(root);
+    session
+        .workspaces
+        .iter()
+        .filter(|ws| root.starts_with(&ws.root) && root != ws.root)
+        .max_by_key(|ws| ws.root.as_os_str().len())
+}
+
+fn load_status() -> StatusView {
+    let session = loaded_session();
+    match session.workspaces.get(session.active_workspace) {
+        Some(ws) => status_for(Some(&ws.name), &ws.root),
+        None => {
+            let cwd = env::current_dir().ok();
+            status_for(None, cwd.as_deref().unwrap_or(Path::new(".")))
+        }
+    }
+}
+
+fn status_for(name: Option<&str>, root: &Path) -> StatusView {
+    let cfg = config::load();
+    let workspace = name
+        .map(str::to_string)
+        .unwrap_or_else(|| workspaces::name_from_root(root));
     StatusView {
         version: VERSION.to_string(),
-        workspace,
-        root,
-        branch,
+        workspace: workspace.clone(),
+        root: workspaces::compact_root(root),
+        branch: git::branch_label(root),
         machines: cfg.machines.len(),
-        tmux_session,
+        tmux_session: ssh::tmux_session_name(&cfg.remote.tmux, &workspace),
     }
 }
 
 fn load_workspace_rows() -> Vec<WorkspaceRow> {
     let session = loaded_session();
-    let cwd = env::current_dir().ok();
-    let current_root = current_workspace(&session, cwd.as_deref()).map(|ws| ws.root.clone());
+    let active_root = session
+        .workspaces
+        .get(session.active_workspace)
+        .map(|ws| ws.root.clone());
     session
         .workspaces
         .into_iter()
         .map(|ws| {
-            let current = current_root.as_ref().is_some_and(|root| *root == ws.root);
+            let current = active_root.as_ref().is_some_and(|root| *root == ws.root);
             WorkspaceRow {
                 name: ws.name,
                 root: workspaces::compact_root(&ws.root),
@@ -207,21 +371,6 @@ fn loaded_session() -> Session {
     let mut session = session::load().unwrap_or_default();
     workspaces::merge_into_session(&mut session, &workspaces::load());
     session
-}
-
-fn current_workspace<'a>(session: &'a Session, cwd: Option<&Path>) -> Option<&'a SavedWorkspace> {
-    if let Some(cwd) = cwd {
-        let cwd = workspaces::canonical_root(cwd);
-        if let Some(ws) = session
-            .workspaces
-            .iter()
-            .filter(|ws| cwd == ws.root || cwd.starts_with(&ws.root))
-            .max_by_key(|ws| ws.root.as_os_str().len())
-        {
-            return Some(ws);
-        }
-    }
-    session.workspaces.get(session.active_workspace)
 }
 
 #[cfg(test)]
@@ -238,8 +387,38 @@ mod tests {
         );
         assert_eq!(parse(&["ws".into()]).unwrap(), Command::WorkspaceList);
         assert_eq!(parse(&["-V".into()]).unwrap(), Command::Version);
+        assert_eq!(parse(&[".".into()]).unwrap(), Command::Ensure(".".into()));
+        assert_eq!(
+            parse(&["workspace".into(), "open".into(), "api".into()]).unwrap(),
+            Command::Open("api".into())
+        );
         assert!(parse(&["nope".into()]).is_err());
-        assert!(parse(&["workspace".into(), "open".into()]).is_err());
+        assert_eq!(
+            parse(&["workspace".into(), "forget".into(), "desktop".into()]).unwrap(),
+            Command::Forget("desktop".into())
+        );
+    }
+
+    #[test]
+    fn activate_in_session_sets_current_without_clobbering() {
+        let mut session = Session::default();
+        activate_in_session(&mut session, "a", PathBuf::from("/tmp/a"));
+        session.workspaces[0].tabs = vec![];
+        activate_in_session(&mut session, "a", PathBuf::from("/tmp/a"));
+        assert_eq!(session.workspaces.len(), 1);
+        activate_in_session(&mut session, "b", PathBuf::from("/tmp/b"));
+        assert_eq!(session.active_workspace, 1);
+        assert_eq!(session.workspaces[0].name, "a");
+    }
+
+    #[test]
+    fn enclosing_workspace_picks_parent() {
+        let mut session = Session::default();
+        activate_in_session(&mut session, "lolterm", PathBuf::from("/home/dev/lolterm"));
+        let nested = PathBuf::from("/home/dev/lolterm/apps/desktop");
+        let parent = enclosing_workspace(&session, &nested).expect("parent");
+        assert_eq!(parent.name, "lolterm");
+        assert!(enclosing_workspace(&session, Path::new("/home/dev/lolterm")).is_none());
     }
 
     #[test]
