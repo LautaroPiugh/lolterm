@@ -7,6 +7,10 @@ const FALLBACK: Binding[] = [
   { chord: "alt+ctrl+l", command: "pane.focusRight" },
   { chord: "alt+ctrl+k", command: "pane.focusUp" },
   { chord: "alt+ctrl+j", command: "pane.focusDown" },
+  { chord: "alt+ctrl+v", command: "pane.splitRight" },
+  { chord: "alt+ctrl+s", command: "pane.splitDown" },
+  { chord: "alt+ctrl+r", command: "pane.restart" },
+  { chord: "alt+ctrl+e", command: "ui.tabRename" },
 ];
 
 let bindings: Binding[] = FALLBACK;

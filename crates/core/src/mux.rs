@@ -288,6 +288,11 @@ impl Mux {
             .collect();
         out.retain(|(key, _)| key != "LOLTERM_ROOT");
         out.push(("LOLTERM_ROOT".into(), self.root.display().to_string()));
+        if !out.iter().any(|(key, _)| key == "PATH")
+            && let Some(path) = files::effective_path()
+        {
+            out.push(("PATH".into(), path));
+        }
         out
     }
 

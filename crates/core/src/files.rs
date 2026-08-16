@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::Serialize;
 
@@ -253,7 +254,16 @@ pub fn user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
 }
 
-/// Busca el binario en PATH y, si no está, en el PATH del shell de login.
+/// PATH del proceso más el del shell de login (una sola vez, no por comando).
+pub fn effective_path() -> Option<String> {
+    let dirs = path_dirs();
+    if dirs.is_empty() {
+        return std::env::var("PATH").ok();
+    }
+    std::env::join_paths(dirs).ok()?.into_string().ok()
+}
+
+/// Busca el binario en PATH (el del sidecar y el de login). Sin `bash -lc` por comando.
 pub fn resolve_command(name: &str) -> Option<PathBuf> {
     let name = name.trim();
     if name.contains('/') {
@@ -263,43 +273,50 @@ pub fn resolve_command(name: &str) -> Option<PathBuf> {
     if !program_ok(name) {
         return None;
     }
-    lookup_in_path(name).or_else(|| shell_which(name))
+    lookup_in_path(name)
 }
 
-fn lookup_in_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let candidate = dir.join(name);
-            candidate.is_file().then_some(candidate)
-        })
+fn path_dirs() -> &'static [PathBuf] {
+    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    DIRS.get_or_init(|| {
+        let mut dirs = Vec::new();
+        let mut seen = HashSet::new();
+        let from_env = std::env::var_os("PATH")
+            .map(|raw| std::env::split_paths(&raw).collect::<Vec<_>>())
+            .unwrap_or_default();
+        for dir in from_env.into_iter().chain(login_path_dirs()) {
+            if dir.as_os_str().is_empty() || !seen.insert(dir.clone()) {
+                continue;
+            }
+            dirs.push(dir);
+        }
+        dirs
     })
 }
 
-fn shell_which(name: &str) -> Option<PathBuf> {
-    if !program_ok(name) {
-        return None;
+fn login_path_dirs() -> Vec<PathBuf> {
+    let Ok(output) = std::process::Command::new(user_shell())
+        .args(["-lc", r#"printf %s "$PATH""#])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
     }
-    for flag in ["-lc", "-ic"] {
-        let Ok(output) = std::process::Command::new(user_shell())
-            .args([flag, &format!("command -v {name}")])
-            .output()
-        else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let line = String::from_utf8(output.stdout).ok()?;
-        let line = line.trim();
-        if !line.starts_with('/') {
-            continue;
-        }
-        let path = PathBuf::from(line);
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    None
+    let Ok(text) = String::from_utf8(output.stdout) else {
+        return Vec::new();
+    };
+    std::env::split_paths(text.trim())
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .collect()
+}
+
+fn lookup_in_path(name: &str) -> Option<PathBuf> {
+    path_dirs().iter().find_map(|dir| {
+        let candidate = dir.join(name);
+        candidate.is_file().then_some(candidate)
+    })
 }
 
 /// Qué argv pasarle al PTY: binario resuelto, o el shell de login si no está en PATH.
@@ -466,6 +483,14 @@ mod tests {
     fn resolve_command_finds_sh() {
         assert!(resolve_command("sh").is_some() || resolve_command("bash").is_some());
         assert!(resolve_command("definitely-not-a-lolterm-bin").is_none());
+    }
+
+    #[test]
+    fn spawn_argv_uses_resolved_binary_not_login_shell() {
+        let (bin, args) = spawn_argv(Some("sh"), &[]);
+        let bin = bin.expect("sh on PATH");
+        assert!(bin.ends_with("sh") || bin.ends_with("bash"));
+        assert!(!args.iter().any(|arg| arg == "-lc"));
     }
 
     #[test]

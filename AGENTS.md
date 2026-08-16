@@ -889,14 +889,15 @@ El repositorio actual ya contiene una base funcional:
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
-Versiones actuales registradas al momento de redactar este documento:
+Versión global al alinear este documento con el código (era CLI, `v0.5.x`):
 
 ```text
-Cargo workspace:          0.1.0
-apps/desktop/package.json 0.1.0
+Cargo workspace:          0.5.0
+apps/desktop/package.json 0.5.0
+lolterm / lolterm-core    0.5.0
 ```
 
-El objetivo es pasar a un esquema de **versión global única de LoLTerm**.
+Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
 
 ---
 
@@ -973,10 +974,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.4.2
-├── Cargo workspace   0.4.2
-├── lolterm-core      0.4.2
-└── desktop package   0.4.2
+LoLTerm 0.5.0
+├── Cargo workspace   0.5.0
+├── lolterm-core      0.5.0
+└── desktop package   0.5.0
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
@@ -1593,34 +1594,26 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-Mientras LoLTerm siga en `v0.1.x`, priorizar **Terminal Foundation + infraestructura del proyecto**.
+LoLTerm está en **`v0.5.x` (CLI)**. No agrandar la CLI ni perseguir el `.deb` en blanco salvo instrucción explícita.
 
 Orden recomendado:
 
-### A. Terminal Foundation
+### A. Multiplexer cómodo (huecos de v0.2)
 
-1. PTY lifecycle.
-2. xterm focus.
-3. resize correcto.
-4. clipboard.
-5. keyboard input.
-6. ANSI/TrueColor/Unicode.
-7. process exit/cleanup.
-8. splits redimensionables.
-9. tab UX.
-10. pruebas con nvim/lazygit/btop/fzf/yazi/codex/ssh/tmux.
+1. splits y restart desde teclado (defaults), no sólo paleta;
+2. tab rename/reorder ya existentes: hacerlos descubribles;
+3. pruebas diarias con nvim/lazygit/btop/fzf/yazi/ssh/tmux;
+4. resize/focus si fallan con esas TUIs.
 
-### B. Project Infrastructure
+### B. Workspaces (v0.3, ya hay base)
 
-1. Conventional Commits documentados.
-2. `CHANGELOG.md` gestionado por release tooling.
-3. CI para Rust + Desktop.
-4. Release Please.
-5. versión global sincronizada.
-6. tags `vX.Y.Z`.
-7. GitHub Releases.
+Restauración fiel, startup, navegación entre workspaces. No reimplementar el explorer.
 
-No comenzar extensibilidad, AI orchestration o música antes de que este fundamento sea confiable salvo instrucción explícita del usuario.
+### C. Context layer (v0.6)
+
+`lolterm context` / `panes` / `processes` ya leen la sesión guardada. El siguiente salto es contexto **en vivo** (IPC al mux), no más subcomandos de catálogo.
+
+No comenzar extensibilidad, AI orchestration o música antes de que el mux diario sea cómodo, salvo instrucción explícita del usuario.
 
 ---
 

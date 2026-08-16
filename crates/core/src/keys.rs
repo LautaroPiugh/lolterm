@@ -23,6 +23,10 @@ pub fn defaults() -> Vec<Binding> {
         bind("ctrl+alt+shift+k", "pane.swapUp"),
         bind("ctrl+alt+shift+j", "pane.swapDown"),
         bind("ctrl+alt+z", "pane.zoom"),
+        bind("ctrl+alt+v", "pane.splitRight"),
+        bind("ctrl+alt+s", "pane.splitDown"),
+        bind("ctrl+alt+r", "pane.restart"),
+        bind("ctrl+alt+e", "ui.tabRename"),
         bind("ctrl+alt+n", "tab.new"),
         bind("ctrl+alt+d", "tab.duplicate"),
         bind("ctrl+alt+w", "tab.close"),
@@ -111,6 +115,10 @@ mod tests {
         let chords: Vec<_> = defaults().into_iter().map(|b| b.command).collect();
         assert!(chords.contains(&"ui.palette".into()));
         assert!(chords.contains(&"pane.zoom".into()));
+        assert!(chords.contains(&"pane.splitRight".into()));
+        assert!(chords.contains(&"pane.splitDown".into()));
+        assert!(chords.contains(&"pane.restart".into()));
+        assert!(chords.contains(&"ui.tabRename".into()));
         assert!(chords.contains(&"workspace.next".into()));
     }
 }
