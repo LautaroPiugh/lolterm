@@ -25,6 +25,12 @@ cargo run -p lolterm-core --bin lolterm -- run nvim
 
 Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. No imprime env ni secretos.
 
+Para tener `lolterm` en PATH (este repo, `~/.local/bin`):
+
+```bash
+cargo install --path crates/core --bin lolterm --force --root "$HOME/.local"
+```
+
 ## Correr (GUI)
 
 ```bash
