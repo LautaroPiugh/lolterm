@@ -1,6 +1,13 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Esta sección 0.2.0 se publicó a mano para alinear la versión global.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0 y 0.3.0 se publicaron a mano para alinear la versión global.
+
+## [0.3.0](https://github.com/LautaroPiugh/lolterm/compare/v0.2.0...v0.3.0) (2026-08-15)
+
+### Features
+
+* variables de entorno por workspace (Home → Inicio), aplicadas a PTYs nuevos
+* `LOLTERM_ROOT` sigue siendo la raíz del workspace y no se deja sobrescribir
 
 ## [0.2.0](https://github.com/LautaroPiugh/lolterm/compare/v0.1.0...v0.2.0) (2026-08-15)
 
