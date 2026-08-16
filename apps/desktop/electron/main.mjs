@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,15 +14,55 @@ const pending = new Map();
 let win = null;
 const queued = [];
 
+function isFile(file) {
+  try {
+    return existsSync(file) && statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function coreBin() {
   if (process.env.LOLTERM_CORE) return process.env.LOLTERM_CORE;
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, "lolterm-core");
+    const nested = path.join(process.resourcesPath, "lolterm-core", "lolterm-core");
+    if (isFile(bundled)) return bundled;
+    if (isFile(nested)) return nested;
+    return bundled;
+  }
   const target = process.env.CARGO_TARGET_DIR || path.join(repoRoot, "target");
-  return path.join(target, "debug", "lolterm-core");
+  const debug = path.join(target, "debug", "lolterm-core");
+  const release = path.join(target, "release", "lolterm-core");
+  if (isFile(debug)) return debug;
+  if (isFile(release)) return release;
+  return debug;
+}
+
+function isDirectory(file) {
+  try {
+    return existsSync(file) && statSync(file).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function openDirArg() {
+  for (const arg of process.argv.slice(1)) {
+    if (arg.startsWith("-")) continue;
+    if (arg.startsWith("/") && isDirectory(arg)) return arg;
+  }
+  return undefined;
 }
 
 function startCore(openPath) {
+  const bin = coreBin();
   const args = openPath ? [openPath] : [];
-  child = spawn(coreBin(), args, { stdio: ["pipe", "pipe", "inherit"] });
+  const cwd = app.isPackaged ? app.getPath("home") : undefined;
+  child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"], cwd });
+  child.on("error", (err) => {
+    console.error("lolterm-core:", bin, err);
+  });
   let buf = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
@@ -83,7 +124,7 @@ function createWindow() {
   if (process.env.LOLTERM_DEV) {
     win.loadURL(process.env.LOLTERM_URL || "http://127.0.0.1:5173");
   } else {
-    win.loadFile(path.join(appRoot, "dist", "index.html"));
+    win.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
   }
   win.webContents.on("did-finish-load", () => {
     for (const msg of queued) win.webContents.send("core-event", msg);
@@ -123,7 +164,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    startCore(process.argv.find((arg) => arg.startsWith("/")));
+    startCore(openDirArg());
     ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
     ipcMain.handle("win-minimize", () => {
       win?.minimize();

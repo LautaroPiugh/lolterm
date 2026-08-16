@@ -127,6 +127,7 @@ export default function App() {
   const [projects, setProjects] = useState<string[]>([]);
   const [fileHits, setFileHits] = useState<{ rel: string }[]>([]);
   const [cmds, setCmds] = useState<CommandHit[]>([]);
+  const [bootErr, setBootErr] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [sshUser, setSshUser] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
@@ -206,10 +207,20 @@ export default function App() {
         void call("snapshot");
       }
     });
-    void call("snapshot");
+    void call("snapshot").catch((err: unknown) => {
+      setBootErr(err instanceof Error ? err.message : String(err));
+    });
     void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
     return off;
   }, [apply, call]);
+
+  useEffect(() => {
+    if (snap) return;
+    const timer = window.setTimeout(() => {
+      setBootErr((prev) => prev ?? "el core no respondió");
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [snap]);
 
   useEffect(() => {
     if (!snap) return;
@@ -334,7 +345,11 @@ export default function App() {
   }
 
   if (!snap) {
-    return <div className="boot">LoLTerm · abriendo PTY…</div>;
+    return (
+      <div className="boot">
+        {bootErr ? `LoLTerm · no arrancó (${bootErr})` : "LoLTerm · abriendo PTY…"}
+      </div>
+    );
   }
 
   const gitAdds = (snap.git?.staged ?? 0) + (snap.git?.untracked ?? 0);

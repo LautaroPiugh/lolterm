@@ -2,5 +2,9 @@
 node_modules
 dist
 apps/desktop/dist
+apps/desktop/release
+apps/desktop/sidecar
 .DS_Store
 *.swp
+*.AppImage
+*.deb

@@ -3,10 +3,45 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
+  "description": "LoLTerm — multiplexor gráfico de terminales",
+  "author": {
+    "name": "LoLTerm",
+    "email": "lolterm@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/LautaroPiugh/lolterm",
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "node electron/dev.mjs",
-    "build": "vite build"
+    "build": "vite build",
+    "pack": "node electron/pack.mjs"
+  },
+  "build": {
+    "appId": "app.lolterm.desktop",
+    "productName": "LoLTerm",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/dev.mjs",
+      "!electron/pack.mjs",
+      "!**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "sidecar",
+        "to": ".",
+        "filter": ["lolterm-core"]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "executableName": "lolterm",
+      "maintainer": "LoLTerm <lolterm@users.noreply.github.com>",
+      "artifactName": "LoLTerm-${version}-linux-${arch}.${ext}"
+    }
   },
   "dependencies": {
     "@iconify-json/vscode-icons": "^1.2.72",
@@ -20,6 +55,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",
     "electron": "^37.2.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.0"
   }
