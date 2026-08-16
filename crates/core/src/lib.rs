@@ -14,6 +14,7 @@ pub mod pty;
 pub mod session;
 pub mod ssh;
 pub mod tailscale;
+pub mod workspaces;
 
 #[cfg(test)]
 mod tests {

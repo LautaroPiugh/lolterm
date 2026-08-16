@@ -150,6 +150,18 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.remove_env(params["key"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "renameWorkspace" => {
+            mux.rename_workspace(params["name"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "setNotes" => {
+            mux.set_notes(params["notes"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "forgetWorkspace" => {
+            mux.forget_workspace(PathBuf::from(params["path"].as_str().unwrap_or("")).as_path())?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "closeTab" => {
             mux.close_tab(params["index"].as_u64().unwrap_or(0) as usize)?;
             serde_json::to_value(mux.snapshot())?

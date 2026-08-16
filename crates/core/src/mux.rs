@@ -42,12 +42,21 @@ pub struct Snapshot {
     pub workspaces: Vec<WorkspaceSnap>,
     pub startup: Vec<session::StartupCmd>,
     pub env: Vec<session::EnvVar>,
+    pub meta: ProjectMeta,
+}
+
+#[derive(Serialize)]
+pub struct ProjectMeta {
+    pub stack: Vec<String>,
+    pub git_remote: Option<String>,
+    pub notes: String,
 }
 
 #[derive(Serialize)]
 pub struct WorkspaceSnap {
     pub name: String,
     pub root: PathBuf,
+    pub root_label: String,
     pub current: bool,
 }
 
@@ -103,6 +112,7 @@ pub struct Mux {
     saved_workspaces: Vec<SavedWorkspace>,
     startup: Vec<session::StartupCmd>,
     env: Vec<session::EnvVar>,
+    notes: String,
     notice: Option<String>,
     theme: Theme,
 }
@@ -129,32 +139,32 @@ impl Mux {
             saved_workspaces: Vec::new(),
             startup: Vec::new(),
             env: Vec::new(),
+            notes: String::new(),
             notice: None,
             theme: cfg.theme,
         };
-        if session::exists()
-            && let Ok(session) = session::load()
+        let mut session = session::load().unwrap_or_default();
+        crate::workspaces::merge_into_session(&mut session, &crate::workspaces::load());
+        mux.recents = session.recents;
+        mux.recent_projects = session.recent_projects;
+        mux.saved_workspaces = session.workspaces;
+        if let Some(ws) = mux
+            .saved_workspaces
+            .get(
+                session
+                    .active_workspace
+                    .min(mux.saved_workspaces.len().saturating_sub(1)),
+            )
+            .cloned()
         {
-            mux.recents = session.recents;
-            mux.recent_projects = session.recent_projects;
-            mux.saved_workspaces = session.workspaces;
-            if let Some(ws) = mux
-                .saved_workspaces
-                .get(
-                    session
-                        .active_workspace
-                        .min(mux.saved_workspaces.len().saturating_sub(1)),
-                )
-                .cloned()
-            {
-                mux.root = canonicalize(&ws.root);
-                mux.name = ws.name.clone();
-                mux.branch = git::branch_label(&mux.root);
-                mux.startup = ws.startup.clone();
-                mux.env = ws.env.clone();
-                mux.restore_tabs(&ws.tabs, ws.active_tab)?;
-            }
+            mux.root = canonicalize(&ws.root);
+            mux.name = ws.name.clone();
+            mux.branch = git::branch_label(&mux.root);
+            mux.startup = ws.startup.clone();
+            mux.env = ws.env.clone();
+            mux.restore_tabs(&ws.tabs, ws.active_tab)?;
         }
+        mux.notes = crate::workspaces::notes_for(&mux.root);
         if mux.tabs.is_empty() {
             mux.new_tab(None, None, &[], true)?;
         }
@@ -319,17 +329,41 @@ impl Mux {
             workspaces: self.workspace_snaps(),
             startup: self.startup.clone(),
             env: self.env.clone(),
+            meta: ProjectMeta {
+                stack: files::detect_stack(&self.root),
+                git_remote: git::origin_label(&self.root),
+                notes: self.notes.clone(),
+            },
         }
     }
 
     fn workspace_snaps(&self) -> Vec<WorkspaceSnap> {
-        let mut list = self.saved_workspaces.clone();
-        session::upsert_workspace(&mut list, self.capture_workspace(), 12);
-        list.into_iter()
-            .map(|ws| WorkspaceSnap {
-                current: ws.root == self.root,
-                name: ws.name,
-                root: ws.root,
+        let mut catalog = crate::workspaces::load();
+        crate::workspaces::upsert_def(
+            &mut catalog.workspaces,
+            crate::workspaces::WorkspaceDef {
+                name: self.name.clone(),
+                root: crate::workspaces::compact_root(&self.root),
+                startup: self.startup.clone(),
+                notes: self.notes.clone(),
+            },
+        );
+        catalog
+            .workspaces
+            .into_iter()
+            .map(|def| {
+                let root =
+                    crate::workspaces::canonical_root(&crate::workspaces::expand_root(&def.root));
+                WorkspaceSnap {
+                    current: root == self.root,
+                    name: if root == self.root {
+                        self.name.clone()
+                    } else {
+                        def.name
+                    },
+                    root_label: def.root,
+                    root,
+                }
             })
             .collect()
     }
@@ -402,6 +436,72 @@ impl Mux {
             recent_projects: self.recent_projects.clone(),
         };
         let _ = session::save(&session);
+        let mut catalog = crate::workspaces::catalog_from_saved(&session.workspaces);
+        crate::workspaces::upsert_def(
+            &mut catalog.workspaces,
+            crate::workspaces::WorkspaceDef {
+                name: self.name.clone(),
+                root: crate::workspaces::compact_root(&self.root),
+                startup: self.startup.clone(),
+                notes: self.notes.clone(),
+            },
+        );
+        let _ = crate::workspaces::save(&catalog);
+    }
+
+    pub fn rename_workspace(&mut self, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            self.notice = Some("el workspace necesita un nombre".into());
+            return Ok(());
+        }
+        self.name = name.to_string();
+        self.persist();
+        Ok(())
+    }
+
+    pub fn set_notes(&mut self, notes: &str) -> Result<()> {
+        self.notes = notes.trim().to_string();
+        self.persist();
+        Ok(())
+    }
+
+    pub fn forget_workspace(&mut self, path: &Path) -> Result<()> {
+        let root = canonicalize(path);
+        if root == self.root {
+            self.notice = Some("no se puede quitar el workspace actual".into());
+            return Ok(());
+        }
+        self.saved_workspaces.retain(|ws| ws.root != root);
+        let mut catalog = crate::workspaces::load();
+        crate::workspaces::remove_root(&mut catalog.workspaces, &root);
+        let _ = crate::workspaces::save(&catalog);
+        self.persist();
+        Ok(())
+    }
+
+    fn catalog_roots(&self) -> Vec<PathBuf> {
+        let snaps = self.workspace_snaps();
+        if snaps.is_empty() {
+            vec![self.root.clone()]
+        } else {
+            snaps.into_iter().map(|item| item.root).collect()
+        }
+    }
+
+    pub fn cycle_workspace(&mut self, delta: i32) -> Result<()> {
+        let roots = self.catalog_roots();
+        if roots.len() < 2 {
+            self.notice = Some("hace falta otro workspace en el catálogo".into());
+            return Ok(());
+        }
+        let current = roots
+            .iter()
+            .position(|root| root == &self.root)
+            .unwrap_or(0);
+        let len = roots.len() as i32;
+        let next = (current as i32 + delta).rem_euclid(len) as usize;
+        self.open_project(&roots[next])
     }
 
     pub fn write(&mut self, pane: u64, bytes: &[u8]) -> Result<()> {
@@ -642,6 +742,7 @@ impl Mux {
             self.startup.clear();
             self.env.clear();
         }
+        self.notes = crate::workspaces::notes_for(&self.root);
         if self.tabs.is_empty() {
             let root = self.root.clone();
             self.new_tab(None, Some(&root), &[], true)?;
@@ -826,6 +927,32 @@ impl Mux {
                 });
             }
         }
+        let mut used_slugs = HashSet::new();
+        for ws in self.workspace_snaps() {
+            if ws.current {
+                continue;
+            }
+            let mut slash = format!("ws-{}", crate::workspaces::slug(&ws.name));
+            if !used_slugs.insert(slash.clone()) {
+                slash = format!("{slash}-2");
+                used_slugs.insert(slash.clone());
+            }
+            let label = ws.root_label.clone();
+            let matches = needle.is_empty()
+                || slash.contains(needle)
+                || ws
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase())
+                || label.contains(needle);
+            if matches {
+                hits.push(CommandHit {
+                    id: format!("workspace.open:{}", ws.root.display()),
+                    slash,
+                    hint: format!("abrir {}", ws.name),
+                });
+            }
+        }
         hits
     }
 
@@ -930,6 +1057,10 @@ impl Mux {
             self.apply_preset(id)?;
             return Ok(true);
         }
+        if let Some(raw) = name.strip_prefix("workspace.open:") {
+            self.open_project(Path::new(raw))?;
+            return Ok(true);
+        }
         let Some(spec) = commands::lookup(name) else {
             self.notice = Some(format!("comando desconocido: {name}"));
             return Ok(false);
@@ -977,6 +1108,8 @@ impl Mux {
             "run.lazygit" => {
                 self.run("lazygit", &[])?;
             }
+            "workspace.next" => self.cycle_workspace(1)?,
+            "workspace.prev" => self.cycle_workspace(-1)?,
             _ => {}
         }
         Ok(true)

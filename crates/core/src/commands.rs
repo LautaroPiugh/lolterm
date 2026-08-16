@@ -118,6 +118,18 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "workspace.next",
+        slash: "ws-next",
+        hint: "siguiente workspace del catálogo",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "workspace.prev",
+        slash: "ws-prev",
+        hint: "workspace anterior del catálogo",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "ui.palette",
         slash: "palette",
         hint: "abrir la paleta",
@@ -210,6 +222,7 @@ mod tests {
     fn lookup_accepts_id_or_slash() {
         assert_eq!(lookup("tab.new").map(|s| s.slash), Some("tab-new"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
+        assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert!(lookup("nope").is_none());
     }
 }

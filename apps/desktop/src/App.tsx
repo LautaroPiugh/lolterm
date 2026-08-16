@@ -127,6 +127,8 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState("");
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
+  const [wsName, setWsName] = useState("");
+  const [wsNotes, setWsNotes] = useState("");
   const dragTab = useRef<number | null>(null);
 
   const apply = useCallback((value: unknown) => {
@@ -211,6 +213,11 @@ export default function App() {
   useEffect(() => {
     setBindings(snap?.keybindings);
   }, [snap?.keybindings]);
+
+  useEffect(() => {
+    if (snap?.name) setWsName(snap.name);
+    if (snap) setWsNotes(snap.meta?.notes ?? "");
+  }, [snap?.name, snap?.meta?.notes]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -356,37 +363,103 @@ export default function App() {
                   <div className="proj-path">era {eraLabel(snap.version)}</div>
                 </div>
                 <div className="section-label">Workspaces</div>
+                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
+                  catálogo en ~/.config/lolterm/workspaces.toml
+                </div>
                 {(snap.workspaces?.length
                   ? snap.workspaces.map((ws) => ({
                       key: ws.root,
                       name: ws.name,
                       path: ws.root,
+                      label: ws.root_label ?? ws.root,
                       current: ws.current,
                     }))
                   : projects.map((p) => ({
                       key: p,
                       name: projectName(p),
                       path: p,
+                      label: p,
                       current: p === snap.root,
                     }))
                 ).map((ws) => (
-                  <button
-                    key={ws.key}
-                    type="button"
-                    className={ws.current ? "recent-item on" : "recent-item"}
-                    onClick={() => void call("openProject", { path: ws.path })}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Folder size={12} color="var(--muted)" />
-                      <span className="proj-name">{ws.name}</span>
-                    </div>
-                    <div className="proj-path">{ws.path}</div>
-                  </button>
+                  <div key={ws.key} className={ws.current ? "workspace-row on" : "workspace-row"}>
+                    <button
+                      type="button"
+                      className="recent-item"
+                      onClick={() => void call("openProject", { path: ws.path })}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Folder size={12} color="var(--muted)" />
+                        <span className="proj-name">{ws.name}</span>
+                      </div>
+                      <div className="proj-path">{ws.label}</div>
+                    </button>
+                    {!ws.current && (
+                      <button
+                        type="button"
+                        className="workspace-forget"
+                        title="quitar del catálogo"
+                        onClick={() => void call("forgetWorkspace", { path: ws.path })}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
                 ))}
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const name = wsName.trim();
+                    if (!name) return;
+                    void call("renameWorkspace", { name });
+                  }}
+                >
+                  <input
+                    value={wsName}
+                    onChange={(event) => setWsName(event.target.value)}
+                    placeholder="nombre de este workspace"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <button type="submit" className="open-folder-btn" disabled={!wsName.trim() || wsName.trim() === snap.name}>
+                    Renombrar
+                  </button>
+                </form>
                 <button type="button" className="open-folder-btn" onClick={() => void window.lolterm.openFolder().then(apply)}>
                   <FolderPlus size={12} />
                   Abrir carpeta…
                 </button>
+                <div className="section-label">Este proyecto</div>
+                <div className="meta-chips">
+                  {(snap.meta?.stack ?? []).map((item) => (
+                    <span key={item} className="meta-chip">
+                      {item}
+                    </span>
+                  ))}
+                  {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
+                  {!(snap.meta?.stack?.length || snap.meta?.git_remote) && (
+                    <span className="proj-path">sin stack detectado</span>
+                  )}
+                </div>
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void call("setNotes", { notes: wsNotes });
+                  }}
+                >
+                  <textarea
+                    value={wsNotes}
+                    onChange={(event) => setWsNotes(event.target.value)}
+                    placeholder="nota portable (sin secretos)"
+                    rows={2}
+                    spellCheck={false}
+                  />
+                  <button type="submit" className="open-folder-btn" disabled={wsNotes.trim() === (snap.meta?.notes ?? "")}>
+                    Guardar nota
+                  </button>
+                </form>
                 <div className="section-label">Al abrir este workspace</div>
                 <div className="proj-path" style={{ padding: "0 12px 6px" }}>
                   se lanzan si no están ya abiertos
@@ -744,7 +817,7 @@ export default function App() {
         </span>
         <span className="status-sep">·</span>
         <span className="status-path">{snap.root}</span>
-        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+HJKL panes</span>
+        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
 
@@ -757,7 +830,7 @@ export default function App() {
                 className="cmd-palette-input"
                 autoFocus
                 value={modal.query}
-                placeholder="run, split, ssh…"
+                placeholder="run, split, ws-…"
                 onChange={(e) => setModal({ kind: "palette", query: e.target.value })}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && cmds[0]) void runCommand(cmds[0].id);

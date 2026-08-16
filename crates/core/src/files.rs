@@ -240,6 +240,40 @@ pub fn command_on_path(name: &str) -> bool {
         .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
 }
 
+const STACK_MARKERS: &[(&str, &str)] = &[
+    ("Cargo.toml", "rust"),
+    ("package.json", "node"),
+    ("pyproject.toml", "python"),
+    ("requirements.txt", "python"),
+    ("go.mod", "go"),
+    ("composer.json", "php"),
+    ("Gemfile", "ruby"),
+    ("mix.exs", "elixir"),
+];
+
+/// Stack del proyecto según archivos en la raíz. No recorre el árbol.
+pub fn stack_from_names(names: &[&str]) -> Vec<String> {
+    let mut stack = Vec::new();
+    for (file, label) in STACK_MARKERS {
+        if names.contains(file) && !stack.iter().any(|item| item == label) {
+            stack.push((*label).to_string());
+        }
+    }
+    stack
+}
+
+pub fn detect_stack(root: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let names: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    stack_from_names(&refs)
+}
+
 pub fn language_id(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase();
     if lower == "dockerfile" || lower.starts_with("dockerfile.") {
@@ -328,5 +362,18 @@ mod tests {
         assert_eq!(language_id("App.tsx"), Some("tsx"));
         assert_eq!(language_id("Dockerfile"), Some("docker"));
         assert_eq!(language_id("notes.txt"), None);
+    }
+
+    #[test]
+    fn stack_from_root_markers() {
+        assert_eq!(
+            stack_from_names(&["Cargo.toml", "package.json", "README.md"]),
+            vec!["rust", "node"]
+        );
+        assert_eq!(
+            stack_from_names(&["pyproject.toml", "requirements.txt"]),
+            vec!["python"]
+        );
+        assert!(stack_from_names(&["src"]).is_empty());
     }
 }

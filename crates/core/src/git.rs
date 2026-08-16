@@ -202,6 +202,33 @@ fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
     Some(trimmed.to_string())
 }
 
+/// Etiqueta corta del remote `origin`, sin credenciales ni esquema.
+pub fn origin_label(dir: &Path) -> Option<String> {
+    let url = git_output(dir, &["remote", "get-url", "origin"])?;
+    let label = sanitize_remote(&url);
+    (!label.is_empty()).then_some(label)
+}
+
+pub fn sanitize_remote(raw: &str) -> String {
+    let raw = raw.trim();
+    if let Some(rest) = raw.strip_prefix("git@") {
+        return rest.trim_end_matches(".git").replace(':', "/");
+    }
+    let mut rest = raw.to_string();
+    for prefix in ["https://", "http://", "ssh://", "git://"] {
+        if let Some(stripped) = rest.strip_prefix(prefix) {
+            rest = stripped.to_string();
+            break;
+        }
+    }
+    if let Some(at) = rest.rfind('@') {
+        rest = rest[at + 1..].to_string();
+    }
+    rest.trim_end_matches(".git")
+        .trim_end_matches('/')
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +299,21 @@ mod tests {
             ]
         );
         assert_eq!(git.badge(), "dev*");
+    }
+
+    #[test]
+    fn sanitize_remote_strips_scheme_and_credentials() {
+        assert_eq!(
+            sanitize_remote("https://github.com/foo/bar.git"),
+            "github.com/foo/bar"
+        );
+        assert_eq!(
+            sanitize_remote("https://x:token@github.com/foo/bar.git"),
+            "github.com/foo/bar"
+        );
+        assert_eq!(
+            sanitize_remote("git@github.com:foo/bar.git"),
+            "github.com/foo/bar"
+        );
     }
 }

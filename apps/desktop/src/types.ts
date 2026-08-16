@@ -60,9 +60,10 @@ export type Snapshot = {
   keybindings: { chord: string; command: string }[];
   version: string;
   presets: { id: string; name: string; hint: string }[];
-  workspaces: { name: string; root: string; current: boolean }[];
+  workspaces: { name: string; root: string; root_label?: string; current: boolean }[];
   startup: { program: string; args: string[] }[];
   env: { key: string; value: string }[];
+  meta: { stack: string[]; git_remote: string | null; notes: string };
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };
