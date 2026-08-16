@@ -220,7 +220,27 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
         "tsSsh" => {
             mux.ts_ssh(
                 params["target"].as_str().unwrap_or(""),
+                params["user"].as_str().filter(|user| !user.is_empty()),
+            )?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "addMachine" => {
+            mux.add_machine(
+                params["name"].as_str().unwrap_or(""),
+                params["target"].as_str().unwrap_or(""),
+                params["kind"].as_str().unwrap_or("ssh"),
                 params["user"].as_str(),
+            )?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "forgetMachine" => {
+            mux.forget_machine(params["target"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "connectMachine" => {
+            mux.connect_machine(
+                params["target"].as_str().unwrap_or(""),
+                params["user"].as_str().filter(|user| !user.is_empty()),
             )?;
             serde_json::to_value(mux.snapshot())?
         }

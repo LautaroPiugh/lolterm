@@ -8,7 +8,7 @@ use portable_pty::PtySize;
 use serde::Serialize;
 
 use crate::commands::{self, CommandHit};
-use crate::config::{RemoteConfig, Theme};
+use crate::config::{Machine, MachineKind, RemoteConfig, Theme};
 use crate::files;
 use crate::git;
 use crate::keys::{self, Binding};
@@ -43,6 +43,7 @@ pub struct Snapshot {
     pub startup: Vec<session::StartupCmd>,
     pub env: Vec<session::EnvVar>,
     pub meta: ProjectMeta,
+    pub machines: Vec<Machine>,
 }
 
 #[derive(Serialize)]
@@ -113,6 +114,7 @@ pub struct Mux {
     startup: Vec<session::StartupCmd>,
     env: Vec<session::EnvVar>,
     notes: String,
+    machines: Vec<Machine>,
     notice: Option<String>,
     theme: Theme,
 }
@@ -140,6 +142,7 @@ impl Mux {
             startup: Vec::new(),
             env: Vec::new(),
             notes: String::new(),
+            machines: cfg.machines,
             notice: None,
             theme: cfg.theme,
         };
@@ -334,6 +337,7 @@ impl Mux {
                 git_remote: git::origin_label(&self.root),
                 notes: self.notes.clone(),
             },
+            machines: self.machines.clone(),
         }
     }
 
@@ -418,6 +422,8 @@ impl Mux {
         self.theme = theme;
         let mut cfg = crate::config::load();
         cfg.theme = theme;
+        cfg.machines = self.machines.clone();
+        cfg.remote = self.remote.clone();
         crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))?;
         Ok(())
     }
@@ -840,17 +846,19 @@ impl Mux {
         let user = user
             .map(str::trim)
             .filter(|name| !name.is_empty())
-            .or(self.remote.user.as_deref());
+            .map(ToString::to_string)
+            .or_else(|| self.remote.user.clone());
         let Some(user) = user else {
             self.notice = Some("hace falta un usuario ssh".into());
             return Ok(0);
         };
-        if !ssh::ssh_user_ok(user) {
+        if !ssh::ssh_user_ok(&user) {
             self.notice = Some("usuario ssh inválido".into());
             return Ok(0);
         }
-        let args = ssh::ts_ssh_args(target, Some(user), &self.remote.tmux);
-        let dest = ssh::ts_ssh_dest(target, Some(user));
+        self.remember_ssh_user(&user);
+        let args = ssh::ts_ssh_args(target, Some(&user), &self.remote.tmux);
+        let dest = ssh::ts_ssh_dest(target, Some(&user));
         if dest.is_empty() {
             self.notice = Some("máquina Tailscale vacía".into());
             return Ok(0);
@@ -859,6 +867,94 @@ impl Mux {
         let id = self.new_tab(Some("ssh"), None, &args, false)?;
         self.name_active_tab(tab_name_from_dest(&dest));
         Ok(id)
+    }
+
+    fn persist_machines(&self) {
+        let mut cfg = crate::config::load();
+        cfg.machines = self.machines.clone();
+        cfg.remote = self.remote.clone();
+        let _ = crate::config::save(&cfg);
+    }
+
+    fn remember_ssh_user(&mut self, user: &str) {
+        self.remote.user = Some(user.to_string());
+        self.persist_machines();
+    }
+
+    pub fn add_machine(
+        &mut self,
+        name: &str,
+        target: &str,
+        kind: &str,
+        user: Option<&str>,
+    ) -> Result<()> {
+        let name = name.trim();
+        let target = target.trim();
+        if name.is_empty() {
+            self.notice = Some("la máquina necesita un nombre".into());
+            return Ok(());
+        }
+        if !crate::config::machine_target_ok(target) {
+            self.notice = Some("destino inválido (host, alias o user@host)".into());
+            return Ok(());
+        }
+        let kind = MachineKind::parse(kind).unwrap_or(MachineKind::Ssh);
+        let user = user
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        if let Some(user) = user.as_deref()
+            && !ssh::ssh_user_ok(user)
+        {
+            self.notice = Some("usuario ssh inválido".into());
+            return Ok(());
+        }
+        let machine = Machine {
+            name: name.to_string(),
+            target: target.to_string(),
+            user,
+            kind,
+        };
+        self.machines.retain(|item| item.target != machine.target);
+        self.machines.insert(0, machine);
+        self.persist_machines();
+        Ok(())
+    }
+
+    pub fn forget_machine(&mut self, target: &str) -> Result<()> {
+        let target = target.trim();
+        self.machines
+            .retain(|item| item.target != target && item.name != target);
+        self.persist_machines();
+        Ok(())
+    }
+
+    pub fn connect_machine(&mut self, key: &str, user: Option<&str>) -> Result<u64> {
+        let key = key.trim();
+        let Some(machine) = self
+            .machines
+            .iter()
+            .find(|item| item.name == key || item.target == key)
+            .cloned()
+        else {
+            self.notice = Some(format!("máquina desconocida: {key}"));
+            return Ok(0);
+        };
+        let user = user
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .or(machine.user.as_deref());
+        match machine.kind {
+            MachineKind::Tailscale => self.ts_ssh(&machine.target, user),
+            MachineKind::Ssh => {
+                let dest = if let Some(user) = user.filter(|_| !machine.target.contains('@')) {
+                    format!("{user}@{}", machine.target)
+                } else {
+                    machine.dest(self.remote.user.as_deref())
+                };
+                self.ssh(&dest)
+            }
+        }
     }
 
     fn name_active_tab(&mut self, name: String) {
@@ -950,6 +1046,28 @@ impl Mux {
                     id: format!("workspace.open:{}", ws.root.display()),
                     slash,
                     hint: format!("abrir {}", ws.name),
+                });
+            }
+        }
+        let mut used_machines = HashSet::new();
+        for machine in &self.machines {
+            let mut slash = format!("m-{}", crate::workspaces::slug(&machine.name));
+            if !used_machines.insert(slash.clone()) {
+                slash = format!("{slash}-2");
+                used_machines.insert(slash.clone());
+            }
+            let matches = needle.is_empty()
+                || slash.contains(needle)
+                || machine
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase())
+                || machine.target.contains(needle);
+            if matches {
+                hits.push(CommandHit {
+                    id: format!("machine.open:{}", machine.target),
+                    slash,
+                    hint: format!("ssh {}", machine.name),
                 });
             }
         }
@@ -1059,6 +1177,10 @@ impl Mux {
         }
         if let Some(raw) = name.strip_prefix("workspace.open:") {
             self.open_project(Path::new(raw))?;
+            return Ok(true);
+        }
+        if let Some(raw) = name.strip_prefix("machine.open:") {
+            self.connect_machine(raw, None)?;
             return Ok(true);
         }
         let Some(spec) = commands::lookup(name) else {

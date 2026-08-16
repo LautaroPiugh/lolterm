@@ -43,10 +43,78 @@ impl Default for RemoteConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MachineKind {
+    #[default]
+    Ssh,
+    Tailscale,
+}
+
+impl MachineKind {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "ssh" => Some(Self::Ssh),
+            "ts" | "tailscale" => Some(Self::Tailscale),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ssh => "ssh",
+            Self::Tailscale => "tailscale",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Machine {
+    pub name: String,
+    pub target: String,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub kind: MachineKind,
+}
+
+impl Machine {
+    pub fn dest(&self, fallback_user: Option<&str>) -> String {
+        let user = self
+            .user
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .or(fallback_user);
+        match self.kind {
+            MachineKind::Tailscale => crate::ssh::ts_ssh_dest(&self.target, user),
+            MachineKind::Ssh => {
+                if self.target.contains('@') {
+                    self.target.clone()
+                } else {
+                    match user {
+                        Some(user) => format!("{user}@{}", self.target),
+                        None => self.target.clone(),
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn machine_target_ok(target: &str) -> bool {
+    let target = target.trim();
+    !target.is_empty()
+        && target
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '@'))
+}
+
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub theme: Theme,
     pub remote: RemoteConfig,
+    pub machines: Vec<Machine>,
 }
 
 impl Default for AppConfig {
@@ -54,6 +122,7 @@ impl Default for AppConfig {
         Self {
             theme: Theme::Sage,
             remote: RemoteConfig::default(),
+            machines: Vec::new(),
         }
     }
 }
@@ -79,6 +148,28 @@ pub fn load() -> AppConfig {
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "lolterm".into()),
         },
+        machines: parsed
+            .machines
+            .into_iter()
+            .filter_map(|item| {
+                let name = item.name.trim().to_string();
+                let target = item.target.trim().to_string();
+                if name.is_empty() || !machine_target_ok(&target) {
+                    return None;
+                }
+                let user = item
+                    .user
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| crate::ssh::ssh_user_ok(value));
+                Some(Machine {
+                    name,
+                    target,
+                    user,
+                    kind: MachineKind::parse(item.kind.as_deref().unwrap_or("ssh"))
+                        .unwrap_or_default(),
+                })
+            })
+            .collect(),
     }
 }
 
@@ -99,6 +190,16 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
             user: config.remote.user.clone(),
             tmux: Some(config.remote.tmux.clone()),
         },
+        machines: config
+            .machines
+            .iter()
+            .map(|item| FileMachine {
+                name: item.name.clone(),
+                target: item.target.clone(),
+                user: item.user.clone(),
+                kind: Some(item.kind.as_str().to_string()),
+            })
+            .collect(),
     };
     let text = toml::to_string_pretty(&file).unwrap_or_default();
     std::fs::write(path, text)
@@ -124,6 +225,8 @@ struct FileConfig {
     ui: FileUi,
     #[serde(default)]
     remote: FileRemote,
+    #[serde(default)]
+    machines: Vec<FileMachine>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -140,6 +243,18 @@ struct FileRemote {
     tmux: Option<String>,
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct FileMachine {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    user: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +265,42 @@ mod tests {
         assert_eq!(Theme::parse("dusk"), Some(Theme::Dusk));
         assert_eq!(Theme::parse("MONO"), Some(Theme::Mono));
         assert_eq!(Theme::parse("solarized"), None);
+    }
+
+    #[test]
+    fn machine_target_rejects_spaces_and_urls() {
+        assert!(machine_target_ok("chae.tailnet.ts.net"));
+        assert!(machine_target_ok("me@pi"));
+        assert!(!machine_target_ok(""));
+        assert!(!machine_target_ok("host name"));
+        assert!(!machine_target_ok("https://evil"));
+    }
+
+    #[test]
+    fn machine_dest_uses_kind() {
+        let ts = Machine {
+            name: "box".into(),
+            target: "box.tailnet.ts.net".into(),
+            user: None,
+            kind: MachineKind::Tailscale,
+        };
+        assert_eq!(ts.dest(Some("me")), "me@box.tailnet.ts.net");
+        let ssh = Machine {
+            name: "pi".into(),
+            target: "pi".into(),
+            user: Some("root".into()),
+            kind: MachineKind::Ssh,
+        };
+        assert_eq!(ssh.dest(None), "root@pi");
+    }
+
+    #[test]
+    fn machines_toml_roundtrip_skips_passwords() {
+        let parsed: FileConfig = toml::from_str(
+            "[[machines]]\nname = \"chae\"\ntarget = \"chae.ts.net\"\nuser = \"lauta\"\nkind = \"tailscale\"\n",
+        )
+        .expect("toml");
+        assert_eq!(parsed.machines[0].name, "chae");
+        assert_eq!(parsed.machines[0].kind.as_deref(), Some("tailscale"));
     }
 }

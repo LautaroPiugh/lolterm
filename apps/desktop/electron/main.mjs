@@ -91,7 +91,10 @@ function createWindow() {
   });
 }
 
+process.env.GTK_OVERLAY_SCROLLING = "0";
 app.commandLine.appendSwitch("no-sandbox");
+app.commandLine.appendSwitch("disable-features", "OverlayScrollbar,FluentOverlayScrollbar");
+app.commandLine.appendSwitch("disable-blink-features", "OverlayScrollbars");
 app.commandLine.appendSwitch("log-level", "3");
 
 app.whenReady().then(() => {

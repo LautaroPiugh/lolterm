@@ -102,6 +102,68 @@ function wireClipboard(term: Terminal, host: HTMLElement) {
   });
 }
 
+function paintTermScroll(term: Terminal, track: HTMLElement) {
+  const thumb = track.querySelector(".term-scroll-thumb") as HTMLElement | null;
+  if (!thumb) return;
+  const buf = term.buffer.active;
+  const total = buf.length;
+  const rows = term.rows;
+  if (total <= rows || track.clientHeight < 2) {
+    track.hidden = true;
+    return;
+  }
+  track.hidden = false;
+  const trackH = track.clientHeight;
+  const thumbH = Math.max((rows / total) * trackH, 16);
+  const max = total - rows;
+  const top = (buf.viewportY / max) * (trackH - thumbH);
+  thumb.style.height = `${thumbH}px`;
+  thumb.style.transform = `translateY(${Math.max(0, top)}px)`;
+}
+
+function wireTermScroll(term: Terminal, track: HTMLElement): () => void {
+  const thumb = track.querySelector(".term-scroll-thumb") as HTMLElement | null;
+  let raf = 0;
+  const schedule = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      paintTermScroll(term, track);
+    });
+  };
+  const scrollToY = (clientY: number) => {
+    if (!thumb) return;
+    const max = term.buffer.active.length - term.rows;
+    if (max <= 0) return;
+    const rect = track.getBoundingClientRect();
+    const usable = Math.max(rect.height - thumb.offsetHeight, 1);
+    const ratio = Math.min(1, Math.max(0, (clientY - rect.top - thumb.offsetHeight / 2) / usable));
+    term.scrollToLine(Math.round(ratio * max));
+  };
+  const onDown = (ev: MouseEvent) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    scrollToY(ev.clientY);
+    const onMove = (e: MouseEvent) => scrollToY(e.clientY);
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  track.addEventListener("mousedown", onDown);
+  const renderDisp = term.onRender(schedule);
+  const scrollDisp = term.onScroll(schedule);
+  schedule();
+  return () => {
+    if (raf) cancelAnimationFrame(raf);
+    renderDisp.dispose();
+    scrollDisp.dispose();
+    track.removeEventListener("mousedown", onDown);
+  };
+}
+
 function ensureTerm(pane: number): Cached {
   const existing = cache.get(pane);
   if (existing) return existing;
@@ -157,25 +219,32 @@ export function TerminalPane({
   onFocus: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const track = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
 
   useEffect(() => {
     const node = host.current;
-    if (!node) return;
+    const scroll = track.current;
+    if (!node || !scroll) return;
     const entry = ensureTerm(pane);
     termRef.current = entry.term;
     if (entry.term.element) {
-      node.appendChild(entry.term.element);
+      node.insertBefore(entry.term.element, scroll);
     } else {
       entry.term.open(node);
       wireOsc52(entry.term);
-      if (entry.term.element) wireClipboard(entry.term, entry.term.element);
+      if (entry.term.element) {
+        wireClipboard(entry.term, entry.term.element);
+        node.insertBefore(entry.term.element, scroll);
+      }
     }
+    const unwireScroll = wireTermScroll(entry.term, scroll);
 
     let debounce: number | undefined;
     const sendSize = () => {
       if (node.clientWidth < 2 || node.clientHeight < 2) return;
       entry.fit.fit();
+      paintTermScroll(entry.term, scroll);
       void window.lolterm.invoke("resize", {
         pane,
         cols: entry.term.cols,
@@ -193,6 +262,7 @@ export function TerminalPane({
     const raf = requestAnimationFrame(sendSize);
 
     return () => {
+      unwireScroll();
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", schedule);
       ro.disconnect();
@@ -215,6 +285,10 @@ export function TerminalPane({
         termRef.current?.focus();
       }}
       ref={host}
-    />
+    >
+      <div className="term-scroll" hidden ref={track}>
+        <div className="term-scroll-thumb" />
+      </div>
+    </div>
   );
 }

@@ -10,7 +10,6 @@ import {
   Copy,
   FileCode,
   Files,
-  Folder,
   FolderPlus,
   GitBranch,
   GitCommitHorizontal,
@@ -24,6 +23,7 @@ import {
   Square,
   Terminal,
   X,
+  Settings,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, retainPanes } from "./TerminalPane";
@@ -113,7 +113,7 @@ function ThemePicker({
 
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [activity, setActivity] = useState<Activity>("files");
+  const [activity, setActivity] = useState<Activity>("home");
   const [sidebar, setSidebar] = useState(true);
   const [modal, setModal] = useState<Modal>(null);
   const [hosts, setHosts] = useState<HostItem[]>([]);
@@ -125,11 +125,14 @@ export default function App() {
   const [sshUser, setSshUser] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [renameWs, setRenameWs] = useState(false);
+  const [gearOpen, setGearOpen] = useState(false);
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
-  const [wsName, setWsName] = useState("");
   const [wsNotes, setWsNotes] = useState("");
+  const [sshDest, setSshDest] = useState("");
   const dragTab = useRef<number | null>(null);
+  const gearRef = useRef<HTMLDivElement>(null);
 
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
@@ -215,15 +218,27 @@ export default function App() {
   }, [snap?.keybindings]);
 
   useEffect(() => {
-    if (snap?.name) setWsName(snap.name);
     if (snap) setWsNotes(snap.meta?.notes ?? "");
-  }, [snap?.name, snap?.meta?.notes]);
+  }, [snap?.meta?.notes]);
+
+  useEffect(() => {
+    if (!gearOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (gearRef.current && !gearRef.current.contains(event.target as Node)) {
+        setGearOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [gearOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setModal(null);
         setRenaming(null);
+        setRenameWs(false);
+        setGearOpen(false);
         return;
       }
       if (isChromeField(e.target)) return;
@@ -291,9 +306,19 @@ export default function App() {
   }
 
   async function connectTs(target: string, user = sshUser) {
-    setModal(null);
     const trimmed = user.trim();
-    await call("tsSsh", trimmed ? { target, user: trimmed } : { target });
+    if (!trimmed) {
+      setBanner("hace falta un usuario ssh");
+      return;
+    }
+    setModal(null);
+    await call("tsSsh", { target, user: trimmed });
+  }
+
+  function sshDestWithUser(host: string) {
+    const user = sshUser.trim();
+    if (!user || host.includes("@")) return host;
+    return `${user}@${host}`;
   }
 
   if (!snap) {
@@ -322,6 +347,150 @@ export default function App() {
           </div>
         </div>
         <div className="titlebar-controls">
+          <div className="gear-wrap" ref={gearRef}>
+            <button
+              type="button"
+              className={gearOpen ? "wm-btn on" : "wm-btn"}
+              title="Workspace"
+              onClick={() => setGearOpen((open) => !open)}
+            >
+              <Settings size={12} />
+            </button>
+            {gearOpen && (
+              <div className="gear-menu">
+                <details open>
+                  <summary>Tema</summary>
+                  <ThemePicker
+                    current={parseTheme(snap.theme)}
+                    onPick={(id) => void call("setTheme", { theme: id })}
+                  />
+                </details>
+                <details>
+                  <summary>Layouts</summary>
+                  {(snap.presets ?? []).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className="gear-hit"
+                      onClick={() => void call("applyPreset", { id: preset.id })}
+                    >
+                      <Columns size={12} color="var(--muted)" />
+                      <span>{preset.name}</span>
+                      <span className="hint">{preset.hint}</span>
+                    </button>
+                  ))}
+                </details>
+                <details>
+                  <summary>Al abrir</summary>
+                  {(snap.startup ?? []).map((cmd) => (
+                    <button
+                      key={cmd.program}
+                      type="button"
+                      className="gear-hit on"
+                      title="quitar"
+                      onClick={() => void call("removeStartup", { program: cmd.program })}
+                    >
+                      {cmd.program}
+                      <span className="hint">quitar</span>
+                    </button>
+                  ))}
+                  {snap.run_clis
+                    .filter(
+                      (cli) =>
+                        cli.available && !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
+                    )
+                    .map((cli) => (
+                      <button
+                        key={cli.name}
+                        type="button"
+                        className="gear-hit"
+                        onClick={() => void call("addStartup", { program: cli.name, args: [] })}
+                      >
+                        + {cli.name}
+                      </button>
+                    ))}
+                </details>
+                <details>
+                  <summary>Entorno</summary>
+                  {(snap.env ?? []).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className="gear-hit on"
+                      title="quitar"
+                      onClick={() => void call("removeEnv", { key: item.key })}
+                    >
+                      {item.key}
+                      <span className="hint">quitar</span>
+                    </button>
+                  ))}
+                  <form
+                    className="env-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const key = envKey.trim();
+                      if (!key) return;
+                      void call("setEnv", { key, value: envVal }).then(() => {
+                        setEnvKey("");
+                        setEnvVal("");
+                      });
+                    }}
+                  >
+                    <input
+                      value={envKey}
+                      onChange={(event) => setEnvKey(event.target.value)}
+                      placeholder="NOMBRE"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <input
+                      value={envVal}
+                      onChange={(event) => setEnvVal(event.target.value)}
+                      placeholder="valor"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
+                      Guardar
+                    </button>
+                  </form>
+                </details>
+                <details>
+                  <summary>Proyecto</summary>
+                  <div className="meta-chips">
+                    {(snap.meta?.stack ?? []).map((item) => (
+                      <span key={item} className="meta-chip">
+                        {item}
+                      </span>
+                    ))}
+                    {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
+                  </div>
+                  <form
+                    className="env-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void call("setNotes", { notes: wsNotes });
+                    }}
+                  >
+                    <textarea
+                      value={wsNotes}
+                      onChange={(event) => setWsNotes(event.target.value)}
+                      placeholder="nota (sin secretos)"
+                      rows={2}
+                      spellCheck={false}
+                    />
+                    <button
+                      type="submit"
+                      className="open-folder-btn"
+                      disabled={wsNotes.trim() === (snap.meta?.notes ?? "")}
+                    >
+                      Guardar nota
+                    </button>
+                  </form>
+                </details>
+              </div>
+            )}
+          </div>
           <button type="button" className="wm-btn" title="Minimizar" onClick={() => void window.lolterm.window.minimize()}>
             <Minus size={12} />
           </button>
@@ -358,47 +527,56 @@ export default function App() {
             <div className="sidebar-header">{SIDE_LABEL[activity]}</div>
             {activity === "home" && (
               <div className="sidebar-content">
-                <div className="product-id">
-                  <div className="product-name">LoLTerm {displayVersion(snap.version)}</div>
-                  <div className="proj-path">era {eraLabel(snap.version)}</div>
-                </div>
-                <div className="section-label">Workspaces</div>
-                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
-                  catálogo en ~/.config/lolterm/workspaces.toml
-                </div>
                 {(snap.workspaces?.length
                   ? snap.workspaces.map((ws) => ({
                       key: ws.root,
                       name: ws.name,
                       path: ws.root,
-                      label: ws.root_label ?? ws.root,
                       current: ws.current,
                     }))
                   : projects.map((p) => ({
                       key: p,
                       name: projectName(p),
                       path: p,
-                      label: p,
                       current: p === snap.root,
                     }))
                 ).map((ws) => (
                   <div key={ws.key} className={ws.current ? "workspace-row on" : "workspace-row"}>
-                    <button
-                      type="button"
-                      className="recent-item"
-                      onClick={() => void call("openProject", { path: ws.path })}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Folder size={12} color="var(--muted)" />
+                    {renameWs && ws.current ? (
+                      <input
+                        className="tab-rename"
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onBlur={() => {
+                          if (renameDraft.trim()) void call("renameWorkspace", { name: renameDraft.trim() });
+                          setRenameWs(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          if (e.key === "Escape") setRenameWs(false);
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="recent-item"
+                        onClick={() => void call("openProject", { path: ws.path })}
+                        onDoubleClick={(e) => {
+                          if (!ws.current) return;
+                          e.stopPropagation();
+                          setRenameDraft(ws.name);
+                          setRenameWs(true);
+                        }}
+                      >
                         <span className="proj-name">{ws.name}</span>
-                      </div>
-                      <div className="proj-path">{ws.label}</div>
-                    </button>
+                      </button>
+                    )}
                     {!ws.current && (
                       <button
                         type="button"
                         className="workspace-forget"
-                        title="quitar del catálogo"
+                        title="quitar"
                         onClick={() => void call("forgetWorkspace", { path: ws.path })}
                       >
                         <X size={11} />
@@ -406,156 +584,10 @@ export default function App() {
                     )}
                   </div>
                 ))}
-                <form
-                  className="env-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const name = wsName.trim();
-                    if (!name) return;
-                    void call("renameWorkspace", { name });
-                  }}
-                >
-                  <input
-                    value={wsName}
-                    onChange={(event) => setWsName(event.target.value)}
-                    placeholder="nombre de este workspace"
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <button type="submit" className="open-folder-btn" disabled={!wsName.trim() || wsName.trim() === snap.name}>
-                    Renombrar
-                  </button>
-                </form>
                 <button type="button" className="open-folder-btn" onClick={() => void window.lolterm.openFolder().then(apply)}>
                   <FolderPlus size={12} />
-                  Abrir carpeta…
+                  Abrir…
                 </button>
-                <div className="section-label">Este proyecto</div>
-                <div className="meta-chips">
-                  {(snap.meta?.stack ?? []).map((item) => (
-                    <span key={item} className="meta-chip">
-                      {item}
-                    </span>
-                  ))}
-                  {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
-                  {!(snap.meta?.stack?.length || snap.meta?.git_remote) && (
-                    <span className="proj-path">sin stack detectado</span>
-                  )}
-                </div>
-                <form
-                  className="env-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void call("setNotes", { notes: wsNotes });
-                  }}
-                >
-                  <textarea
-                    value={wsNotes}
-                    onChange={(event) => setWsNotes(event.target.value)}
-                    placeholder="nota portable (sin secretos)"
-                    rows={2}
-                    spellCheck={false}
-                  />
-                  <button type="submit" className="open-folder-btn" disabled={wsNotes.trim() === (snap.meta?.notes ?? "")}>
-                    Guardar nota
-                  </button>
-                </form>
-                <div className="section-label">Al abrir este workspace</div>
-                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
-                  se lanzan si no están ya abiertos
-                </div>
-                {(snap.startup ?? []).map((cmd) => (
-                  <button
-                    key={`${cmd.program}:${cmd.args.join(" ")}`}
-                    type="button"
-                    className="recent-item on"
-                    onClick={() => void call("removeStartup", { program: cmd.program })}
-                    title="quitar del arranque"
-                  >
-                    <span className="proj-name">{cmd.program}</span>
-                    <div className="proj-path">clic para quitar</div>
-                  </button>
-                ))}
-                {snap.run_clis
-                  .filter(
-                    (cli) =>
-                      cli.available &&
-                      !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
-                  )
-                  .map((cli) => (
-                    <button
-                      key={cli.name}
-                      type="button"
-                      className="recent-item"
-                      onClick={() => void call("addStartup", { program: cli.name, args: [] })}
-                    >
-                      <span className="proj-name">+ {cli.name}</span>
-                      <div className="proj-path">agregar al arranque</div>
-                    </button>
-                  ))}
-                <div className="section-label">Variables de entorno</div>
-                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
-                  solo para PTYs nuevos de este workspace
-                </div>
-                {(snap.env ?? []).map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="recent-item on"
-                    onClick={() => void call("removeEnv", { key: item.key })}
-                    title="quitar variable"
-                  >
-                    <span className="proj-name">{item.key}</span>
-                    <div className="proj-path">clic para quitar</div>
-                  </button>
-                ))}
-                <form
-                  className="env-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const key = envKey.trim();
-                    if (!key) return;
-                    void call("setEnv", { key, value: envVal }).then(() => {
-                      setEnvKey("");
-                      setEnvVal("");
-                    });
-                  }}
-                >
-                  <input
-                    value={envKey}
-                    onChange={(event) => setEnvKey(event.target.value)}
-                    placeholder="NOMBRE"
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <input
-                    value={envVal}
-                    onChange={(event) => setEnvVal(event.target.value)}
-                    placeholder="valor"
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
-                    Guardar
-                  </button>
-                </form>
-                <div className="section-label">Layouts</div>
-                {(snap.presets ?? []).map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className="recent-item"
-                    onClick={() => void call("applyPreset", { id: preset.id })}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Columns size={12} color="var(--muted)" />
-                      <span className="proj-name">{preset.name}</span>
-                    </div>
-                    <div className="proj-path">{preset.hint}</div>
-                  </button>
-                ))}
-                <div className="section-label">Tema</div>
-                <ThemePicker current={parseTheme(snap.theme)} onPick={(id) => void call("setTheme", { theme: id })} />
               </div>
             )}
             {activity === "files" && (
@@ -652,46 +684,132 @@ export default function App() {
             )}
             {activity === "remote" && (
               <div className="sidebar-content">
-                <div className="section-label">Usuario ssh</div>
-                <div style={{ padding: "4px 10px 8px" }}>
+                <div className="section-label">Tailscale</div>
+                <div className="env-form">
                   <input
                     value={sshUser}
-                    placeholder="de config.toml o acá"
+                    placeholder="usuario"
+                    spellCheck={false}
+                    autoComplete="off"
                     onChange={(e) => setSshUser(e.target.value)}
                   />
                 </div>
-                <div className="section-label">Tailscale</div>
-                {peers.length === 0 && <div className="proj-path" style={{ padding: "4px 12px" }}>ningún peer · ¿tailscale up?</div>}
-                {peers.map((peer) => (
-                  <button
-                    key={peer.target}
-                    type="button"
-                    className="remote-item"
-                    onClick={() => void connectTs(peer.target)}
-                  >
-                    <Network size={12} color="var(--muted)" />
-                    <span className="ri-name">{peer.name}</span>
-                    <span className={peer.online ? "ri-dot on" : "ri-dot off"} />
-                  </button>
-                ))}
-                <div className="section-label" style={{ marginTop: 8 }}>
-                  SSH
-                </div>
-                <button type="button" className="remote-item" onClick={() => setModal({ kind: "ssh", query: "" })}>
-                  <Server size={12} color="var(--muted)" />
-                  <span className="ri-name">user@host…</span>
-                </button>
-                {hosts.slice(0, 8).map((host) => (
-                  <button
-                    key={host.target}
-                    type="button"
-                    className="remote-item"
-                    onClick={() => void call("ssh", { dest: host.target })}
-                  >
-                    <Server size={12} color="var(--muted)" />
-                    <span className="ri-name">{host.name}</span>
-                  </button>
-                ))}
+                {peers.length === 0 && (snap.machines ?? []).every((m) => m.kind !== "tailscale") && (
+                  <div className="proj-path" style={{ padding: "0 12px 8px" }}>
+                    ningún peer · ¿tailscale up?
+                  </div>
+                )}
+                {(snap.machines ?? [])
+                  .filter((machine) => machine.kind === "tailscale")
+                  .map((machine) => {
+                    const peer = peers.find((item) => item.target === machine.target);
+                    return (
+                      <div key={machine.target} className="workspace-row">
+                        <button
+                          type="button"
+                          className="remote-item"
+                          onClick={() => void connectTs(machine.target)}
+                        >
+                          <Network size={12} color="var(--muted)" />
+                          <span className="ri-name">{machine.name}</span>
+                          <span className={peer?.online ? "ri-dot on" : "ri-dot off"} />
+                        </button>
+                        <button
+                          type="button"
+                          className="workspace-forget"
+                          title="quitar"
+                          onClick={() => void call("forgetMachine", { target: machine.target })}
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                {peers
+                  .filter(
+                    (peer) =>
+                      !(snap.machines ?? []).some(
+                        (machine) => machine.kind === "tailscale" && machine.target === peer.target,
+                      ),
+                  )
+                  .map((peer) => (
+                    <button
+                      key={peer.target}
+                      type="button"
+                      className="remote-item"
+                      onClick={() => void connectTs(peer.target)}
+                    >
+                      <Network size={12} color="var(--muted)" />
+                      <span className="ri-name">{peer.name}</span>
+                      <span className={peer.online ? "ri-dot on" : "ri-dot off"} />
+                    </button>
+                  ))}
+                <div className="section-label">SSH</div>
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const dest = sshDestWithUser(sshDest.trim());
+                    if (!dest) return;
+                    void call("ssh", { dest }).then(() => setSshDest(""));
+                  }}
+                >
+                  <input
+                    value={sshDest}
+                    onChange={(event) => setSshDest(event.target.value)}
+                    placeholder="user@host o alias"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </form>
+                {(snap.machines ?? [])
+                  .filter((machine) => machine.kind !== "tailscale")
+                  .map((machine) => (
+                    <div key={machine.target} className="workspace-row">
+                      <button
+                        type="button"
+                        className="remote-item"
+                        onClick={() =>
+                          void call("connectMachine", {
+                            target: machine.target,
+                            user: sshUser.trim() || undefined,
+                          })
+                        }
+                      >
+                        <Server size={12} color="var(--muted)" />
+                        <span className="ri-name">{machine.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-forget"
+                        title="quitar"
+                        onClick={() => void call("forgetMachine", { target: machine.target })}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                {hosts
+                  .filter(
+                    (host) =>
+                      !(snap.machines ?? []).some(
+                        (machine) =>
+                          machine.kind !== "tailscale" &&
+                          (machine.target === host.target || machine.name === host.name),
+                      ),
+                  )
+                  .slice(0, 12)
+                  .map((host) => (
+                    <button
+                      key={host.target}
+                      type="button"
+                      className="remote-item"
+                      onClick={() => void call("ssh", { dest: sshDestWithUser(host.target) })}
+                    >
+                      <Server size={12} color="var(--muted)" />
+                      <span className="ri-name">{host.name}</span>
+                    </button>
+                  ))}
               </div>
             )}
           </aside>
