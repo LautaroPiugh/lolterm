@@ -22,6 +22,7 @@ pub enum Command {
     Forget(String),
     Ssh(Option<String>),
     Run(Option<String>),
+    Launch,
     Help,
     Version,
 }
@@ -48,6 +49,17 @@ pub fn run(args: &[String]) -> Result<i32, String> {
         Command::Help => {
             print!("{}", help_text());
             Ok(0)
+        }
+        Command::Launch => {
+            let view = load_status();
+            print!("{}", format_status(&view));
+            handoff_to_desktop(
+                PendingLaunch {
+                    open: session_active_root(),
+                    ..PendingLaunch::default()
+                },
+                format!("workspace {}", view.workspace),
+            )
         }
         Command::Version => {
             println!("{VERSION}");
@@ -108,7 +120,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         .map(String::as_str)
         .filter(|arg| !arg.is_empty());
     let Some(first) = args.next() else {
-        return Ok(Command::Help);
+        return Ok(Command::Launch);
     };
     match first {
         "-h" | "--help" | "help" => Ok(Command::Help),
@@ -180,6 +192,7 @@ pub fn help_text() -> String {
 lolterm {VERSION} — control del mismo core que el Desktop
 
 Uso:
+  lolterm
   lolterm .
   lolterm ~/dev/api
   lolterm status
@@ -193,8 +206,8 @@ Uso:
   lolterm -h | --help
   lolterm -V | --version
 
-Registra workspaces en ~/.config/lolterm. Los comandos `.`, `workspace open`,
-`ssh` y `run` abren o enfocan el Desktop y aplican la acción ahí.
+Sin argumentos abre o enfoca el Desktop en el workspace activo. `.`,
+`workspace open`, `ssh` y `run` hacen lo mismo y aplican esa acción.
 "
     )
 }
@@ -610,7 +623,7 @@ mod tests {
 
     #[test]
     fn parse_known_commands() {
-        assert_eq!(parse(&[]).unwrap(), Command::Help);
+        assert_eq!(parse(&[]).unwrap(), Command::Launch);
         assert_eq!(parse(&["status".into()]).unwrap(), Command::Status);
         assert_eq!(
             parse(&["workspace".into(), "list".into()]).unwrap(),

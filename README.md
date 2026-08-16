@@ -12,6 +12,7 @@ lolterm CLI      → el mismo crate (config / workspaces) y abre o enfoca el Des
 ## CLI
 
 ```bash
+cargo run -p lolterm-core --bin lolterm
 cargo run -p lolterm-core --bin lolterm -- status
 cargo run -p lolterm-core --bin lolterm -- workspace list
 cargo run -p lolterm-core --bin lolterm -- .
@@ -22,7 +23,7 @@ cargo run -p lolterm-core --bin lolterm -- ssh chae
 cargo run -p lolterm-core --bin lolterm -- run nvim
 ```
 
-Lee y escribe `~/.config/lolterm/` (pending.toml para hablar con una instancia ya abierta). `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. No imprime env ni secretos.
+Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. No imprime env ni secretos.
 
 ## Correr (GUI)
 
