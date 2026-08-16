@@ -14,6 +14,7 @@ lolterm CLI      → el mismo crate (config / workspaces) y abre o enfoca el Des
 ```bash
 cargo run -p lolterm-core --bin lolterm
 cargo run -p lolterm-core --bin lolterm -- status
+cargo run -p lolterm-core --bin lolterm -- context
 cargo run -p lolterm-core --bin lolterm -- workspace list
 cargo run -p lolterm-core --bin lolterm -- .
 cargo run -p lolterm-core --bin lolterm -- workspace open lolterm

@@ -12,6 +12,7 @@ use crate::mux::RUN_CLIS;
 use crate::session::{self, SavedWorkspace, Session};
 use crate::ssh;
 use crate::workspaces;
+use serde::Serialize;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -23,6 +24,7 @@ pub enum Command {
     Ssh(Option<String>),
     Run(Option<String>),
     Launch,
+    Context,
     Help,
     Version,
 }
@@ -67,6 +69,10 @@ pub fn run(args: &[String]) -> Result<i32, String> {
         }
         Command::Status => {
             print!("{}", format_status(&load_status()));
+            Ok(0)
+        }
+        Command::Context => {
+            print!("{}", format_context(&load_context()));
             Ok(0)
         }
         Command::WorkspaceList => {
@@ -130,6 +136,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 return Err("status no admite argumentos".into());
             }
             Ok(Command::Status)
+        }
+        "context" | "ctx" => {
+            if args.next().is_some() {
+                return Err("context no admite argumentos".into());
+            }
+            Ok(Command::Context)
         }
         "ssh" => {
             let key = args.next().map(str::to_string);
@@ -196,6 +208,7 @@ Uso:
   lolterm .
   lolterm ~/dev/api
   lolterm status
+  lolterm context
   lolterm workspace list
   lolterm workspace open <nombre>
   lolterm workspace forget <nombre>
@@ -206,8 +219,9 @@ Uso:
   lolterm -h | --help
   lolterm -V | --version
 
-Sin argumentos abre o enfoca el Desktop en el workspace activo. `.`,
-`workspace open`, `ssh` y `run` hacen lo mismo y aplican esa acción.
+Sin argumentos abre o enfoca el Desktop en el workspace activo. `context`
+imprime JSON para otras herramientas (sin secretos). `.`, `workspace open`,
+`ssh` y `run` abren el Desktop y aplican esa acción.
 "
     )
 }
@@ -233,6 +247,30 @@ tmux       {tmux}
         root = view.root,
         machines = view.machines,
     )
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ContextGit {
+    pub branch: Option<String>,
+    pub remote: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ContextView {
+    pub version: String,
+    pub workspace: String,
+    pub cwd: String,
+    pub machine: String,
+    pub git: ContextGit,
+    pub tmux: String,
+    pub processes: Vec<String>,
+    pub machines: Vec<String>,
+}
+
+pub fn format_context(view: &ContextView) -> String {
+    let mut text = serde_json::to_string_pretty(view).unwrap_or_else(|_| "{}".into());
+    text.push('\n');
+    text
 }
 
 pub fn format_workspace_list(rows: &[WorkspaceRow]) -> String {
@@ -576,6 +614,51 @@ fn load_status() -> StatusView {
     }
 }
 
+fn load_context() -> ContextView {
+    let session = loaded_session();
+    let cfg = config::load();
+    let (name, root, processes) = match session.workspaces.get(session.active_workspace) {
+        Some(ws) => (Some(ws.name.as_str()), ws.root.clone(), saved_processes(ws)),
+        None => {
+            let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            (None, cwd, Vec::new())
+        }
+    };
+    let status = status_for(name, &root);
+    ContextView {
+        version: status.version,
+        workspace: status.workspace,
+        cwd: status.root,
+        machine: "local".into(),
+        git: ContextGit {
+            branch: status.branch,
+            remote: git::origin_label(&root),
+        },
+        tmux: status.tmux_session,
+        processes,
+        machines: cfg
+            .machines
+            .iter()
+            .map(|machine| machine.name.clone())
+            .collect(),
+    }
+}
+
+fn saved_processes(ws: &SavedWorkspace) -> Vec<String> {
+    let mut names = Vec::new();
+    for tab in &ws.tabs {
+        for spec in tab.tree.leaf_specs() {
+            let Some(program) = spec.program.filter(|name| !name.is_empty()) else {
+                continue;
+            };
+            if !names.iter().any(|seen| seen == &program) {
+                names.push(program);
+            }
+        }
+    }
+    names
+}
+
 fn status_for(name: Option<&str>, root: &Path) -> StatusView {
     let cfg = config::load();
     let workspace = name
@@ -625,6 +708,8 @@ mod tests {
     fn parse_known_commands() {
         assert_eq!(parse(&[]).unwrap(), Command::Launch);
         assert_eq!(parse(&["status".into()]).unwrap(), Command::Status);
+        assert_eq!(parse(&["context".into()]).unwrap(), Command::Context);
+        assert_eq!(parse(&["ctx".into()]).unwrap(), Command::Context);
         assert_eq!(
             parse(&["workspace".into(), "list".into()]).unwrap(),
             Command::WorkspaceList
@@ -716,6 +801,28 @@ mod tests {
         assert!(text.contains("lolterm-lolterm"));
         assert!(!text.contains("TOKEN"));
         assert!(!text.contains("password"));
+    }
+
+    #[test]
+    fn format_context_omits_secrets_and_env_values() {
+        let text = format_context(&ContextView {
+            version: "0.4.1".into(),
+            workspace: "lolterm".into(),
+            cwd: "~/Projects/lolterm".into(),
+            machine: "local".into(),
+            git: ContextGit {
+                branch: Some("master".into()),
+                remote: Some("github.com/LautaroPiugh/lolterm".into()),
+            },
+            tmux: "lolterm-lolterm".into(),
+            processes: vec!["nvim".into()],
+            machines: vec!["chae".into()],
+        });
+        assert!(text.contains("\"workspace\": \"lolterm\""));
+        assert!(text.contains("nvim"));
+        assert!(!text.contains("TOKEN"));
+        assert!(!text.contains("password"));
+        assert!(!text.contains("sk-"));
     }
 
     #[test]
