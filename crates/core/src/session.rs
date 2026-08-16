@@ -19,12 +19,22 @@ pub struct Session {
     pub recent_projects: Vec<PathBuf>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SavedWorkspace {
     pub name: String,
     pub root: PathBuf,
     pub active_tab: usize,
+    #[serde(default)]
     pub tabs: Vec<SavedTab>,
+    #[serde(default)]
+    pub startup: Vec<StartupCmd>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StartupCmd {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -124,6 +134,12 @@ pub fn push_unique_path(list: &mut Vec<PathBuf>, value: PathBuf, max: usize) {
     list.truncate(max);
 }
 
+pub fn upsert_workspace(list: &mut Vec<SavedWorkspace>, workspace: SavedWorkspace, max: usize) {
+    list.retain(|item| item.root != workspace.root);
+    list.insert(0, workspace);
+    list.truncate(max);
+}
+
 pub fn push_unique(list: &mut Vec<String>, value: String, max: usize) {
     list.retain(|item| item != &value);
     list.insert(0, value);
@@ -195,5 +211,48 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn upsert_workspace_moves_matching_root_to_front() {
+        let mut list = vec![
+            SavedWorkspace {
+                name: "a".into(),
+                root: PathBuf::from("/a"),
+                active_tab: 0,
+                tabs: vec![],
+                startup: vec![],
+            },
+            SavedWorkspace {
+                name: "b".into(),
+                root: PathBuf::from("/b"),
+                active_tab: 0,
+                tabs: vec![],
+                startup: vec![],
+            },
+        ];
+        upsert_workspace(
+            &mut list,
+            SavedWorkspace {
+                name: "a2".into(),
+                root: PathBuf::from("/a"),
+                active_tab: 1,
+                tabs: vec![],
+                startup: vec![],
+            },
+            12,
+        );
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "a2");
+        assert_eq!(list[0].active_tab, 1);
+        assert_eq!(list[1].root, PathBuf::from("/b"));
+    }
+
+    #[test]
+    fn workspace_without_startup_still_parses() {
+        let ws: SavedWorkspace =
+            toml::from_str("name = \"a\"\nroot = \"/a\"\nactive_tab = 0\ntabs = []\n")
+                .expect("toml");
+        assert!(ws.startup.is_empty());
     }
 }

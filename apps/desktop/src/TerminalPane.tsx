@@ -12,7 +12,6 @@ type Cached = {
 };
 
 const cache = new Map<number, Cached>();
-const pendingDispose = new Map<number, number>();
 let currentTheme: ThemeId = "sage";
 
 export function applyXtermTheme(id: ThemeId) {
@@ -24,16 +23,18 @@ export function applyXtermTheme(id: ThemeId) {
 }
 
 export function disposeTerm(pane: number) {
-  const timer = pendingDispose.get(pane);
-  if (timer != null) {
-    window.clearTimeout(timer);
-    pendingDispose.delete(pane);
-  }
   const cached = cache.get(pane);
   if (!cached) return;
   cached.off();
   cached.term.dispose();
   cache.delete(pane);
+}
+
+export function retainPanes(live: Iterable<number>) {
+  const keep = new Set(live);
+  for (const id of [...cache.keys()]) {
+    if (!keep.has(id)) disposeTerm(id);
+  }
 }
 
 async function copySelection(term: Terminal) {
@@ -161,11 +162,6 @@ export function TerminalPane({
   useEffect(() => {
     const node = host.current;
     if (!node) return;
-    const timer = pendingDispose.get(pane);
-    if (timer != null) {
-      window.clearTimeout(timer);
-      pendingDispose.delete(pane);
-    }
     const entry = ensureTerm(pane);
     termRef.current = entry.term;
     if (entry.term.element) {
@@ -204,12 +200,6 @@ export function TerminalPane({
       if (entry.term.element?.parentElement === node) {
         node.removeChild(entry.term.element);
       }
-      pendingDispose.set(
-        pane,
-        window.setTimeout(() => {
-          disposeTerm(pane);
-        }, 300),
-      );
     };
   }, [pane]);
 

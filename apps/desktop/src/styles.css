@@ -368,6 +368,10 @@ button {
   background: var(--fill);
 }
 
+.recent-item.on {
+  background: var(--focus);
+}
+
 .recent-item .proj-name {
   font-size: 12px;
   font-weight: 500;

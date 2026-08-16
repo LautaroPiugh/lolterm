@@ -39,6 +39,15 @@ pub struct Snapshot {
     pub keybindings: Vec<Binding>,
     pub version: String,
     pub presets: Vec<crate::presets::Preset>,
+    pub workspaces: Vec<WorkspaceSnap>,
+    pub startup: Vec<session::StartupCmd>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceSnap {
+    pub name: String,
+    pub root: PathBuf,
+    pub current: bool,
 }
 
 #[derive(Serialize)]
@@ -90,6 +99,8 @@ pub struct Mux {
     remote: RemoteConfig,
     recents: Vec<String>,
     recent_projects: Vec<PathBuf>,
+    saved_workspaces: Vec<SavedWorkspace>,
+    startup: Vec<session::StartupCmd>,
     notice: Option<String>,
     theme: Theme,
 }
@@ -113,6 +124,8 @@ impl Mux {
             remote: cfg.remote,
             recents: Vec::new(),
             recent_projects: Vec::new(),
+            saved_workspaces: Vec::new(),
+            startup: Vec::new(),
             notice: None,
             theme: cfg.theme,
         };
@@ -121,16 +134,27 @@ impl Mux {
         {
             mux.recents = session.recents;
             mux.recent_projects = session.recent_projects;
-            if let Some(ws) = session.workspaces.first() {
+            mux.saved_workspaces = session.workspaces;
+            if let Some(ws) = mux
+                .saved_workspaces
+                .get(
+                    session
+                        .active_workspace
+                        .min(mux.saved_workspaces.len().saturating_sub(1)),
+                )
+                .cloned()
+            {
                 mux.root = canonicalize(&ws.root);
                 mux.name = ws.name.clone();
                 mux.branch = git::branch_label(&mux.root);
+                mux.startup = ws.startup.clone();
                 mux.restore_tabs(&ws.tabs, ws.active_tab)?;
             }
         }
         if mux.tabs.is_empty() {
             mux.new_tab(None, None, &[], true)?;
         }
+        mux.apply_startup()?;
         session::push_unique_path(&mut mux.recent_projects, mux.root.clone(), 12);
         Ok(mux)
     }
@@ -280,6 +304,63 @@ impl Mux {
             keybindings: keys::load(),
             version: crate::VERSION.to_string(),
             presets: crate::presets::summaries(),
+            workspaces: self.workspace_snaps(),
+            startup: self.startup.clone(),
+        }
+    }
+
+    fn workspace_snaps(&self) -> Vec<WorkspaceSnap> {
+        let mut list = self.saved_workspaces.clone();
+        session::upsert_workspace(&mut list, self.capture_workspace(), 12);
+        list.into_iter()
+            .map(|ws| WorkspaceSnap {
+                current: ws.root == self.root,
+                name: ws.name,
+                root: ws.root,
+            })
+            .collect()
+    }
+
+    fn capture_workspace(&self) -> SavedWorkspace {
+        SavedWorkspace {
+            name: self.name.clone(),
+            root: self.root.clone(),
+            active_tab: self.active,
+            startup: self.startup.clone(),
+            tabs: self
+                .tabs
+                .iter()
+                .map(|tab| {
+                    let keep: HashSet<u64> = tab.panes.keys().copied().collect();
+                    let specs = tab
+                        .panes
+                        .iter()
+                        .map(|(id, pane)| {
+                            (
+                                *id,
+                                session::LeafSpec {
+                                    cwd: pane.pty.cwd(),
+                                    program: pane.program.clone(),
+                                    args: pane.args.clone(),
+                                },
+                            )
+                        })
+                        .collect();
+                    SavedTab {
+                        focused: tab
+                            .layout
+                            .ids()
+                            .iter()
+                            .position(|id| *id == tab.focused)
+                            .unwrap_or(0),
+                        name: tab.name.clone(),
+                        zoomed: tab
+                            .zoomed
+                            .and_then(|id| tab.layout.ids().iter().position(|pane| *pane == id)),
+                        tree: session::SavedNode::from_layout(&tab.layout, &keep, &specs),
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -294,47 +375,15 @@ impl Mux {
     }
 
     pub fn persist(&self) {
+        let mut workspaces = self.saved_workspaces.clone();
+        session::upsert_workspace(&mut workspaces, self.capture_workspace(), 12);
+        let active_workspace = workspaces
+            .iter()
+            .position(|ws| ws.root == self.root)
+            .unwrap_or(0);
         let session = Session {
-            active_workspace: 0,
-            workspaces: vec![SavedWorkspace {
-                name: self.name.clone(),
-                root: self.root.clone(),
-                active_tab: self.active,
-                tabs: self
-                    .tabs
-                    .iter()
-                    .map(|tab| {
-                        let keep: HashSet<u64> = tab.panes.keys().copied().collect();
-                        let specs = tab
-                            .panes
-                            .iter()
-                            .map(|(id, pane)| {
-                                (
-                                    *id,
-                                    session::LeafSpec {
-                                        cwd: pane.pty.cwd(),
-                                        program: pane.program.clone(),
-                                        args: pane.args.clone(),
-                                    },
-                                )
-                            })
-                            .collect();
-                        SavedTab {
-                            focused: tab
-                                .layout
-                                .ids()
-                                .iter()
-                                .position(|id| *id == tab.focused)
-                                .unwrap_or(0),
-                            name: tab.name.clone(),
-                            zoomed: tab.zoomed.and_then(|id| {
-                                tab.layout.ids().iter().position(|pane| *pane == id)
-                            }),
-                            tree: session::SavedNode::from_layout(&tab.layout, &keep, &specs),
-                        }
-                    })
-                    .collect(),
-            }],
+            active_workspace,
+            workspaces,
             recents: self.recents.clone(),
             recent_projects: self.recent_projects.clone(),
         };
@@ -552,14 +601,85 @@ impl Mux {
     }
 
     pub fn open_project(&mut self, path: &Path) -> Result<()> {
-        self.root = canonicalize(path);
+        let next = canonicalize(path);
+        if next == self.root && !self.tabs.is_empty() {
+            return Ok(());
+        }
+        if !self.tabs.is_empty() {
+            let snapshot = self.capture_workspace();
+            session::upsert_workspace(&mut self.saved_workspaces, snapshot, 12);
+        }
+        self.tabs.clear();
+        self.root = next;
         self.name = workspace_name(&self.root);
         self.branch = git::branch_label(&self.root);
         self.expanded = files::default_expanded();
-        self.tabs.clear();
-        let root = self.root.clone();
-        self.new_tab(None, Some(&root), &[], true)?;
+        let saved = self
+            .saved_workspaces
+            .iter()
+            .find(|ws| ws.root == self.root)
+            .cloned();
+        if let Some(ws) = saved {
+            self.name = ws.name;
+            self.startup = ws.startup;
+            self.restore_tabs(&ws.tabs, ws.active_tab)?;
+        } else {
+            self.startup.clear();
+        }
+        if self.tabs.is_empty() {
+            let root = self.root.clone();
+            self.new_tab(None, Some(&root), &[], true)?;
+        }
+        self.apply_startup()?;
         session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
+        self.persist();
+        Ok(())
+    }
+
+    fn has_program(&self, program: &str) -> bool {
+        self.tabs.iter().any(|tab| {
+            tab.panes
+                .values()
+                .any(|pane| pane.program.as_deref() == Some(program))
+        })
+    }
+
+    pub fn apply_startup(&mut self) -> Result<()> {
+        let cmds = self.startup.clone();
+        for cmd in cmds {
+            if cmd.program.trim().is_empty() || self.has_program(&cmd.program) {
+                continue;
+            }
+            self.run(&cmd.program, &cmd.args)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_startup(&mut self, program: &str, args: &[String]) -> Result<()> {
+        let program = program.trim();
+        if program.is_empty() {
+            return Ok(());
+        }
+        if !self
+            .startup
+            .iter()
+            .any(|cmd| cmd.program == program && cmd.args == args)
+        {
+            self.startup.push(session::StartupCmd {
+                program: program.to_string(),
+                args: args.to_vec(),
+            });
+        }
+        if !self.has_program(program) {
+            self.run(program, args)?;
+        }
+        self.persist();
+        Ok(())
+    }
+
+    pub fn remove_startup(&mut self, program: &str) -> Result<()> {
+        self.startup.retain(|cmd| cmd.program != program);
+        self.persist();
         Ok(())
     }
 

@@ -60,6 +60,8 @@ export type Snapshot = {
   keybindings: { chord: string; command: string }[];
   version: string;
   presets: { id: string; name: string; hint: string }[];
+  workspaces: { name: string; root: string; current: boolean }[];
+  startup: { program: string; args: string[] }[];
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };

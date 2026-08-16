@@ -26,7 +26,7 @@ import {
   X,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
-import { applyXtermTheme, disposeTerm } from "./TerminalPane";
+import { applyXtermTheme, disposeTerm, retainPanes } from "./TerminalPane";
 import { THEMES, parseTheme, type ThemeId } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, isChromeField, setBindings } from "./chords";
@@ -198,6 +198,15 @@ export default function App() {
   }, [apply, call]);
 
   useEffect(() => {
+    if (!snap) return;
+    const live = new Set<number>();
+    for (const item of snap.tabs) {
+      for (const pane of item.panes) live.add(pane.id);
+    }
+    retainPanes(live);
+  }, [snap]);
+
+  useEffect(() => {
     setBindings(snap?.keybindings);
   }, [snap?.keybindings]);
 
@@ -344,20 +353,71 @@ export default function App() {
                   <div className="product-name">LoLTerm {displayVersion(snap.version)}</div>
                   <div className="proj-path">era {eraLabel(snap.version)}</div>
                 </div>
-                <div className="section-label">Recientes</div>
-                {projects.map((p) => (
-                  <button key={p} type="button" className="recent-item" onClick={() => void call("openProject", { path: p })}>
+                <div className="section-label">Workspaces</div>
+                {(snap.workspaces?.length
+                  ? snap.workspaces.map((ws) => ({
+                      key: ws.root,
+                      name: ws.name,
+                      path: ws.root,
+                      current: ws.current,
+                    }))
+                  : projects.map((p) => ({
+                      key: p,
+                      name: projectName(p),
+                      path: p,
+                      current: p === snap.root,
+                    }))
+                ).map((ws) => (
+                  <button
+                    key={ws.key}
+                    type="button"
+                    className={ws.current ? "recent-item on" : "recent-item"}
+                    onClick={() => void call("openProject", { path: ws.path })}
+                  >
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Folder size={12} color="var(--muted)" />
-                      <span className="proj-name">{projectName(p)}</span>
+                      <span className="proj-name">{ws.name}</span>
                     </div>
-                    <div className="proj-path">{p}</div>
+                    <div className="proj-path">{ws.path}</div>
                   </button>
                 ))}
                 <button type="button" className="open-folder-btn" onClick={() => void window.lolterm.openFolder().then(apply)}>
                   <FolderPlus size={12} />
                   Abrir carpeta…
                 </button>
+                <div className="section-label">Al abrir este workspace</div>
+                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
+                  se lanzan si no están ya abiertos
+                </div>
+                {(snap.startup ?? []).map((cmd) => (
+                  <button
+                    key={`${cmd.program}:${cmd.args.join(" ")}`}
+                    type="button"
+                    className="recent-item on"
+                    onClick={() => void call("removeStartup", { program: cmd.program })}
+                    title="quitar del arranque"
+                  >
+                    <span className="proj-name">{cmd.program}</span>
+                    <div className="proj-path">clic para quitar</div>
+                  </button>
+                ))}
+                {snap.run_clis
+                  .filter(
+                    (cli) =>
+                      cli.available &&
+                      !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
+                  )
+                  .map((cli) => (
+                    <button
+                      key={cli.name}
+                      type="button"
+                      className="recent-item"
+                      onClick={() => void call("addStartup", { program: cli.name, args: [] })}
+                    >
+                      <span className="proj-name">+ {cli.name}</span>
+                      <div className="proj-path">agregar al arranque</div>
+                    </button>
+                  ))}
                 <div className="section-label">Layouts</div>
                 {(snap.presets ?? []).map((preset) => (
                   <button

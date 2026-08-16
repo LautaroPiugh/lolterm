@@ -123,6 +123,22 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.apply_preset(params["id"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "addStartup" => {
+            let args: Vec<String> = params["args"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(ToString::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            mux.add_startup(params["program"].as_str().unwrap_or(""), &args)?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "removeStartup" => {
+            mux.remove_startup(params["program"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "closeTab" => {
             mux.close_tab(params["index"].as_u64().unwrap_or(0) as usize)?;
             serde_json::to_value(mux.snapshot())?
