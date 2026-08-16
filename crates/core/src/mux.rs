@@ -171,6 +171,7 @@ impl Mux {
             mux.restore_tabs(&ws.tabs, ws.active_tab)?;
         }
         mux.notes = crate::workspaces::notes_for(&mux.root);
+        mux.consume_pending()?;
         if mux.tabs.is_empty() {
             mux.new_tab(None, None, &[], true)?;
         }
@@ -226,6 +227,7 @@ impl Mux {
         let id = self.next_id;
         self.next_id += 1;
         let env = self.context_env();
+        let (bin, spawn_args) = files::spawn_argv(program, args);
         let pty = BytePty::spawn(
             id,
             PtySize {
@@ -235,8 +237,8 @@ impl Mux {
                 pixel_height: 0,
             },
             cwd,
-            program,
-            args,
+            bin.as_deref(),
+            &spawn_args,
             &env,
             self.tx.clone(),
         )?;
@@ -566,6 +568,7 @@ impl Mux {
         let id = self.next_id;
         self.next_id += 1;
         let env = self.context_env();
+        let (bin, spawn_args) = files::spawn_argv(program, args);
         let pty = BytePty::spawn(
             id,
             PtySize {
@@ -575,8 +578,8 @@ impl Mux {
                 pixel_height: 0,
             },
             cwd,
-            program,
-            args,
+            bin.as_deref(),
+            &spawn_args,
             &env,
             self.tx.clone(),
         )?;
@@ -692,8 +695,8 @@ impl Mux {
     }
 
     pub fn run(&mut self, program: &str, args: &[String]) -> Result<u64> {
-        if !files::command_on_path(program) {
-            self.notice = Some(format!("`{program}` no está en PATH"));
+        if !files::program_ok(program) {
+            self.notice = Some(format!("programa inválido: {program}"));
             return Ok(0);
         }
         if wants_own_tab(program) {
@@ -1005,12 +1008,65 @@ impl Mux {
         Ok(())
     }
 
+    /// Consume `pending.toml` de la CLI y aplica open / ssh / run.
+    pub fn consume_pending(&mut self) -> Result<()> {
+        let Some(pending) = crate::config::take_pending() else {
+            return Ok(());
+        };
+        if let Some(path) = pending
+            .open
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            let path = PathBuf::from(path);
+            if path.is_dir() {
+                self.open_project(&path)?;
+            } else {
+                self.notice = Some(format!("path inválido: {}", path.display()));
+            }
+        }
+        if let Some(key) = pending
+            .ssh
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            let slug = crate::workspaces::slug(key);
+            if self.machines.iter().any(|item| {
+                item.name == key
+                    || item.target == key
+                    || crate::workspaces::slug(&item.name) == slug
+            }) {
+                self.connect_machine(key, None)?;
+            } else if crate::config::machine_target_ok(key) {
+                self.ssh(key)?;
+            } else {
+                self.notice = Some(format!("máquina desconocida: {key}"));
+            }
+        }
+        if let Some(program) = pending
+            .run
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| files::program_ok(name))
+        {
+            self.run(program, &[])?;
+        }
+        Ok(())
+    }
+
     pub fn connect_machine(&mut self, key: &str, user: Option<&str>) -> Result<u64> {
         let key = key.trim();
+        let slug = crate::workspaces::slug(key);
         let Some(machine) = self
             .machines
             .iter()
-            .find(|item| item.name == key || item.target == key)
+            .find(|item| {
+                item.name == key
+                    || item.target == key
+                    || crate::workspaces::slug(&item.name) == slug
+            })
             .cloned()
         else {
             self.notice = Some(format!("máquina desconocida: {key}"));

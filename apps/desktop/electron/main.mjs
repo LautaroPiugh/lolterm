@@ -97,35 +97,60 @@ app.commandLine.appendSwitch("disable-features", "OverlayScrollbar,FluentOverlay
 app.commandLine.appendSwitch("disable-blink-features", "OverlayScrollbars");
 app.commandLine.appendSwitch("log-level", "3");
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
-  startCore(process.argv.find((arg) => arg.startsWith("/")));
-  ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
-  ipcMain.handle("win-minimize", () => {
-    win?.minimize();
-  });
-  ipcMain.handle("win-maximize", () => {
-    if (!win) return;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-  });
-  ipcMain.handle("win-close", () => {
-    win?.close();
-  });
-  ipcMain.handle("clip-read", () => clipboard.readText());
-  ipcMain.handle("clip-write", (_e, text) => {
-    clipboard.writeText(typeof text === "string" ? text : "");
-  });
-  ipcMain.handle("open-folder", async () => {
-    const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
-    if (picked.canceled || !picked.filePaths[0]) return null;
-    return invoke("openProject", { path: picked.filePaths[0] });
-  });
-  createWindow();
-});
+function focusWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
 
-app.on("window-all-closed", () => {
-  invoke("persist", {}).catch(() => {});
-  child?.kill();
+function consumePendingLaunch() {
+  invoke("consumePending")
+    .then((snap) => {
+      if (snap && win) win.webContents.send("core-event", { event: "ready", params: snap });
+    })
+    .catch(() => {});
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
   app.quit();
-});
+} else {
+  app.on("second-instance", () => {
+    focusWindow();
+    consumePendingLaunch();
+  });
+
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    startCore(process.argv.find((arg) => arg.startsWith("/")));
+    ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
+    ipcMain.handle("win-minimize", () => {
+      win?.minimize();
+    });
+    ipcMain.handle("win-maximize", () => {
+      if (!win) return;
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+    });
+    ipcMain.handle("win-close", () => {
+      win?.close();
+    });
+    ipcMain.handle("clip-read", () => clipboard.readText());
+    ipcMain.handle("clip-write", (_e, text) => {
+      clipboard.writeText(typeof text === "string" ? text : "");
+    });
+    ipcMain.handle("open-folder", async () => {
+      const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+      if (picked.canceled || !picked.filePaths[0]) return null;
+      return invoke("openProject", { path: picked.filePaths[0] });
+    });
+    createWindow();
+  });
+
+  app.on("window-all-closed", () => {
+    invoke("persist", {}).catch(() => {});
+    child?.kill();
+    app.quit();
+  });
+}

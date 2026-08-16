@@ -244,6 +244,10 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             )?;
             serde_json::to_value(mux.snapshot())?
         }
+        "consumePending" => {
+            mux.consume_pending()?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "setRemoteTmux" => {
             mux.set_remote_tmux(params["tmux"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?

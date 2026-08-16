@@ -6,7 +6,7 @@ No reemplaza nvim, lazygit ni tmux: los abre en una ventana (Electron). No orque
 ```text
 ventana Electron → lolterm-core → PTY → cualquier CLI
 ventana Electron → lolterm-core → PTY → ssh → tmux
-lolterm CLI      → el mismo crate (config / workspaces, sin PTY todavía)
+lolterm CLI      → el mismo crate (config / workspaces) y abre o enfoca el Desktop
 ```
 
 ## CLI
@@ -17,9 +17,12 @@ cargo run -p lolterm-core --bin lolterm -- workspace list
 cargo run -p lolterm-core --bin lolterm -- .
 cargo run -p lolterm-core --bin lolterm -- workspace open lolterm
 cargo run -p lolterm-core --bin lolterm -- workspace forget desktop
+cargo run -p lolterm-core --bin lolterm -- ssh
+cargo run -p lolterm-core --bin lolterm -- ssh chae
+cargo run -p lolterm-core --bin lolterm -- run nvim
 ```
 
-Lee y escribe `~/.config/lolterm/` (no habla con Electron). `lolterm .` registra el directorio en el catálogo y lo deja como workspace activo para el próximo arranque del Desktop. `status` no imprime env ni secretos.
+Lee y escribe `~/.config/lolterm/` (pending.toml para hablar con una instancia ya abierta). `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. No imprime env ni secretos.
 
 ## Correr (GUI)
 

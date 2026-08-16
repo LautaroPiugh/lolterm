@@ -241,6 +241,37 @@ pub fn config_path() -> std::path::PathBuf {
     config_dir().join("config.toml")
 }
 
+/// Pedido de la CLI para que el Desktop haga algo al arrancar o al recibir
+/// una segunda instancia. No guarda secretos ni argv arbitrario.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingLaunch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+}
+
+pub fn pending_path() -> std::path::PathBuf {
+    config_dir().join("pending.toml")
+}
+
+pub fn write_pending(pending: &PendingLaunch) -> Result<(), String> {
+    let dir = config_dir();
+    std::fs::create_dir_all(&dir).map_err(|err| format!("no pude crear {dir:?}: {err}"))?;
+    let text =
+        toml::to_string(pending).map_err(|err| format!("no pude serializar pending: {err}"))?;
+    std::fs::write(pending_path(), text).map_err(|err| format!("no pude escribir pending: {err}"))
+}
+
+pub fn take_pending() -> Option<PendingLaunch> {
+    let path = pending_path();
+    let text = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    toml::from_str(&text).ok()
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct FileConfig {
     #[serde(default)]
@@ -314,6 +345,20 @@ mod tests {
             kind: MachineKind::Ssh,
         };
         assert_eq!(ssh.dest(None), "root@pi");
+    }
+
+    #[test]
+    fn pending_toml_roundtrip() {
+        let text = toml::to_string(&PendingLaunch {
+            ssh: Some("chae".into()),
+            open: Some("/home/me/dev/lolterm".into()),
+            run: Some("nvim".into()),
+        })
+        .expect("toml");
+        let parsed: PendingLaunch = toml::from_str(&text).expect("parse");
+        assert_eq!(parsed.ssh.as_deref(), Some("chae"));
+        assert_eq!(parsed.open.as_deref(), Some("/home/me/dev/lolterm"));
+        assert_eq!(parsed.run.as_deref(), Some("nvim"));
     }
 
     #[test]

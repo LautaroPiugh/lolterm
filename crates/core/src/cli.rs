@@ -1,9 +1,14 @@
 use std::env;
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 
 use crate::VERSION;
-use crate::config;
+use crate::config::{self, AppConfig, Machine, PendingLaunch};
+use crate::files;
 use crate::git;
+use crate::mux::RUN_CLIS;
 use crate::session::{self, SavedWorkspace, Session};
 use crate::ssh;
 use crate::workspaces;
@@ -15,6 +20,8 @@ pub enum Command {
     Ensure(String),
     Open(String),
     Forget(String),
+    Ssh(Option<String>),
+    Run(Option<String>),
     Help,
     Version,
 }
@@ -56,18 +63,42 @@ pub fn run(args: &[String]) -> Result<i32, String> {
         }
         Command::Ensure(raw) => {
             let root = resolve_dir(&raw)?;
-            print!("{}", format_status(&ensure_workspace(&root)?));
-            Ok(0)
+            let view = ensure_workspace(&root)?;
+            print!("{}", format_status(&view));
+            handoff_to_desktop(
+                PendingLaunch {
+                    open: session_active_root(),
+                    ..PendingLaunch::default()
+                },
+                format!("workspace {}", view.workspace),
+            )
         }
         Command::Open(name) => {
-            print!("{}", format_status(&open_workspace(&name)?));
-            Ok(0)
+            let view = open_workspace(&name)?;
+            print!("{}", format_status(&view));
+            handoff_to_desktop(
+                PendingLaunch {
+                    open: session_active_root(),
+                    ..PendingLaunch::default()
+                },
+                format!("workspace {}", view.workspace),
+            )
         }
         Command::Forget(name) => {
             forget_workspace(&name)?;
             print!("{}", format_workspace_list(&load_workspace_rows()));
             Ok(0)
         }
+        Command::Ssh(None) => {
+            print!("{}", format_machine_list(&config::load().machines));
+            Ok(0)
+        }
+        Command::Ssh(Some(key)) => run_ssh(&key),
+        Command::Run(None) => {
+            print!("{}", format_run_list());
+            Ok(0)
+        }
+        Command::Run(Some(program)) => run_program(&program),
     }
 }
 
@@ -87,6 +118,20 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 return Err("status no admite argumentos".into());
             }
             Ok(Command::Status)
+        }
+        "ssh" => {
+            let key = args.next().map(str::to_string);
+            if args.next().is_some() {
+                return Err("lolterm ssh admite un solo destino".into());
+            }
+            Ok(Command::Ssh(key))
+        }
+        "run" => {
+            let program = args.next().map(str::to_string);
+            if args.next().is_some() {
+                return Err("lolterm run admite un solo programa por ahora".into());
+            }
+            Ok(Command::Run(program))
         }
         "workspace" | "ws" => match args.next() {
             None | Some("list") | Some("ls") => {
@@ -141,11 +186,15 @@ Uso:
   lolterm workspace list
   lolterm workspace open <nombre>
   lolterm workspace forget <nombre>
+  lolterm ssh
+  lolterm ssh <máquina>
+  lolterm run
+  lolterm run <programa>
   lolterm -h | --help
   lolterm -V | --version
 
-Registra workspaces en ~/.config/lolterm (el mismo catálogo que el Desktop).
-No abre la GUI: el próximo arranque de LoLTerm usa el workspace activo.
+Registra workspaces en ~/.config/lolterm. Los comandos `.`, `workspace open`,
+`ssh` y `run` abren o enfocan el Desktop y aplican la acción ahí.
 "
     )
 }
@@ -190,6 +239,188 @@ pub fn format_workspace_list(rows: &[WorkspaceRow]) -> String {
         out.push_str(&format!("{mark} {name:<width$}  {}\n", row.root));
     }
     out
+}
+
+pub struct SshPlan {
+    pub dest: String,
+    pub args: Vec<String>,
+}
+
+pub fn plan_ssh(cfg: &AppConfig, workspace: &str, key: &str) -> Result<SshPlan, String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("hace falta una máquina: lolterm ssh <nombre>".into());
+    }
+    let dest = if let Some(machine) = find_machine(&cfg.machines, key) {
+        let dest = machine.dest(cfg.remote.user.as_deref());
+        if dest.is_empty() {
+            return Err(format!("destino vacío para {key}"));
+        }
+        dest
+    } else if config::machine_target_ok(key) {
+        if let Some((user, host)) = key.split_once('@') {
+            if !ssh::ssh_user_ok(user) || host.is_empty() {
+                return Err(format!("destino inválido: {key}"));
+            }
+            key.to_string()
+        } else {
+            match cfg.remote.user.as_deref() {
+                Some(user) => format!("{user}@{key}"),
+                None => key.to_string(),
+            }
+        }
+    } else {
+        return Err(format!("máquina desconocida: {key}\nprobá: lolterm ssh"));
+    };
+    let tmux = ssh::tmux_session_name(&cfg.remote.tmux, workspace);
+    Ok(SshPlan {
+        dest: dest.clone(),
+        args: ssh::ssh_args(&dest, &tmux),
+    })
+}
+
+fn find_machine<'a>(machines: &'a [Machine], key: &str) -> Option<&'a Machine> {
+    let slug = workspaces::slug(key);
+    machines.iter().find(|machine| {
+        machine.name == key || machine.target == key || workspaces::slug(&machine.name) == slug
+    })
+}
+
+pub fn format_machine_list(machines: &[Machine]) -> String {
+    if machines.is_empty() {
+        return "ninguna máquina (conectá una desde Remoto en el Desktop)\n".into();
+    }
+    let width = machines
+        .iter()
+        .map(|machine| machine.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(24);
+    let mut out = String::new();
+    for machine in machines {
+        out.push_str(&format!(
+            "{:<width$}  {:<9}  {}\n",
+            machine.name,
+            machine.kind.as_str(),
+            machine.target
+        ));
+    }
+    out
+}
+
+fn run_ssh(key: &str) -> Result<i32, String> {
+    let cfg = config::load();
+    let view = load_status();
+    let _plan = plan_ssh(&cfg, &view.workspace, key)?;
+    handoff_to_desktop(
+        PendingLaunch {
+            ssh: Some(key.to_string()),
+            ..PendingLaunch::default()
+        },
+        format!("ssh {key}"),
+    )
+}
+
+fn run_program(program: &str) -> Result<i32, String> {
+    if !files::program_ok(program) {
+        return Err(format!("programa inválido: {program}"));
+    }
+    handoff_to_desktop(
+        PendingLaunch {
+            run: Some(program.to_string()),
+            ..PendingLaunch::default()
+        },
+        format!("run {program}"),
+    )
+}
+
+fn format_run_list() -> String {
+    let mut out = String::new();
+    for name in RUN_CLIS {
+        let mark = if files::command_on_path(name) {
+            "  "
+        } else {
+            "? "
+        };
+        out.push_str(&format!("{mark}{name}\n"));
+    }
+    out.push_str("\nlolterm run nvim  →  abre LoLTerm y lanza el programa en un pane\n");
+    out
+}
+
+fn session_active_root() -> Option<String> {
+    let session = loaded_session();
+    session
+        .workspaces
+        .get(session.active_workspace)
+        .map(|ws| ws.root.to_string_lossy().into_owned())
+}
+
+fn handoff_to_desktop(pending: PendingLaunch, summary: String) -> Result<i32, String> {
+    config::write_pending(&pending)?;
+    match launch_desktop() {
+        Ok(()) => println!("abriendo LoLTerm → {summary}"),
+        Err(err) => {
+            eprintln!("{err}");
+            eprintln!("la acción quedó en cola: abrí LoLTerm cuando puedas");
+        }
+    }
+    Ok(0)
+}
+
+fn desktop_app_root() -> Result<PathBuf, String> {
+    let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop");
+    if from_manifest.join("package.json").is_file() {
+        return from_manifest
+            .canonicalize()
+            .map_err(|err| format!("no pude resolver apps/desktop: {err}"));
+    }
+    Err("no encontré apps/desktop (compilá lolterm desde el repo)".into())
+}
+
+fn vite_dev_up() -> bool {
+    let Ok(addr) = "127.0.0.1:5173".parse::<SocketAddr>() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+fn launch_desktop() -> Result<(), String> {
+    let app = desktop_app_root()?;
+    let electron = app.join("node_modules/.bin/electron");
+    if !electron.is_file() {
+        return Err(format!(
+            "no encontré Electron en {}\ncd apps/desktop && npm install",
+            electron.display()
+        ));
+    }
+    let dist = app.join("dist/index.html");
+    let mut cmd = std::process::Command::new(&electron);
+    cmd.arg(".");
+    cmd.current_dir(&app);
+    cmd.args(["--no-sandbox"]);
+    if vite_dev_up() {
+        cmd.env("LOLTERM_DEV", "1");
+        cmd.env("LOLTERM_URL", "http://127.0.0.1:5173");
+    } else if !dist.is_file() {
+        return Err(
+            "no hay Vite en :5173 ni apps/desktop/dist. Corré `npm run dev` en apps/desktop".into(),
+        );
+    }
+    if let Ok(exe) = env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let core = dir.join("lolterm-core");
+        if core.is_file() {
+            cmd.env("LOLTERM_CORE", core);
+        }
+    }
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+    cmd.spawn()
+        .map_err(|err| format!("no pude abrir LoLTerm: {err}"))?;
+    Ok(())
 }
 
 fn truncate_name(name: &str, width: usize) -> String {
@@ -392,11 +623,48 @@ mod tests {
             parse(&["workspace".into(), "open".into(), "api".into()]).unwrap(),
             Command::Open("api".into())
         );
-        assert!(parse(&["nope".into()]).is_err());
+        assert_eq!(parse(&["ssh".into()]).unwrap(), Command::Ssh(None));
+        assert_eq!(
+            parse(&["ssh".into(), "chae".into()]).unwrap(),
+            Command::Ssh(Some("chae".into()))
+        );
+        assert_eq!(parse(&["run".into()]).unwrap(), Command::Run(None));
+        assert_eq!(
+            parse(&["run".into(), "nvim".into()]).unwrap(),
+            Command::Run(Some("nvim".into()))
+        );
         assert_eq!(
             parse(&["workspace".into(), "forget".into(), "desktop".into()]).unwrap(),
             Command::Forget("desktop".into())
         );
+        assert!(parse(&["nope".into()]).is_err());
+        assert!(parse(&["workspace".into(), "open".into()]).is_err());
+    }
+
+    #[test]
+    fn plan_ssh_uses_registry_and_workspace_tmux() {
+        let cfg = AppConfig {
+            machines: vec![Machine {
+                name: "chae".into(),
+                target: "chae.tailnet.ts.net".into(),
+                user: Some("lauta".into()),
+                kind: crate::config::MachineKind::Tailscale,
+            }],
+            remote: crate::config::RemoteConfig {
+                user: Some("lauta".into()),
+                tmux: "lolterm".into(),
+            },
+            ..AppConfig::default()
+        };
+        let plan = plan_ssh(&cfg, "lolterm", "chae").unwrap();
+        assert_eq!(plan.dest, "lauta@chae.tailnet.ts.net");
+        assert!(
+            plan.args
+                .last()
+                .unwrap()
+                .contains("tmux new-session -A -s lolterm-lolterm")
+        );
+        assert!(!plan.args.iter().any(|arg| arg.contains("password")));
     }
 
     #[test]

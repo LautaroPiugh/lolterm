@@ -236,8 +236,83 @@ pub fn editor() -> Option<(String, Vec<String>)> {
 }
 
 pub fn command_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+    resolve_command(name).is_some()
+}
+
+/// Nombre de programa para `lolterm run`: un binario, sin path ni shell.
+pub fn program_ok(name: &str) -> bool {
+    let name = name.trim();
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+}
+
+pub fn user_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
+}
+
+/// Busca el binario en PATH y, si no está, en el PATH del shell de login.
+pub fn resolve_command(name: &str) -> Option<PathBuf> {
+    let name = name.trim();
+    if name.contains('/') {
+        let path = PathBuf::from(name);
+        return path.is_file().then_some(path);
+    }
+    if !program_ok(name) {
+        return None;
+    }
+    lookup_in_path(name).or_else(|| shell_which(name))
+}
+
+fn lookup_in_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let candidate = dir.join(name);
+            candidate.is_file().then_some(candidate)
+        })
+    })
+}
+
+fn shell_which(name: &str) -> Option<PathBuf> {
+    if !program_ok(name) {
+        return None;
+    }
+    for flag in ["-lc", "-ic"] {
+        let Ok(output) = std::process::Command::new(user_shell())
+            .args([flag, &format!("command -v {name}")])
+            .output()
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let line = String::from_utf8(output.stdout).ok()?;
+        let line = line.trim();
+        if !line.starts_with('/') {
+            continue;
+        }
+        let path = PathBuf::from(line);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Qué argv pasarle al PTY: binario resuelto, o el shell de login si no está en PATH.
+pub fn spawn_argv(program: Option<&str>, args: &[String]) -> (Option<String>, Vec<String>) {
+    let Some(name) = program else {
+        return (None, args.to_vec());
+    };
+    if let Some(path) = resolve_command(name) {
+        return (Some(path.to_string_lossy().into_owned()), args.to_vec());
+    }
+    let mut wrapped = vec!["-lc".into(), "exec \"$0\" \"$@\"".into(), name.to_string()];
+    wrapped.extend(args.iter().cloned());
+    (Some(user_shell()), wrapped)
 }
 
 const STACK_MARKERS: &[(&str, &str)] = &[
@@ -375,5 +450,29 @@ mod tests {
             vec!["python"]
         );
         assert!(stack_from_names(&["src"]).is_empty());
+    }
+
+    #[test]
+    fn program_ok_rejects_paths_and_flags() {
+        assert!(program_ok("nvim"));
+        assert!(program_ok("claude"));
+        assert!(!program_ok(""));
+        assert!(!program_ok("-rf"));
+        assert!(!program_ok("../bin/sh"));
+        assert!(!program_ok("foo;bar"));
+    }
+
+    #[test]
+    fn resolve_command_finds_sh() {
+        assert!(resolve_command("sh").is_some() || resolve_command("bash").is_some());
+        assert!(resolve_command("definitely-not-a-lolterm-bin").is_none());
+    }
+
+    #[test]
+    fn spawn_argv_falls_back_to_login_shell() {
+        let (bin, args) = spawn_argv(Some("definitely-not-a-lolterm-bin"), &[]);
+        assert_eq!(bin.as_deref(), Some(user_shell().as_str()));
+        assert_eq!(args[0], "-lc");
+        assert_eq!(args[2], "definitely-not-a-lolterm-bin");
     }
 }
