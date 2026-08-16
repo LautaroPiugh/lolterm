@@ -28,13 +28,17 @@ fn main() -> Result<()> {
         let out = Arc::clone(&out);
         std::thread::spawn(move || {
             while let Ok((pane, bytes)) = rx.recv() {
-                let line = json!({
-                    "event": "data",
-                    "params": {
-                        "pane": pane,
-                        "b64": encode_b64(&bytes),
-                    }
-                });
+                let line = if bytes.is_empty() {
+                    json!({ "event": "exit", "params": { "pane": pane } })
+                } else {
+                    json!({
+                        "event": "data",
+                        "params": {
+                            "pane": pane,
+                            "b64": encode_b64(&bytes),
+                        }
+                    })
+                };
                 let mut out = out.lock().expect("stdout");
                 let _ = writeln!(out, "{line}");
                 let _ = out.flush();
@@ -120,6 +124,14 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.split(dir, None, &[])?;
             serde_json::to_value(mux.snapshot())?
         }
+        "setSplit" => {
+            mux.set_split(
+                params["pane"].as_u64().unwrap_or(0),
+                params["other"].as_u64().unwrap_or(0),
+                params["percent"].as_u64().unwrap_or(50),
+            );
+            serde_json::to_value(mux.snapshot())?
+        }
         "closePane" => {
             mux.close_pane(params["pane"].as_u64().unwrap_or(0))?;
             serde_json::to_value(mux.snapshot())?
@@ -174,6 +186,40 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
         }
         "setTheme" => {
             mux.set_theme(params["theme"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "dispatch" => {
+            mux.dispatch(params["id"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "zoom" => {
+            mux.toggle_zoom();
+            serde_json::to_value(mux.snapshot())?
+        }
+        "focusNav" => {
+            if let Some(dir) =
+                lolterm_core::layout::NavDir::parse(params["dir"].as_str().unwrap_or(""))
+            {
+                mux.focus_nav(dir);
+            }
+            serde_json::to_value(mux.snapshot())?
+        }
+        "renameTab" => {
+            mux.rename_tab(
+                params["index"].as_u64().unwrap_or(0) as usize,
+                params["name"].as_str().unwrap_or(""),
+            );
+            serde_json::to_value(mux.snapshot())?
+        }
+        "moveTab" => {
+            mux.move_tab(
+                params["from"].as_u64().unwrap_or(0) as usize,
+                params["to"].as_u64().unwrap_or(0) as usize,
+            );
+            serde_json::to_value(mux.snapshot())?
+        }
+        "restartPane" => {
+            mux.restart_pane(params["pane"].as_u64().unwrap_or(0))?;
             serde_json::to_value(mux.snapshot())?
         }
         other => json!({ "error": format!("unknown method {other}") }),

@@ -436,6 +436,21 @@ button {
   color: var(--text);
 }
 
+.tab-rename {
+  width: 120px;
+  height: 24px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  background: var(--pane);
+  color: var(--text);
+  padding: 0 8px;
+  font: inherit;
+}
+
+.tab-add.on {
+  color: var(--brand);
+}
+
 .tab-add {
   width: 24px;
   height: 24px;
@@ -490,6 +505,7 @@ button {
   width: 4px;
   min-width: 4px;
   background: var(--bar);
+  cursor: col-resize;
 }
 
 .pane-divider-h {
@@ -497,17 +513,37 @@ button {
   min-height: 4px;
   width: 100%;
   background: var(--bar);
+  cursor: row-resize;
+}
+
+.pane-divider:hover,
+.pane-divider-h:hover {
+  background: var(--focus);
+}
+
+.split.dragging {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.split.dragging .pane-divider-h {
+  cursor: row-resize;
 }
 
 .term {
   height: 100%;
   width: 100%;
-  padding: 4px;
+  padding: 0;
   border: 2px solid transparent;
 }
 
 .term-focus {
   border-color: var(--focus);
+}
+
+.term .xterm {
+  height: 100%;
+  width: 100%;
 }
 
 .status {

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Menu, app, BrowserWindow, dialog, ipcMain } from "electron";
+import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
@@ -107,6 +107,10 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("win-close", () => {
     win?.close();
+  });
+  ipcMain.handle("clip-read", () => clipboard.readText());
+  ipcMain.handle("clip-write", (_e, text) => {
+    clipboard.writeText(typeof text === "string" ? text : "");
   });
   ipcMain.handle("open-folder", async () => {
     const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });

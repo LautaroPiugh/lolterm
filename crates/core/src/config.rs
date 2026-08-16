@@ -104,14 +104,18 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
     std::fs::write(path, text)
 }
 
-pub fn config_path() -> std::path::PathBuf {
+pub fn config_dir() -> std::path::PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
         })
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    base.join("lolterm").join("config.toml")
+    base.join("lolterm")
+}
+
+pub fn config_path() -> std::path::PathBuf {
+    config_dir().join("config.toml")
 }
 
 #[derive(Default, Serialize, Deserialize)]

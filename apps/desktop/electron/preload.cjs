@@ -13,4 +13,8 @@ contextBridge.exposeInMainWorld("lolterm", {
     maximize: () => ipcRenderer.invoke("win-maximize"),
     close: () => ipcRenderer.invoke("win-close"),
   },
+  clipboard: {
+    read: () => ipcRenderer.invoke("clip-read"),
+    write: (text) => ipcRenderer.invoke("clip-write", text ?? ""),
+  },
 });

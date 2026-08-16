@@ -17,6 +17,7 @@ export type PaneSnap = {
 export type TabSnap = {
   name: string;
   focused: number;
+  zoomed: number | null;
   layout: LayoutNode;
   panes: PaneSnap[];
 };
@@ -56,9 +57,10 @@ export type Snapshot = {
   notice: string | null;
   theme: string;
   ssh_user: string | null;
+  keybindings: { chord: string; command: string }[];
 };
 
-export type CommandHit = { slash: string; hint: string };
+export type CommandHit = { id: string; slash: string; hint: string };
 export type HostItem = { name: string; target: string; hint: string };
 export type Peer = { name: string; target: string; online: boolean; ip: string | null };
 
@@ -72,6 +74,10 @@ declare global {
         minimize: () => Promise<void>;
         maximize: () => Promise<void>;
         close: () => Promise<void>;
+      };
+      clipboard: {
+        read: () => Promise<string>;
+        write: (text: string) => Promise<void>;
       };
     };
   }

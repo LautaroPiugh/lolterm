@@ -22,6 +22,83 @@ export function applyXtermTheme(id: ThemeId) {
   }
 }
 
+export function disposeTerm(pane: number) {
+  const timer = pendingDispose.get(pane);
+  if (timer != null) {
+    window.clearTimeout(timer);
+    pendingDispose.delete(pane);
+  }
+  const cached = cache.get(pane);
+  if (!cached) return;
+  cached.off();
+  cached.term.dispose();
+  cache.delete(pane);
+}
+
+async function copySelection(term: Terminal) {
+  const text = term.getSelection();
+  if (!text) return;
+  await window.lolterm.clipboard.write(text);
+}
+
+async function pasteInto(term: Terminal) {
+  const text = await window.lolterm.clipboard.read();
+  if (!text) return;
+  term.paste(text);
+}
+
+function utf8ToB64(text: string): string {
+  return btoa(unescape(encodeURIComponent(text)));
+}
+
+function b64ToUtf8(text: string): string {
+  return decodeURIComponent(escape(atob(text)));
+}
+
+function wireOsc52(term: Terminal) {
+  term.parser.registerOscHandler(52, (data) => {
+    const sep = data.indexOf(";");
+    const sel = sep >= 0 ? data.slice(0, sep) : data;
+    const payload = sep >= 0 ? data.slice(sep + 1) : "";
+    if (payload === "?") {
+      void window.lolterm.clipboard.read().then((text) => {
+        term.input(`\x1b]52;${sel};${utf8ToB64(text)}\x07`, false);
+      });
+      return true;
+    }
+    try {
+      void window.lolterm.clipboard.write(payload ? b64ToUtf8(payload) : "");
+    } catch {
+      void window.lolterm.clipboard.write("");
+    }
+    return true;
+  });
+}
+
+function wireClipboard(term: Terminal, host: HTMLElement) {
+  term.attachCustomKeyEventHandler((ev) => {
+    if (ev.type !== "keydown") return true;
+    const chord = ev.ctrlKey || ev.metaKey;
+    if (chord && ev.shiftKey && ev.code === "KeyC") {
+      void copySelection(term);
+      return false;
+    }
+    if (chord && ev.shiftKey && ev.code === "KeyV") {
+      void pasteInto(term);
+      return false;
+    }
+    return true;
+  });
+  host.addEventListener("auxclick", (ev) => {
+    if (ev.button !== 1) return;
+    ev.preventDefault();
+    void pasteInto(term);
+  });
+  host.addEventListener("mouseup", () => {
+    if (term.hasSelection()) void copySelection(term);
+  });
+}
+
 function ensureTerm(pane: number): Cached {
   const existing = cache.get(pane);
   if (existing) return existing;
@@ -31,6 +108,9 @@ function ensureTerm(pane: number): Cached {
     cursorBlink: true,
     scrollback: 2000,
     theme: xtermTheme(currentTheme),
+    allowProposedApi: true,
+    rightClickSelectsWord: true,
+    macOptionIsMeta: true,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -42,10 +122,26 @@ function ensureTerm(pane: number): Cached {
     if (msg.event === "data" && msg.params?.pane === pane && msg.params.b64) {
       term.write(b64decode(msg.params.b64));
     }
+    if (msg.event === "exit" && msg.params?.pane === pane) {
+      disposeTerm(pane);
+    }
   });
   const entry = { term, fit, off };
   cache.set(pane, entry);
   return entry;
+}
+
+export function refitAllTerminals() {
+  requestAnimationFrame(() => {
+    for (const [pane, entry] of cache) {
+      entry.fit.fit();
+      void window.lolterm.invoke("resize", {
+        pane,
+        cols: entry.term.cols,
+        rows: entry.term.rows,
+      });
+    }
+  });
 }
 
 export function TerminalPane({
@@ -74,10 +170,13 @@ export function TerminalPane({
       node.appendChild(entry.term.element);
     } else {
       entry.term.open(node);
+      wireOsc52(entry.term);
+      if (entry.term.element) wireClipboard(entry.term, entry.term.element);
     }
 
     let debounce: number | undefined;
     const sendSize = () => {
+      if (node.clientWidth < 2 || node.clientHeight < 2) return;
       entry.fit.fit();
       void window.lolterm.invoke("resize", {
         pane,
@@ -93,8 +192,10 @@ export function TerminalPane({
     ro.observe(node);
     window.addEventListener("resize", schedule);
     queueMicrotask(sendSize);
+    const raf = requestAnimationFrame(sendSize);
 
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("resize", schedule);
       ro.disconnect();
       if (debounce != null) window.clearTimeout(debounce);
@@ -104,12 +205,7 @@ export function TerminalPane({
       pendingDispose.set(
         pane,
         window.setTimeout(() => {
-          const cached = cache.get(pane);
-          if (!cached) return;
-          cached.off();
-          cached.term.dispose();
-          cache.delete(pane);
-          pendingDispose.delete(pane);
+          disposeTerm(pane);
         }, 300),
       );
     };

@@ -7,30 +7,18 @@ use color_eyre::eyre::eyre;
 use portable_pty::PtySize;
 use serde::Serialize;
 
+use crate::commands::{self, CommandHit};
 use crate::config::{RemoteConfig, Theme};
 use crate::files;
 use crate::git;
-use crate::layout::{LayoutNode, SplitDir};
+use crate::keys::{self, Binding};
+use crate::layout::{LayoutNode, NavDir, SplitDir};
 use crate::pty::BytePty;
 use crate::session::{self, SavedTab, SavedWorkspace, Session};
 use crate::ssh;
 
 pub const RUN_CLIS: &[&str] = &[
     "nvim", "lazygit", "btop", "yazi", "codex", "claude", "opencode", "gemini", "cline",
-];
-
-pub const COMMANDS: &[(&str, &str)] = &[
-    ("run", "abrir una CLI en un pane o tab"),
-    ("split-right", "partir el pane a la derecha"),
-    ("split-down", "partir el pane abajo"),
-    ("tab-new", "nueva tab"),
-    ("tab-close", "cerrar tab"),
-    ("files", "buscar archivos"),
-    ("lazygit", "abrir lazygit"),
-    ("ts-ssh", "máquina Tailscale, después usuario"),
-    ("ssh", "hosts de ~/.ssh/config"),
-    ("sidebar", "mostrar u ocultar explorer"),
-    ("theme", "sage, dusk o mono"),
 ];
 
 #[derive(Serialize)]
@@ -48,12 +36,14 @@ pub struct Snapshot {
     pub notice: Option<String>,
     pub theme: Theme,
     pub ssh_user: Option<String>,
+    pub keybindings: Vec<Binding>,
 }
 
 #[derive(Serialize)]
 pub struct TabSnap {
     pub name: String,
     pub focused: u64,
+    pub zoomed: Option<u64>,
     pub layout: LayoutNode,
     pub panes: Vec<PaneSnap>,
 }
@@ -80,6 +70,7 @@ struct LivePane {
 struct Tab {
     name: Option<String>,
     focused: u64,
+    zoomed: Option<u64>,
     layout: LayoutNode,
     panes: HashMap<u64, LivePane>,
 }
@@ -146,6 +137,7 @@ impl Mux {
             let mut live = Tab {
                 name: tab.name.clone(),
                 focused: 0,
+                zoomed: None,
                 layout: LayoutNode::leaf(0),
                 panes: HashMap::new(),
             };
@@ -212,6 +204,7 @@ impl Mux {
             self.tabs.push(Tab {
                 name: program.map(ToString::to_string),
                 focused: id,
+                zoomed: None,
                 layout: LayoutNode::leaf(id),
                 panes,
             });
@@ -238,6 +231,7 @@ impl Mux {
                 .map(|tab| TabSnap {
                     name: tab.name.clone().unwrap_or_else(|| tab_label(tab)),
                     focused: tab.focused,
+                    zoomed: tab.zoomed,
                     layout: tab.layout.clone(),
                     panes: tab
                         .panes
@@ -264,6 +258,7 @@ impl Mux {
             notice: self.notice.clone(),
             theme: self.theme,
             ssh_user: self.remote.user.clone(),
+            keybindings: keys::load(),
         }
     }
 
@@ -386,6 +381,7 @@ impl Mux {
         self.tabs.push(Tab {
             name: program.map(ToString::to_string),
             focused: id,
+            zoomed: None,
             layout: LayoutNode::leaf(id),
             panes,
         });
@@ -421,6 +417,14 @@ impl Mux {
         Ok(id)
     }
 
+    pub fn set_split(&mut self, first: u64, second: u64, percent: u64) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        tab.layout
+            .set_percent(first, second, percent.min(u16::MAX as u64) as u16)
+    }
+
     pub fn close_pane(&mut self, pane: u64) -> Result<()> {
         let tab = self
             .tabs
@@ -432,6 +436,9 @@ impl Mux {
         tab.panes.remove(&pane);
         tab.layout.remove_pane(pane);
         tab.focused = tab.layout.first_leaf().unwrap_or(pane);
+        if tab.zoomed == Some(pane) {
+            tab.zoomed = None;
+        }
         Ok(())
     }
 
@@ -561,25 +568,133 @@ impl Mux {
     }
 
     pub fn commands(&self, query: &str) -> Vec<CommandHit> {
-        let needle = query.trim().trim_start_matches('/');
-        COMMANDS
-            .iter()
-            .filter(|(slash, hint)| {
-                needle.is_empty()
-                    || slash.contains(needle)
-                    || hint
-                        .to_ascii_lowercase()
-                        .contains(&needle.to_ascii_lowercase())
-            })
-            .map(|(slash, hint)| CommandHit {
-                slash: (*slash).to_string(),
-                hint: (*hint).to_string(),
-            })
-            .collect()
+        commands::search(query)
+    }
+
+    pub fn toggle_zoom(&mut self) {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        tab.zoomed = match tab.zoomed {
+            Some(id) if id == tab.focused => None,
+            _ => Some(tab.focused),
+        };
+    }
+
+    pub fn focus_nav(&mut self, dir: NavDir) {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let Some(next) = tab.layout.neighbor(tab.focused, dir) else {
+            return;
+        };
+        tab.focused = next;
+        if tab.zoomed.is_some() {
+            tab.zoomed = Some(next);
+        }
+    }
+
+    pub fn rename_tab(&mut self, index: usize, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        if let Some(tab) = self.tabs.get_mut(index) {
+            tab.name = Some(name.to_string());
+        }
+    }
+
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        if self.active == from {
+            self.active = to;
+        } else if from < self.active && to >= self.active {
+            self.active -= 1;
+        } else if from > self.active && to <= self.active {
+            self.active += 1;
+        }
+    }
+
+    pub fn restart_pane(&mut self, pane: u64) -> Result<()> {
+        let (cwd, program) = {
+            let tab = self.tabs.get(self.active).ok_or_else(|| eyre!("no tab"))?;
+            let live = tab.panes.get(&pane).ok_or_else(|| eyre!("unknown pane"))?;
+            (
+                live.pty.cwd().unwrap_or_else(|| self.root.clone()),
+                live.program.clone(),
+            )
+        };
+        let new_id = self.spawn_pane(&cwd, program.as_deref(), &[])?;
+        let tab = self
+            .tabs
+            .get_mut(self.active)
+            .ok_or_else(|| eyre!("no tab"))?;
+        tab.layout.replace_id(pane, new_id);
+        tab.panes.remove(&pane);
+        if tab.focused == pane {
+            tab.focused = new_id;
+        }
+        if tab.zoomed == Some(pane) {
+            tab.zoomed = Some(new_id);
+        }
+        Ok(())
+    }
+
+    pub fn dispatch(&mut self, name: &str) -> Result<bool> {
+        let Some(spec) = commands::lookup(name) else {
+            self.notice = Some(format!("comando desconocido: {name}"));
+            return Ok(false);
+        };
+        if spec.kind == commands::CommandKind::Ui {
+            return Ok(false);
+        }
+        match spec.id {
+            "tab.new" => {
+                self.new_tab(None, None, &[], true)?;
+            }
+            "tab.close" => self.close_tab(self.active)?,
+            "pane.splitRight" => {
+                self.split(SplitDir::Columns, None, &[])?;
+            }
+            "pane.splitDown" => {
+                self.split(SplitDir::Rows, None, &[])?;
+            }
+            "pane.zoom" => self.toggle_zoom(),
+            "pane.focusLeft" => self.focus_nav(NavDir::Left),
+            "pane.focusRight" => self.focus_nav(NavDir::Right),
+            "pane.focusUp" => self.focus_nav(NavDir::Up),
+            "pane.focusDown" => self.focus_nav(NavDir::Down),
+            "pane.close" => {
+                let pane = self
+                    .tabs
+                    .get(self.active)
+                    .map(|tab| tab.focused)
+                    .unwrap_or(0);
+                self.close_pane(pane)?;
+            }
+            "pane.restart" => {
+                let pane = self
+                    .tabs
+                    .get(self.active)
+                    .map(|tab| tab.focused)
+                    .unwrap_or(0);
+                self.restart_pane(pane)?;
+            }
+            "run.lazygit" => {
+                self.run("lazygit", &[])?;
+            }
+            _ => {}
+        }
+        Ok(true)
     }
 
     pub fn reap(&mut self) {
-        for tab in &mut self.tabs {
+        let mut empty_tabs = Vec::new();
+        for (index, tab) in self.tabs.iter_mut().enumerate() {
             let mut dead = Vec::new();
             for (id, pane) in &mut tab.panes {
                 let _ = pane.pty.poll_exit();
@@ -588,12 +703,24 @@ impl Mux {
                 }
             }
             for id in dead {
-                if tab.panes.len() > 1 {
-                    tab.panes.remove(&id);
-                    tab.layout.remove_pane(id);
-                    tab.focused = tab.layout.first_leaf().unwrap_or(id);
+                tab.panes.remove(&id);
+                tab.layout.remove_pane(id);
+                tab.focused = tab.layout.first_leaf().unwrap_or(id);
+                if tab.zoomed == Some(id) {
+                    tab.zoomed = None;
                 }
             }
+            if tab.panes.is_empty() {
+                empty_tabs.push(index);
+            }
+        }
+        for index in empty_tabs.into_iter().rev() {
+            self.tabs.remove(index);
+        }
+        if self.tabs.is_empty() {
+            let _ = self.new_tab(None, None, &[], true);
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
         }
     }
 
@@ -601,12 +728,6 @@ impl Mux {
         let tab = self.tabs.get(self.active)?;
         tab.panes.get(&tab.focused).and_then(|pane| pane.pty.cwd())
     }
-}
-
-#[derive(Serialize)]
-pub struct CommandHit {
-    pub slash: String,
-    pub hint: String,
 }
 
 fn wants_own_tab(program: &str) -> bool {

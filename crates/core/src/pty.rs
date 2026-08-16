@@ -63,13 +63,19 @@ impl BytePty {
             let mut buf = [0u8; 8192];
             loop {
                 match reader.read(&mut buf) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        let _ = tx.send((id, Vec::new()));
+                        break;
+                    }
                     Ok(n) => {
                         if tx.send((id, buf[..n].to_vec())).is_err() {
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        let _ = tx.send((id, Vec::new()));
+                        break;
+                    }
                 }
             }
         });

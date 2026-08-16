@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { SplitView } from "./SplitView";
 import {
   Check,
@@ -25,7 +25,7 @@ import {
   X,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
-import { applyXtermTheme } from "./TerminalPane";
+import { applyXtermTheme, disposeTerm } from "./TerminalPane";
 import { THEMES, parseTheme, type ThemeId } from "./themes";
 import type { CommandHit, HostItem, Peer, Snapshot, TabSnap, TreeRow } from "./types";
 
@@ -83,6 +83,16 @@ function projectName(path: string) {
   return parts[parts.length - 1] || path;
 }
 
+function eventChord(e: KeyboardEvent): string {
+  const mods: string[] = [];
+  if (e.altKey) mods.push("alt");
+  if (e.ctrlKey) mods.push("ctrl");
+  if (e.metaKey) mods.push("meta");
+  if (e.shiftKey) mods.push("shift");
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  return mods.length ? `${mods.join("+")}+${key}` : key;
+}
+
 function ThemePicker({
   current,
   onPick,
@@ -120,6 +130,9 @@ export default function App() {
   const [cmds, setCmds] = useState<CommandHit[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [sshUser, setSshUser] = useState("");
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const dragTab = useRef<number | null>(null);
 
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
@@ -136,9 +149,55 @@ export default function App() {
     [apply],
   );
 
+  const runBound = useCallback(
+    async (name: string) => {
+      const key = name.trim().replace(/^\//, "");
+      if (key === "ui.palette" || key === "palette") {
+        setModal({ kind: "palette", query: "" });
+        return;
+      }
+      if (key === "ui.run" || key === "run") {
+        setModal({ kind: "run" });
+        return;
+      }
+      if (key === "ui.files" || key === "files") {
+        setModal({ kind: "files", query: "" });
+        return;
+      }
+      if (key === "ui.ssh" || key === "ssh") {
+        setModal({ kind: "ssh", query: "" });
+        return;
+      }
+      if (key === "ui.tsSsh" || key === "ts-ssh") {
+        setModal({ kind: "ts", user: sshUser, selected: 0 });
+        return;
+      }
+      if (key === "ui.sidebar" || key === "sidebar") {
+        setSidebar((v) => !v);
+        return;
+      }
+      if (key === "ui.theme" || key === "theme") {
+        setModal({ kind: "theme" });
+        return;
+      }
+      if (key === "ui.tabRename" || key === "tab-rename") {
+        const index = snap?.active_tab ?? 0;
+        setRenaming(index);
+        setRenameDraft(snap?.tabs[index]?.name ?? "");
+        return;
+      }
+      await call("dispatch", { id: key });
+    },
+    [call, snap?.active_tab, snap?.tabs, sshUser],
+  );
+
   useEffect(() => {
     const off = window.lolterm.onEvent((msg) => {
       if (msg.event === "ready") apply(msg.params);
+      if (msg.event === "exit" && msg.params?.pane != null) {
+        disposeTerm(msg.params.pane);
+        void call("snapshot");
+      }
     });
     void call("snapshot");
     void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
@@ -147,15 +206,23 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "p")) {
-        e.preventDefault();
-        setModal({ kind: "palette", query: "" });
+      if (e.key === "Escape") {
+        setModal(null);
+        setRenaming(null);
+        return;
       }
-      if (e.key === "Escape") setModal(null);
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      const chord = eventChord(e);
+      const hit = snap?.keybindings?.find((item) => item.chord === chord);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void runBound(hit.command);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [runBound, snap?.keybindings]);
 
   useEffect(() => {
     if (modal?.kind === "palette") {
@@ -207,32 +274,7 @@ export default function App() {
 
   async function runCommand(slash: string) {
     setModal(null);
-    if (slash === "run") {
-      setModal({ kind: "run" });
-      return;
-    }
-    if (slash === "files") {
-      setModal({ kind: "files", query: "" });
-      return;
-    }
-    if (slash === "ssh") {
-      setModal({ kind: "ssh", query: "" });
-      return;
-    }
-    if (slash === "ts-ssh") {
-      setModal({ kind: "ts", user: sshUser, selected: 0 });
-      return;
-    }
-    if (slash === "split-right") return void call("split", { dir: "columns" });
-    if (slash === "split-down") return void call("split", { dir: "rows" });
-    if (slash === "tab-new") return void call("newTab");
-    if (slash === "tab-close") return void call("closeTab", { index: snap?.active_tab ?? 0 });
-    if (slash === "lazygit") return void call("run", { program: "lazygit", args: [] });
-    if (slash === "sidebar") setSidebar((v) => !v);
-    if (slash === "theme") {
-      setModal({ kind: "theme" });
-      return;
-    }
+    await runBound(slash);
   }
 
   async function connectTs(target: string, user = sshUser) {
@@ -461,12 +503,49 @@ export default function App() {
             {snap.tabs.map((item, index) => {
               const Icon = tabIcon(item);
               const on = index === snap.active_tab;
+              if (renaming === index) {
+                return (
+                  <input
+                    key={`rename-${index}`}
+                    className="tab-rename"
+                    autoFocus
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={() => {
+                      void call("renameTab", { index, name: renameDraft });
+                      setRenaming(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                  />
+                );
+              }
               return (
                 <button
                   key={`${item.name}-${index}`}
                   type="button"
                   className={on ? "tab-pill on" : "tab-pill"}
+                  draggable
                   onClick={() => void call("selectTab", { index })}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setRenaming(index);
+                    setRenameDraft(item.name);
+                  }}
+                  onDragStart={() => {
+                    dragTab.current = index;
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    const from = dragTab.current;
+                    dragTab.current = null;
+                    if (from == null || from === index) return;
+                    void call("moveTab", { from, to: index });
+                  }}
                 >
                   <Icon size={12} color={on ? "#488C58" : "#6C8070"} />
                   <span>{item.name}</span>
@@ -491,6 +570,14 @@ export default function App() {
             <button type="button" className="tab-add" title="Split horizontal" onClick={() => void call("split", { dir: "rows" })}>
               <Rows size={14} />
             </button>
+            <button
+              type="button"
+              className={tab?.zoomed != null ? "tab-add on" : "tab-add"}
+              title="Zoom pane (Ctrl-Alt-z)"
+              onClick={() => void call("zoom")}
+            >
+              <Square size={14} />
+            </button>
           </div>
           <div className="crumbs">
             {crumbs.map((part, i) => (
@@ -506,6 +593,7 @@ export default function App() {
                 node={tab.layout}
                 panes={tab.panes}
                 focused={tab.focused}
+                zoomed={tab.zoomed}
                 onFocus={(id) => void call("focus", { pane: id })}
               />
             )}
@@ -519,7 +607,7 @@ export default function App() {
         </span>
         <span className="status-sep">·</span>
         <span className="status-path">{snap.root}</span>
-        <span className="status-shortcut">Ctrl-b paleta</span>
+        <span className="status-shortcut">Ctrl-b paleta · Ctrl-Alt-hjkl panes</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
 
@@ -542,7 +630,7 @@ export default function App() {
             </div>
             <div className="cmd-section-label">Acciones</div>
             {cmds.map((cmd) => (
-              <button key={cmd.slash} type="button" className="cmd-result" onClick={() => void runCommand(cmd.slash)}>
+              <button key={cmd.id} type="button" className="cmd-result" onClick={() => void runCommand(cmd.id)}>
                 <Terminal size={12} color="#6C8070" />
                 <span className="cmd-result-label">
                   /{cmd.slash} · {cmd.hint}
