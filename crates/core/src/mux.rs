@@ -37,6 +37,7 @@ pub struct Snapshot {
     pub theme: Theme,
     pub ssh_user: Option<String>,
     pub keybindings: Vec<Binding>,
+    pub version: String,
 }
 
 #[derive(Serialize)]
@@ -64,6 +65,7 @@ pub struct RunCli {
 struct LivePane {
     title: String,
     program: Option<String>,
+    args: Vec<String>,
     pty: BytePty,
 }
 
@@ -141,11 +143,15 @@ impl Mux {
                 layout: LayoutNode::leaf(0),
                 panes: HashMap::new(),
             };
-            let cwds = tab.tree.leaf_cwds();
+            let specs = tab.tree.leaf_specs();
             let mut ids = Vec::new();
-            for cwd in &cwds {
-                let cwd = cwd.clone().unwrap_or_else(|| self.root.clone());
-                let id = self.spawn_pane(&cwd, None, &[])?;
+            for spec in &specs {
+                let cwd = spec.cwd.clone().unwrap_or_else(|| self.root.clone());
+                let program = spec
+                    .program
+                    .as_deref()
+                    .filter(|name| files::command_on_path(name));
+                let id = self.spawn_pane(&cwd, program, &spec.args)?;
                 ids.push(id);
             }
             if ids.is_empty() {
@@ -153,6 +159,7 @@ impl Mux {
             }
             live.layout = layout_from_saved(&tab.tree, &ids);
             live.focused = ids.get(tab.focused).copied().unwrap_or(ids[0]);
+            live.zoomed = tab.zoomed.and_then(|index| ids.get(index).copied());
             self.tabs.push(live);
         }
         if !self.tabs.is_empty() {
@@ -188,6 +195,7 @@ impl Mux {
                 LivePane {
                     title,
                     program: program.map(ToString::to_string),
+                    args: args.to_vec(),
                     pty,
                 },
             );
@@ -198,6 +206,7 @@ impl Mux {
                 LivePane {
                     title,
                     program: program.map(ToString::to_string),
+                    args: args.to_vec(),
                     pty,
                 },
             );
@@ -259,6 +268,7 @@ impl Mux {
             theme: self.theme,
             ssh_user: self.remote.user.clone(),
             keybindings: keys::load(),
+            version: crate::VERSION.to_string(),
         }
     }
 
@@ -284,10 +294,19 @@ impl Mux {
                     .iter()
                     .map(|tab| {
                         let keep: HashSet<u64> = tab.panes.keys().copied().collect();
-                        let cwds: Vec<(u64, PathBuf)> = tab
+                        let specs = tab
                             .panes
                             .iter()
-                            .filter_map(|(id, pane)| pane.pty.cwd().map(|cwd| (*id, cwd)))
+                            .map(|(id, pane)| {
+                                (
+                                    *id,
+                                    session::LeafSpec {
+                                        cwd: pane.pty.cwd(),
+                                        program: pane.program.clone(),
+                                        args: pane.args.clone(),
+                                    },
+                                )
+                            })
                             .collect();
                         SavedTab {
                             focused: tab
@@ -297,7 +316,10 @@ impl Mux {
                                 .position(|id| *id == tab.focused)
                                 .unwrap_or(0),
                             name: tab.name.clone(),
-                            tree: session::SavedNode::from_layout(&tab.layout, &keep, &cwds),
+                            zoomed: tab.zoomed.and_then(|id| {
+                                tab.layout.ids().iter().position(|pane| *pane == id)
+                            }),
+                            tree: session::SavedNode::from_layout(&tab.layout, &keep, &specs),
                         }
                     })
                     .collect(),
@@ -375,6 +397,7 @@ impl Mux {
             LivePane {
                 title,
                 program: program.map(ToString::to_string),
+                args: args.to_vec(),
                 pty,
             },
         );
@@ -581,6 +604,16 @@ impl Mux {
         };
     }
 
+    pub fn swap_nav(&mut self, dir: NavDir) {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let Some(other) = tab.layout.neighbor(tab.focused, dir) else {
+            return;
+        };
+        tab.layout.swap_ids(tab.focused, other);
+    }
+
     pub fn focus_nav(&mut self, dir: NavDir) {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
@@ -620,15 +653,16 @@ impl Mux {
     }
 
     pub fn restart_pane(&mut self, pane: u64) -> Result<()> {
-        let (cwd, program) = {
+        let (cwd, program, args) = {
             let tab = self.tabs.get(self.active).ok_or_else(|| eyre!("no tab"))?;
             let live = tab.panes.get(&pane).ok_or_else(|| eyre!("unknown pane"))?;
             (
                 live.pty.cwd().unwrap_or_else(|| self.root.clone()),
                 live.program.clone(),
+                live.args.clone(),
             )
         };
-        let new_id = self.spawn_pane(&cwd, program.as_deref(), &[])?;
+        let new_id = self.spawn_pane(&cwd, program.as_deref(), &args)?;
         let tab = self
             .tabs
             .get_mut(self.active)
@@ -668,6 +702,10 @@ impl Mux {
             "pane.focusRight" => self.focus_nav(NavDir::Right),
             "pane.focusUp" => self.focus_nav(NavDir::Up),
             "pane.focusDown" => self.focus_nav(NavDir::Down),
+            "pane.swapLeft" => self.swap_nav(NavDir::Left),
+            "pane.swapRight" => self.swap_nav(NavDir::Right),
+            "pane.swapUp" => self.swap_nav(NavDir::Up),
+            "pane.swapDown" => self.swap_nav(NavDir::Down),
             "pane.close" => {
                 let pane = self
                     .tabs

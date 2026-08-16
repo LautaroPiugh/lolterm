@@ -58,6 +58,7 @@ export type Snapshot = {
   theme: string;
   ssh_user: string | null;
   keybindings: { chord: string; command: string }[];
+  version: string;
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };

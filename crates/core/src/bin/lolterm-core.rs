@@ -196,6 +196,14 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.toggle_zoom();
             serde_json::to_value(mux.snapshot())?
         }
+        "swapNav" => {
+            if let Some(dir) =
+                lolterm_core::layout::NavDir::parse(params["dir"].as_str().unwrap_or(""))
+            {
+                mux.swap_nav(dir);
+            }
+            serde_json::to_value(mux.snapshot())?
+        }
         "focusNav" => {
             if let Some(dir) =
                 lolterm_core::layout::NavDir::parse(params["dir"].as_str().unwrap_or(""))

@@ -70,6 +70,30 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "pane.swapLeft",
+        slash: "swap-left",
+        hint: "intercambiar con el pane de la izquierda",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "pane.swapRight",
+        slash: "swap-right",
+        hint: "intercambiar con el pane de la derecha",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "pane.swapUp",
+        slash: "swap-up",
+        hint: "intercambiar con el pane de arriba",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "pane.swapDown",
+        slash: "swap-down",
+        hint: "intercambiar con el pane de abajo",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "pane.close",
         slash: "pane-close",
         hint: "cerrar pane",

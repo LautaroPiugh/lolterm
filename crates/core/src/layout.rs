@@ -94,6 +94,20 @@ impl LayoutNode {
         }
     }
 
+    pub fn swap_ids(&mut self, first: u64, second: u64) -> bool {
+        if first == second {
+            return false;
+        }
+        let ids = self.ids();
+        if !ids.contains(&first) || !ids.contains(&second) {
+            return false;
+        }
+        let sentinel = u64::MAX;
+        self.replace_id(first, sentinel);
+        self.replace_id(second, first);
+        self.replace_id(sentinel, second)
+    }
+
     pub fn replace_id(&mut self, old: u64, new: u64) -> bool {
         match self {
             Self::Leaf { pane } if *pane == old => {
@@ -258,5 +272,15 @@ mod tests {
         assert!(node.split_pane(1, SplitDir::Columns, 2));
         assert!(node.replace_id(2, 9));
         assert_eq!(node.ids(), vec![1, 9]);
+    }
+
+    #[test]
+    fn swap_ids_exchanges_leaves() {
+        let mut node = LayoutNode::leaf(1);
+        assert!(node.split_pane(1, SplitDir::Columns, 2));
+        assert!(node.swap_ids(1, 2));
+        assert_eq!(node.ids(), vec![2, 1]);
+        assert!(!node.swap_ids(1, 1));
+        assert!(!node.swap_ids(1, 9));
     }
 }

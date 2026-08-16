@@ -27,6 +27,8 @@ import {
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm } from "./TerminalPane";
 import { THEMES, parseTheme, type ThemeId } from "./themes";
+import { displayVersion, eraLabel } from "./version";
+import { bindingFor, isChromeField, setBindings } from "./chords";
 import type { CommandHit, HostItem, Peer, Snapshot, TabSnap, TreeRow } from "./types";
 
 type Activity = "home" | "files" | "git" | "run" | "remote";
@@ -81,16 +83,6 @@ function badgeClass(mark: string | null) {
 function projectName(path: string) {
   const parts = path.replace(/\/$/, "").split("/");
   return parts[parts.length - 1] || path;
-}
-
-function eventChord(e: KeyboardEvent): string {
-  const mods: string[] = [];
-  if (e.altKey) mods.push("alt");
-  if (e.ctrlKey) mods.push("ctrl");
-  if (e.metaKey) mods.push("meta");
-  if (e.shiftKey) mods.push("shift");
-  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-  return mods.length ? `${mods.join("+")}+${key}` : key;
 }
 
 function ThemePicker({
@@ -205,16 +197,18 @@ export default function App() {
   }, [apply, call]);
 
   useEffect(() => {
+    setBindings(snap?.keybindings);
+  }, [snap?.keybindings]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setModal(null);
         setRenaming(null);
         return;
       }
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-      const chord = eventChord(e);
-      const hit = snap?.keybindings?.find((item) => item.chord === chord);
+      if (isChromeField(e.target)) return;
+      const hit = bindingFor(e);
       if (!hit) return;
       e.preventDefault();
       e.stopPropagation();
@@ -222,7 +216,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [runBound, snap?.keybindings]);
+  }, [runBound]);
 
   useEffect(() => {
     if (modal?.kind === "palette") {
@@ -284,7 +278,7 @@ export default function App() {
   }
 
   if (!snap) {
-    return <div className="boot">lolterm · abriendo PTY…</div>;
+    return <div className="boot">LoLTerm · abriendo PTY…</div>;
   }
 
   const gitAdds = (snap.git?.staged ?? 0) + (snap.git?.untracked ?? 0);
@@ -296,6 +290,9 @@ export default function App() {
         <button type="button" className="titlebar-wordmark" onClick={() => setActivity("home")}>
           <span className="lol">lol</span>
           <span className="mark">term</span>
+          <span className="ver" title={`LoLTerm ${displayVersion(snap.version)} · ${eraLabel(snap.version)}`}>
+            {displayVersion(snap.version)}
+          </span>
         </button>
         <div className="titlebar-center">
           <div className="workspace-pill">
@@ -342,6 +339,10 @@ export default function App() {
             <div className="sidebar-header">{SIDE_LABEL[activity]}</div>
             {activity === "home" && (
               <div className="sidebar-content">
+                <div className="product-id">
+                  <div className="product-name">LoLTerm {displayVersion(snap.version)}</div>
+                  <div className="proj-path">era {eraLabel(snap.version)}</div>
+                </div>
                 <div className="section-label">Recientes</div>
                 {projects.map((p) => (
                   <button key={p} type="button" className="recent-item" onClick={() => void call("openProject", { path: p })}>
@@ -601,13 +602,17 @@ export default function App() {
         </main>
       </div>
       <footer className="status">
+        <span className="status-item status-version" title={eraLabel(snap.version)}>
+          {displayVersion(snap.version)}
+        </span>
+        <span className="status-sep">·</span>
         <span className="status-item">
           <GitBranch size={11} color="rgba(255,255,255,0.8)" />
           {snap.git?.branch ?? "—"}
         </span>
         <span className="status-sep">·</span>
         <span className="status-path">{snap.root}</span>
-        <span className="status-shortcut">Ctrl-b paleta · Ctrl-Alt-hjkl panes</span>
+        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+HJKL panes</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
 

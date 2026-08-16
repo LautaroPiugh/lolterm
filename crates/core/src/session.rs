@@ -32,6 +32,8 @@ pub struct SavedTab {
     pub focused: usize,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub zoomed: Option<usize>,
     pub tree: SavedNode,
 }
 
@@ -41,6 +43,10 @@ pub enum SavedNode {
     Leaf {
         #[serde(default)]
         cwd: Option<PathBuf>,
+        #[serde(default)]
+        program: Option<String>,
+        #[serde(default)]
+        args: Vec<String>,
     },
     Split {
         dir: SplitDir,
@@ -50,15 +56,33 @@ pub enum SavedNode {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct LeafSpec {
+    pub cwd: Option<PathBuf>,
+    pub program: Option<String>,
+    pub args: Vec<String>,
+}
+
 impl SavedNode {
-    pub fn from_layout(node: &LayoutNode, keep: &HashSet<u64>, cwds: &[(u64, PathBuf)]) -> Self {
+    pub fn from_layout(
+        node: &LayoutNode,
+        keep: &HashSet<u64>,
+        specs: &std::collections::HashMap<u64, LeafSpec>,
+    ) -> Self {
         match node {
-            LayoutNode::Leaf { pane } => Self::Leaf {
-                cwd: cwds
-                    .iter()
-                    .find(|(id, _)| keep.contains(id) && *id == *pane)
-                    .map(|(_, cwd)| cwd.clone()),
-            },
+            LayoutNode::Leaf { pane } => {
+                let spec = keep
+                    .contains(pane)
+                    .then(|| specs.get(pane))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default();
+                Self::Leaf {
+                    cwd: spec.cwd,
+                    program: spec.program,
+                    args: spec.args,
+                }
+            }
             LayoutNode::Split {
                 dir,
                 percent,
@@ -67,25 +91,29 @@ impl SavedNode {
             } => Self::Split {
                 dir: *dir,
                 percent: *percent,
-                first: Box::new(Self::from_layout(first, keep, cwds)),
-                second: Box::new(Self::from_layout(second, keep, cwds)),
+                first: Box::new(Self::from_layout(first, keep, specs)),
+                second: Box::new(Self::from_layout(second, keep, specs)),
             },
         }
     }
 
-    pub fn leaf_cwds(&self) -> Vec<Option<PathBuf>> {
+    pub fn leaf_specs(&self) -> Vec<LeafSpec> {
         let mut out = Vec::new();
-        collect_cwds(self, &mut out);
+        collect_specs(self, &mut out);
         out
     }
 }
 
-fn collect_cwds(node: &SavedNode, out: &mut Vec<Option<PathBuf>>) {
+fn collect_specs(node: &SavedNode, out: &mut Vec<LeafSpec>) {
     match node {
-        SavedNode::Leaf { cwd } => out.push(cwd.clone()),
+        SavedNode::Leaf { cwd, program, args } => out.push(LeafSpec {
+            cwd: cwd.clone(),
+            program: program.clone(),
+            args: args.clone(),
+        }),
         SavedNode::Split { first, second, .. } => {
-            collect_cwds(first, out);
-            collect_cwds(second, out);
+            collect_specs(first, out);
+            collect_specs(second, out);
         }
     }
 }
@@ -130,4 +158,42 @@ pub fn save(session: &Session) -> Result<()> {
 
 pub fn exists() -> bool {
     Path::new(&path()).is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::LayoutNode;
+
+    #[test]
+    fn leaf_roundtrip_keeps_program_and_args() {
+        let mut specs = std::collections::HashMap::new();
+        specs.insert(
+            2,
+            LeafSpec {
+                cwd: Some(PathBuf::from("/tmp/proj")),
+                program: Some("nvim".into()),
+                args: vec!["README.md".into()],
+            },
+        );
+        let mut keep = HashSet::new();
+        keep.insert(2);
+        let node = SavedNode::from_layout(&LayoutNode::leaf(2), &keep, &specs);
+        let specs = node.leaf_specs();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].program.as_deref(), Some("nvim"));
+        assert_eq!(specs[0].args, vec!["README.md"]);
+    }
+
+    #[test]
+    fn old_session_leaf_without_program_still_parses() {
+        let node: SavedNode = toml::from_str("type = \"leaf\"\ncwd = \"/tmp\"\n").expect("toml");
+        match node {
+            SavedNode::Leaf { program, args, .. } => {
+                assert!(program.is_none());
+                assert!(args.is_empty());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
 }

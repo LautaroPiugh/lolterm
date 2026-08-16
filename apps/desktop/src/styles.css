@@ -116,7 +116,7 @@ button {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.3px;
-  min-width: 72px;
+  min-width: 118px;
   -webkit-app-region: no-drag;
 }
 
@@ -126,6 +126,15 @@ button {
 
 .titlebar-wordmark .mark {
   color: var(--focus);
+}
+
+.titlebar-wordmark .ver {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .titlebar-center {
@@ -562,6 +571,21 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.status-version {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.product-id {
+  padding: 10px 12px 4px;
+}
+
+.product-name {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .status-sep {

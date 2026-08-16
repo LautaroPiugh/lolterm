@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
+import { bindingFor } from "./chords";
 import { type ThemeId, xtermTheme } from "./themes";
 import { b64decode, b64encode } from "./types";
 
@@ -78,6 +79,7 @@ function wireOsc52(term: Terminal) {
 function wireClipboard(term: Terminal, host: HTMLElement) {
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== "keydown") return true;
+    if (bindingFor(ev)) return false;
     const chord = ev.ctrlKey || ev.metaKey;
     if (chord && ev.shiftKey && ev.code === "KeyC") {
       void copySelection(term);

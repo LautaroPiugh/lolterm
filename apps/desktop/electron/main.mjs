@@ -71,7 +71,7 @@ function createWindow() {
     width: 1280,
     height: 820,
     backgroundColor: "#ECF2EC",
-    title: "lolterm",
+    title: `LoLTerm v${app.getVersion()}`,
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -92,6 +92,7 @@ function createWindow() {
 }
 
 app.commandLine.appendSwitch("no-sandbox");
+app.commandLine.appendSwitch("log-level", "3");
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);

@@ -13,6 +13,31 @@ const cargo = spawn("cargo", ["build", "-p", "lolterm-core"], {
   env: process.env,
 });
 
+function isChromiumNoise(line) {
+  return (
+    line.includes("GetVSyncParametersIfAvailable") ||
+    line.includes("Add chromium/from-privileged to kAtomsToCache")
+  );
+}
+
+function forwardFiltered(stream, dest) {
+  let buf = "";
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk) => {
+    buf += chunk;
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx);
+      buf = buf.slice(idx + 1);
+      if (!line.trim() || isChromiumNoise(line)) continue;
+      dest.write(`${line}\n`);
+    }
+  });
+  stream.on("end", () => {
+    if (buf.trim() && !isChromiumNoise(buf)) dest.write(buf);
+  });
+}
+
 cargo.on("exit", async (code) => {
   if (code !== 0) process.exit(code ?? 1);
   const server = await createServer({
@@ -23,10 +48,10 @@ cargo.on("exit", async (code) => {
   const target = process.env.CARGO_TARGET_DIR || path.join(repoRoot, "target");
   const electron = spawn(
     path.join(appRoot, "node_modules", ".bin", "electron"),
-    [".", "--no-sandbox", "--disable-gpu-sandbox"],
+    [".", "--no-sandbox", "--disable-gpu-sandbox", "--log-level=3"],
     {
       cwd: appRoot,
-      stdio: "inherit",
+      stdio: ["inherit", "inherit", "pipe"],
       env: {
         ...process.env,
         LOLTERM_CORE: path.join(target, "debug", "lolterm-core"),
@@ -35,6 +60,7 @@ cargo.on("exit", async (code) => {
       },
     },
   );
+  forwardFiltered(electron.stderr, process.stderr);
   electron.on("exit", (code) => {
     server.close();
     process.exit(code ?? 0);
