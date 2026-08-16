@@ -358,6 +358,21 @@ export default function App() {
                   <FolderPlus size={12} />
                   Abrir carpeta…
                 </button>
+                <div className="section-label">Layouts</div>
+                {(snap.presets ?? []).map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="recent-item"
+                    onClick={() => void call("applyPreset", { id: preset.id })}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Columns size={12} color="var(--muted)" />
+                      <span className="proj-name">{preset.name}</span>
+                    </div>
+                    <div className="proj-path">{preset.hint}</div>
+                  </button>
+                ))}
                 <div className="section-label">Tema</div>
                 <ThemePicker current={parseTheme(snap.theme)} onPick={(id) => void call("setTheme", { theme: id })} />
               </div>
@@ -637,7 +652,7 @@ export default function App() {
                 placeholder="run, split, ssh…"
                 onChange={(e) => setModal({ kind: "palette", query: e.target.value })}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && cmds[0]) void runCommand(cmds[0].slash);
+                  if (e.key === "Enter" && cmds[0]) void runCommand(cmds[0].id);
                 }}
               />
               <span className="cmd-result-hint">Ctrl-b</span>

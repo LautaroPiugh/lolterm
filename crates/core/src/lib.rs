@@ -9,6 +9,7 @@ pub mod git;
 pub mod keys;
 pub mod layout;
 pub mod mux;
+pub mod presets;
 pub mod pty;
 pub mod session;
 pub mod ssh;

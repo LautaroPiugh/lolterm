@@ -27,7 +27,7 @@ pub struct SavedWorkspace {
     pub tabs: Vec<SavedTab>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SavedTab {
     pub focused: usize,
     #[serde(default)]
@@ -37,7 +37,7 @@ pub struct SavedTab {
     pub tree: SavedNode,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SavedNode {
     Leaf {

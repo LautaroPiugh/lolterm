@@ -38,6 +38,7 @@ pub struct Snapshot {
     pub ssh_user: Option<String>,
     pub keybindings: Vec<Binding>,
     pub version: String,
+    pub presets: Vec<crate::presets::Preset>,
 }
 
 #[derive(Serialize)]
@@ -278,6 +279,7 @@ impl Mux {
             ssh_user: self.remote.user.clone(),
             keybindings: keys::load(),
             version: crate::VERSION.to_string(),
+            presets: crate::presets::summaries(),
         }
     }
 
@@ -640,7 +642,39 @@ impl Mux {
     }
 
     pub fn commands(&self, query: &str) -> Vec<CommandHit> {
-        commands::search(query)
+        let mut hits = commands::search(query);
+        let needle = query.trim().trim_start_matches('/');
+        for preset in crate::presets::summaries() {
+            let slash = format!("preset-{}", preset.id);
+            let id = format!("layout.preset.{}", preset.id);
+            let matches = needle.is_empty()
+                || slash.contains(needle)
+                || preset.id.contains(needle)
+                || preset
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase())
+                || preset
+                    .hint
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase());
+            if matches {
+                hits.push(CommandHit {
+                    id,
+                    slash,
+                    hint: preset.hint,
+                });
+            }
+        }
+        hits
+    }
+
+    pub fn apply_preset(&mut self, id: &str) -> Result<()> {
+        let Some(preset) = crate::presets::get(id) else {
+            self.notice = Some(format!("preset desconocido: {id}"));
+            return Ok(());
+        };
+        self.restore_one(&preset.tab)
     }
 
     pub fn toggle_zoom(&mut self) {
@@ -728,6 +762,14 @@ impl Mux {
     }
 
     pub fn dispatch(&mut self, name: &str) -> Result<bool> {
+        let name = name.trim().trim_start_matches('/');
+        if let Some(id) = name
+            .strip_prefix("layout.preset.")
+            .or_else(|| name.strip_prefix("preset-"))
+        {
+            self.apply_preset(id)?;
+            return Ok(true);
+        }
         let Some(spec) = commands::lookup(name) else {
             self.notice = Some(format!("comando desconocido: {name}"));
             return Ok(false);
