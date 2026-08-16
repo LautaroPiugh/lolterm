@@ -1,6 +1,17 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.4.0 se publicaron a mano para alinear la versión global.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.4.1 se publicaron a mano para alinear la versión global.
+
+## [0.4.1](https://github.com/LautaroPiugh/lolterm/compare/v0.3.0...v0.4.1) (2026-08-16)
+
+### Features
+
+* empaquetado Linux: AppImage y `.deb` con sidecar `lolterm-core`
+
+### Bug Fixes
+
+* ventana en blanco al abrir el paquete (`file://` + `crossorigin` de Vite)
+* el core ya no toma el path del ejecutable como workspace
 
 ## [0.4.0](https://github.com/LautaroPiugh/lolterm/compare/v0.3.0...v0.4.0) (2026-08-16)
 
