@@ -18,6 +18,7 @@ use serde::Serialize;
 pub enum Command {
     Status,
     WorkspaceList,
+    WorkspaceCurrent,
     Ensure(String),
     Open(String),
     Forget(String),
@@ -25,6 +26,9 @@ pub enum Command {
     Run(Option<String>),
     Launch,
     Context,
+    Panes,
+    Processes,
+    Machines,
     Help,
     Version,
 }
@@ -44,6 +48,14 @@ pub struct WorkspaceRow {
     pub name: String,
     pub root: String,
     pub current: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PaneRow {
+    pub tab: usize,
+    pub tab_name: String,
+    pub program: String,
+    pub cwd: String,
 }
 
 pub fn run(args: &[String]) -> Result<i32, String> {
@@ -77,6 +89,22 @@ pub fn run(args: &[String]) -> Result<i32, String> {
         }
         Command::WorkspaceList => {
             print!("{}", format_workspace_list(&load_workspace_rows()));
+            Ok(0)
+        }
+        Command::WorkspaceCurrent => {
+            print!("{}", format_status(&load_status()));
+            Ok(0)
+        }
+        Command::Panes => {
+            print!("{}", format_pane_list(&load_pane_rows()));
+            Ok(0)
+        }
+        Command::Processes => {
+            print!("{}", format_process_list(&load_process_names()));
+            Ok(0)
+        }
+        Command::Machines => {
+            print!("{}", format_machine_list(&config::load().machines));
             Ok(0)
         }
         Command::Ensure(raw) => {
@@ -143,6 +171,26 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             }
             Ok(Command::Context)
         }
+        "panes" | "pane" => {
+            if args.next().is_some() {
+                return Err("panes no admite argumentos".into());
+            }
+            Ok(Command::Panes)
+        }
+        "processes" | "procs" => {
+            if args.next().is_some() {
+                return Err("processes no admite argumentos".into());
+            }
+            Ok(Command::Processes)
+        }
+        "machines" => {
+            if args.next().is_some() {
+                return Err(
+                    "machines no admite argumentos; para conectar: lolterm ssh <máquina>".into(),
+                );
+            }
+            Ok(Command::Machines)
+        }
         "ssh" => {
             let key = args.next().map(str::to_string);
             if args.next().is_some() {
@@ -173,6 +221,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 }
                 Ok(Command::Forget(name.to_string()))
             }
+            Some("current") | Some("now") => {
+                if args.next().is_some() {
+                    return Err("workspace current no admite argumentos".into());
+                }
+                Ok(Command::WorkspaceCurrent)
+            }
             Some("open") => {
                 let Some(name) = args.next() else {
                     return Err("hace falta un nombre: lolterm workspace open <nombre>".into());
@@ -183,7 +237,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 Ok(Command::Open(name.to_string()))
             }
             Some(other) => Err(format!(
-                "subcomando desconocido: workspace {other}\nprobá: lolterm workspace list | lolterm workspace open <nombre>"
+                "subcomando desconocido: workspace {other}\nprobá: lolterm workspace list | current | open <nombre>"
             )),
         },
         other if looks_like_dir(other) => {
@@ -210,8 +264,12 @@ Uso:
   lolterm status
   lolterm context
   lolterm workspace list
+  lolterm workspace current
   lolterm workspace open <nombre>
   lolterm workspace forget <nombre>
+  lolterm panes
+  lolterm processes
+  lolterm machines
   lolterm ssh
   lolterm ssh <máquina>
   lolterm run
@@ -220,8 +278,8 @@ Uso:
   lolterm -V | --version
 
 Sin argumentos abre o enfoca el Desktop en el workspace activo. `context`
-imprime JSON para otras herramientas (sin secretos). `.`, `workspace open`,
-`ssh` y `run` abren el Desktop y aplican esa acción.
+imprime JSON; `panes` / `processes` / `machines` listan el último estado
+guardado (sin secretos). `.`, `workspace open`, `ssh` y `run` abren el Desktop.
 "
     )
 }
@@ -288,6 +346,47 @@ pub fn format_workspace_list(rows: &[WorkspaceRow]) -> String {
         let mark = if row.current { '*' } else { ' ' };
         let name = truncate_name(&row.name, width);
         out.push_str(&format!("{mark} {name:<width$}  {}\n", row.root));
+    }
+    out
+}
+
+pub fn format_pane_list(rows: &[PaneRow]) -> String {
+    if rows.is_empty() {
+        return "ningún pane guardado (el Desktop aún no persistió el layout)\n".into();
+    }
+    let name_w = rows
+        .iter()
+        .map(|row| row.tab_name.len())
+        .max()
+        .unwrap_or(0)
+        .min(16);
+    let prog_w = rows
+        .iter()
+        .map(|row| row.program.len())
+        .max()
+        .unwrap_or(0)
+        .min(16);
+    let mut out = String::new();
+    for row in rows {
+        out.push_str(&format!(
+            "{tab}  {name:<name_w$}  {prog:<prog_w$}  {cwd}\n",
+            tab = row.tab,
+            name = truncate_name(&row.tab_name, name_w),
+            prog = truncate_name(&row.program, prog_w),
+            cwd = row.cwd,
+        ));
+    }
+    out
+}
+
+pub fn format_process_list(names: &[String]) -> String {
+    if names.is_empty() {
+        return "ningún proceso guardado (solo shells, o el Desktop aún no persistió)\n".into();
+    }
+    let mut out = String::new();
+    for name in names {
+        out.push_str(name);
+        out.push('\n');
     }
     out
 }
@@ -659,6 +758,44 @@ fn saved_processes(ws: &SavedWorkspace) -> Vec<String> {
     names
 }
 
+fn load_pane_rows() -> Vec<PaneRow> {
+    let session = loaded_session();
+    let Some(ws) = session.workspaces.get(session.active_workspace) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for (tab_idx, tab) in ws.tabs.iter().enumerate() {
+        let tab_name = tab.name.clone().unwrap_or_else(|| format!("#{tab_idx}"));
+        for spec in tab.tree.leaf_specs() {
+            let program = spec
+                .program
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "shell".into());
+            let cwd = spec
+                .cwd
+                .as_deref()
+                .map(workspaces::compact_root)
+                .unwrap_or_else(|| workspaces::compact_root(&ws.root));
+            rows.push(PaneRow {
+                tab: tab_idx,
+                tab_name: tab_name.clone(),
+                program,
+                cwd,
+            });
+        }
+    }
+    rows
+}
+
+fn load_process_names() -> Vec<String> {
+    let session = loaded_session();
+    session
+        .workspaces
+        .get(session.active_workspace)
+        .map(saved_processes)
+        .unwrap_or_default()
+}
+
 fn status_for(name: Option<&str>, root: &Path) -> StatusView {
     let cfg = config::load();
     let workspace = name
@@ -731,6 +868,15 @@ mod tests {
             parse(&["run".into(), "nvim".into()]).unwrap(),
             Command::Run(Some("nvim".into()))
         );
+        assert_eq!(
+            parse(&["workspace".into(), "current".into()]).unwrap(),
+            Command::WorkspaceCurrent
+        );
+        assert_eq!(parse(&["panes".into()]).unwrap(), Command::Panes);
+        assert_eq!(parse(&["pane".into()]).unwrap(), Command::Panes);
+        assert_eq!(parse(&["processes".into()]).unwrap(), Command::Processes);
+        assert_eq!(parse(&["procs".into()]).unwrap(), Command::Processes);
+        assert_eq!(parse(&["machines".into()]).unwrap(), Command::Machines);
         assert_eq!(
             parse(&["workspace".into(), "forget".into(), "desktop".into()]).unwrap(),
             Command::Forget("desktop".into())
@@ -823,6 +969,39 @@ mod tests {
         assert!(!text.contains("TOKEN"));
         assert!(!text.contains("password"));
         assert!(!text.contains("sk-"));
+    }
+
+    #[test]
+    fn format_pane_list_marks_shell_and_program() {
+        let text = format_pane_list(&[
+            PaneRow {
+                tab: 0,
+                tab_name: "nvim".into(),
+                program: "nvim".into(),
+                cwd: "~/Projects/lolterm".into(),
+            },
+            PaneRow {
+                tab: 1,
+                tab_name: "#1".into(),
+                program: "shell".into(),
+                cwd: "~/Projects/lolterm".into(),
+            },
+        ]);
+        assert!(text.contains("nvim"));
+        assert!(text.contains("shell"));
+        assert!(!text.contains("TOKEN"));
+    }
+
+    #[test]
+    fn format_pane_list_empty_explains() {
+        let text = format_pane_list(&[]);
+        assert!(text.contains("ningún pane"));
+    }
+
+    #[test]
+    fn format_process_list_empty_explains() {
+        let text = format_process_list(&[]);
+        assert!(text.contains("ningún proceso"));
     }
 
     #[test]

@@ -15,6 +15,10 @@ lolterm CLI      → el mismo crate (config / workspaces) y abre o enfoca el Des
 cargo run -p lolterm-core --bin lolterm
 cargo run -p lolterm-core --bin lolterm -- status
 cargo run -p lolterm-core --bin lolterm -- context
+cargo run -p lolterm-core --bin lolterm -- workspace current
+cargo run -p lolterm-core --bin lolterm -- panes
+cargo run -p lolterm-core --bin lolterm -- processes
+cargo run -p lolterm-core --bin lolterm -- machines
 cargo run -p lolterm-core --bin lolterm -- workspace list
 cargo run -p lolterm-core --bin lolterm -- .
 cargo run -p lolterm-core --bin lolterm -- workspace open lolterm
@@ -24,7 +28,7 @@ cargo run -p lolterm-core --bin lolterm -- ssh chae
 cargo run -p lolterm-core --bin lolterm -- run nvim
 ```
 
-Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. No imprime env ni secretos.
+Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. `context` es JSON para otras herramientas; `workspace current`, `panes`, `processes` y `machines` son tablas del último layout guardado (no el mux en vivo). No imprime env, secretos ni args de panes.
 
 Para tener `lolterm` en PATH (este repo, `~/.local/bin`):
 
