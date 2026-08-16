@@ -131,6 +131,7 @@ export default function App() {
   const [envVal, setEnvVal] = useState("");
   const [wsNotes, setWsNotes] = useState("");
   const [sshDest, setSshDest] = useState("");
+  const [tmuxSession, setTmuxSession] = useState("lolterm");
   const dragTab = useRef<number | null>(null);
   const gearRef = useRef<HTMLDivElement>(null);
 
@@ -287,6 +288,10 @@ export default function App() {
   useEffect(() => {
     if (snap?.ssh_user) setSshUser((prev) => prev || snap.ssh_user || "");
   }, [snap?.ssh_user]);
+
+  useEffect(() => {
+    if (snap?.ssh_tmux !== undefined) setTmuxSession(snap.ssh_tmux);
+  }, [snap?.ssh_tmux]);
 
   useEffect(() => {
     const id = parseTheme(snap?.theme);
@@ -692,6 +697,21 @@ export default function App() {
                     spellCheck={false}
                     autoComplete="off"
                     onChange={(e) => setSshUser(e.target.value)}
+                  />
+                  <input
+                    value={tmuxSession}
+                    placeholder="tmux (vacío = ssh directo)"
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => setTmuxSession(e.target.value)}
+                    onBlur={() => {
+                      if (tmuxSession !== (snap.ssh_tmux ?? "lolterm")) {
+                        void call("setRemoteTmux", { tmux: tmuxSession });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
                   />
                 </div>
                 {peers.length === 0 && (snap.machines ?? []).every((m) => m.kind !== "tailscale") && (

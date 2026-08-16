@@ -57,6 +57,7 @@ export type Snapshot = {
   notice: string | null;
   theme: string;
   ssh_user: string | null;
+  ssh_tmux: string;
   keybindings: { chord: string; command: string }[];
   version: string;
   presets: { id: string; name: string; hint: string }[];

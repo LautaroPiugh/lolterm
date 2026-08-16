@@ -18,16 +18,23 @@ pub fn ts_ssh_dest(target: &str, default_user: Option<&str>) -> String {
     }
 }
 
-pub fn ts_ssh_args(target: &str, default_user: Option<&str>, tmux_session: &str) -> Vec<String> {
-    vec![
+pub fn ssh_args(dest: &str, tmux_session: &str) -> Vec<String> {
+    let mut args = vec![
         "-tt".into(),
         "-o".into(),
         "StrictHostKeyChecking=accept-new".into(),
-        ts_ssh_dest(target, default_user),
-        "sh".into(),
-        "-lc".into(),
-        remote_persist_script(tmux_session),
-    ]
+        dest.to_string(),
+    ];
+    if !tmux_session.trim().is_empty() {
+        args.push("sh".into());
+        args.push("-lc".into());
+        args.push(remote_persist_script(tmux_session));
+    }
+    args
+}
+
+pub fn ts_ssh_args(target: &str, default_user: Option<&str>, tmux_session: &str) -> Vec<String> {
+    ssh_args(&ts_ssh_dest(target, default_user), tmux_session)
 }
 
 fn remote_persist_script(session: &str) -> String {
@@ -121,5 +128,26 @@ mod tests {
     fn empty_user_is_not_ok() {
         assert!(!ssh_user_ok(""));
         assert!(ssh_user_ok("chae"));
+    }
+
+    #[test]
+    fn ssh_args_attach_tmux_by_default() {
+        let args = ssh_args("me@pi", "lolterm");
+        assert_eq!(args[0], "-tt");
+        assert_eq!(args[3], "me@pi");
+        assert!(
+            args.last()
+                .unwrap()
+                .contains("tmux new-session -A -s lolterm")
+        );
+    }
+
+    #[test]
+    fn ssh_args_skip_tmux_when_session_empty() {
+        let args = ssh_args("pi", "");
+        assert_eq!(
+            args,
+            vec!["-tt", "-o", "StrictHostKeyChecking=accept-new", "pi"]
+        );
     }
 }

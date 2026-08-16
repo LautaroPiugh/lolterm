@@ -36,6 +36,7 @@ pub struct Snapshot {
     pub notice: Option<String>,
     pub theme: Theme,
     pub ssh_user: Option<String>,
+    pub ssh_tmux: String,
     pub keybindings: Vec<Binding>,
     pub version: String,
     pub presets: Vec<crate::presets::Preset>,
@@ -326,6 +327,7 @@ impl Mux {
             notice: self.notice.clone(),
             theme: self.theme,
             ssh_user: self.remote.user.clone(),
+            ssh_tmux: self.remote.tmux.clone(),
             keybindings: keys::load(),
             version: crate::VERSION.to_string(),
             presets: crate::presets::summaries(),
@@ -836,8 +838,27 @@ impl Mux {
             self.notice = Some("hace falta user@host".into());
             return Ok(0);
         }
+        let (user, host) = match dest.split_once('@') {
+            Some((user, host)) => (Some(user), host),
+            None => (None, dest),
+        };
+        if let Some(user) = user.filter(|name| ssh::ssh_user_ok(name)) {
+            self.remember_ssh_user(user);
+        }
+        self.remember_connected(
+            crate::config::host_label(host),
+            host.to_string(),
+            MachineKind::Ssh,
+            user.filter(|name| ssh::ssh_user_ok(name))
+                .map(str::to_string),
+        );
         session::push_unique(&mut self.recents, dest.to_string(), 12);
-        let id = self.new_tab(Some("ssh"), None, &["-tt".into(), dest.to_string()], false)?;
+        let id = self.new_tab(
+            Some("ssh"),
+            None,
+            &ssh::ssh_args(dest, &self.remote.tmux),
+            false,
+        )?;
         self.name_active_tab(tab_name_from_dest(dest));
         Ok(id)
     }
@@ -863,10 +884,58 @@ impl Mux {
             self.notice = Some("máquina Tailscale vacía".into());
             return Ok(0);
         }
+        let host = dest.rsplit_once('@').map(|(_, host)| host).unwrap_or(&dest);
+        self.remember_connected(
+            crate::config::host_label(host),
+            host.to_string(),
+            MachineKind::Tailscale,
+            Some(user.clone()),
+        );
         session::push_unique(&mut self.recents, dest.clone(), 12);
         let id = self.new_tab(Some("ssh"), None, &args, false)?;
         self.name_active_tab(tab_name_from_dest(&dest));
         Ok(id)
+    }
+
+    fn remember_connected(
+        &mut self,
+        name: String,
+        target: String,
+        kind: MachineKind,
+        user: Option<String>,
+    ) {
+        if name.is_empty() || !crate::config::machine_target_ok(&target) {
+            return;
+        }
+        crate::config::upsert_machine(
+            &mut self.machines,
+            Machine {
+                name,
+                target,
+                user,
+                kind,
+            },
+        );
+        self.persist_machines();
+    }
+
+    pub fn set_remote_tmux(&mut self, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            self.remote.tmux.clear();
+            self.persist_machines();
+            return Ok(());
+        }
+        if !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        {
+            self.notice = Some("sesión tmux inválida (letras, números, - _)".into());
+            return Ok(());
+        }
+        self.remote.tmux = name.to_string();
+        self.persist_machines();
+        Ok(())
     }
 
     fn persist_machines(&self) {
@@ -915,8 +984,7 @@ impl Mux {
             user,
             kind,
         };
-        self.machines.retain(|item| item.target != machine.target);
-        self.machines.insert(0, machine);
+        crate::config::upsert_machine(&mut self.machines, machine);
         self.persist_machines();
         Ok(())
     }

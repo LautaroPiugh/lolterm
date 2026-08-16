@@ -78,6 +78,8 @@ pub struct Machine {
     pub kind: MachineKind,
 }
 
+pub const MACHINE_CAP: usize = 12;
+
 impl Machine {
     pub fn dest(&self, fallback_user: Option<&str>) -> String {
         let user = self
@@ -100,6 +102,26 @@ impl Machine {
             }
         }
     }
+}
+
+pub fn host_label(target: &str) -> String {
+    let host = target
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(target)
+        .trim()
+        .trim_end_matches('.');
+    host.split('.')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(host)
+        .to_string()
+}
+
+pub fn upsert_machine(list: &mut Vec<Machine>, machine: Machine) {
+    list.retain(|item| item.target != machine.target);
+    list.insert(0, machine);
+    list.truncate(MACHINE_CAP);
 }
 
 pub fn machine_target_ok(target: &str) -> bool {
@@ -142,11 +164,11 @@ pub fn load() -> AppConfig {
             .unwrap_or_default(),
         remote: RemoteConfig {
             user: parsed.remote.user.filter(|user| !user.is_empty()),
-            tmux: parsed
-                .remote
-                .tmux
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| "lolterm".into()),
+            tmux: match parsed.remote.tmux {
+                None => "lolterm".into(),
+                Some(name) if name.trim().is_empty() => String::new(),
+                Some(name) => name,
+            },
         },
         machines: parsed
             .machines
@@ -302,5 +324,34 @@ mod tests {
         .expect("toml");
         assert_eq!(parsed.machines[0].name, "chae");
         assert_eq!(parsed.machines[0].kind.as_deref(), Some("tailscale"));
+    }
+
+    #[test]
+    fn host_label_uses_first_dns_label() {
+        assert_eq!(host_label("chae.tailnet.ts.net"), "chae");
+        assert_eq!(host_label("lauta@pi"), "pi");
+        assert_eq!(host_label("pi"), "pi");
+    }
+
+    #[test]
+    fn upsert_machine_moves_existing_to_front() {
+        let mut list = vec![Machine {
+            name: "old".into(),
+            target: "a".into(),
+            user: None,
+            kind: MachineKind::Ssh,
+        }];
+        upsert_machine(
+            &mut list,
+            Machine {
+                name: "new".into(),
+                target: "a".into(),
+                user: Some("me".into()),
+                kind: MachineKind::Ssh,
+            },
+        );
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "new");
+        assert_eq!(list[0].user.as_deref(), Some("me"));
     }
 }

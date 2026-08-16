@@ -38,8 +38,22 @@ theme = "sage" # sage | dusk | mono
 
 [remote]
 user = "chae"
-tmux = "lolterm"
+tmux = "lolterm" # vacío = ssh sin tmux
+
+[[machines]]
+name = "chae"
+target = "chae.tailnet.ts.net"
+user = "chae"
+kind = "tailscale"
 ```
+
+Conectar (sidebar Remoto, `/ssh`, `/ts-ssh`) abre:
+
+```text
+PTY → ssh -tt dest → tmux new-session -A -s lolterm
+```
+
+Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12).
 
 ## Config y sesión
 
