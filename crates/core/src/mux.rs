@@ -37,6 +37,7 @@ pub struct Snapshot {
     pub theme: Theme,
     pub ssh_user: Option<String>,
     pub ssh_tmux: String,
+    pub ssh_tmux_session: String,
     pub keybindings: Vec<Binding>,
     pub version: String,
     pub presets: Vec<crate::presets::Preset>,
@@ -76,6 +77,7 @@ pub struct PaneSnap {
     pub id: u64,
     pub title: String,
     pub program: Option<String>,
+    pub remote: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -309,6 +311,7 @@ impl Mux {
                             id: *id,
                             title: pane.title.clone(),
                             program: pane.program.clone(),
+                            remote: pane_remote(pane.program.as_deref(), &pane.args),
                         })
                         .collect(),
                 })
@@ -328,6 +331,7 @@ impl Mux {
             theme: self.theme,
             ssh_user: self.remote.user.clone(),
             ssh_tmux: self.remote.tmux.clone(),
+            ssh_tmux_session: self.active_tmux_session(),
             keybindings: keys::load(),
             version: crate::VERSION.to_string(),
             presets: crate::presets::summaries(),
@@ -856,7 +860,7 @@ impl Mux {
         let id = self.new_tab(
             Some("ssh"),
             None,
-            &ssh::ssh_args(dest, &self.remote.tmux),
+            &ssh::ssh_args(dest, &self.active_tmux_session()),
             false,
         )?;
         self.name_active_tab(tab_name_from_dest(dest));
@@ -878,7 +882,7 @@ impl Mux {
             return Ok(0);
         }
         self.remember_ssh_user(&user);
-        let args = ssh::ts_ssh_args(target, Some(&user), &self.remote.tmux);
+        let args = ssh::ts_ssh_args(target, Some(&user), &self.active_tmux_session());
         let dest = ssh::ts_ssh_dest(target, Some(&user));
         if dest.is_empty() {
             self.notice = Some("máquina Tailscale vacía".into());
@@ -930,12 +934,16 @@ impl Mux {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
         {
-            self.notice = Some("sesión tmux inválida (letras, números, - _)".into());
+            self.notice = Some("prefijo tmux inválido (letras, números, - _)".into());
             return Ok(());
         }
         self.remote.tmux = name.to_string();
         self.persist_machines();
         Ok(())
+    }
+
+    fn active_tmux_session(&self) -> String {
+        ssh::tmux_session_name(&self.remote.tmux, &self.name)
     }
 
     fn persist_machines(&self) {
@@ -1383,14 +1391,14 @@ fn canonicalize(path: &Path) -> PathBuf {
 }
 
 fn tab_name_from_dest(dest: &str) -> String {
-    dest.rsplit_once('@')
-        .map(|(_, host)| host)
-        .unwrap_or(dest)
-        .split('.')
-        .next()
-        .filter(|part| !part.is_empty())
-        .unwrap_or(dest)
-        .to_string()
+    crate::config::host_label(dest)
+}
+
+fn pane_remote(program: Option<&str>, args: &[String]) -> Option<String> {
+    if program != Some("ssh") {
+        return None;
+    }
+    ssh::ssh_dest_from_args(args).map(|dest| crate::config::host_label(&dest))
 }
 
 fn tab_label(tab: &Tab) -> String {

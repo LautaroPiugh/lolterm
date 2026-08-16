@@ -627,6 +627,10 @@ button {
   font-weight: 500;
 }
 
+.tab-pill.remote {
+  box-shadow: inset 2px 0 0 var(--brand);
+}
+
 .tab-close {
   width: 14px;
   height: 14px;
@@ -841,10 +845,15 @@ button {
 }
 
 .status-path {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.status-remote {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 
 .status-shortcut {

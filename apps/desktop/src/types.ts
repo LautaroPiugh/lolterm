@@ -12,6 +12,7 @@ export type PaneSnap = {
   id: number;
   title: string;
   program: string | null;
+  remote: string | null;
 };
 
 export type TabSnap = {
@@ -58,6 +59,7 @@ export type Snapshot = {
   theme: string;
   ssh_user: string | null;
   ssh_tmux: string;
+  ssh_tmux_session: string;
   keybindings: { chord: string; command: string }[];
   version: string;
   presets: { id: string; name: string; hint: string }[];

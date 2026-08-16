@@ -37,6 +37,42 @@ pub fn ts_ssh_args(target: &str, default_user: Option<&str>, tmux_session: &str)
     ssh_args(&ts_ssh_dest(target, default_user), tmux_session)
 }
 
+pub fn tmux_session_name(prefix: &str, workspace: &str) -> String {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return String::new();
+    }
+    let prefix = sanitize_tmux_session(prefix);
+    let slug = crate::workspaces::slug(workspace);
+    format!("{prefix}-{slug}")
+}
+
+pub fn ssh_dest_from_args(args: &[String]) -> Option<String> {
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "-o" || arg == "-l" || arg == "-p" || arg == "-F" || arg == "-i" {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        if arg == "sh" {
+            break;
+        }
+        let dest = arg.trim();
+        if dest.is_empty() {
+            continue;
+        }
+        return Some(dest.to_string());
+    }
+    None
+}
+
 fn remote_persist_script(session: &str) -> String {
     let session = sanitize_tmux_session(session);
     format!(
@@ -149,5 +185,27 @@ mod tests {
             args,
             vec!["-tt", "-o", "StrictHostKeyChecking=accept-new", "pi"]
         );
+    }
+
+    #[test]
+    fn ssh_dest_from_args_skips_flags() {
+        let args = ssh_args("me@chae.tailnet.ts.net", "lolterm");
+        assert_eq!(
+            ssh_dest_from_args(&args).as_deref(),
+            Some("me@chae.tailnet.ts.net")
+        );
+        assert_eq!(
+            ssh_dest_from_args(&["-tt".into(), "pi".into()]).as_deref(),
+            Some("pi")
+        );
+        assert_eq!(ssh_dest_from_args(&["-tt".into(), "sh".into()]), None);
+    }
+
+    #[test]
+    fn tmux_session_name_joins_prefix_and_workspace() {
+        assert_eq!(tmux_session_name("lolterm", "api"), "lolterm-api");
+        assert_eq!(tmux_session_name("lolterm", "LoLTerm"), "lolterm-lolterm");
+        assert_eq!(tmux_session_name("", "api"), "");
+        assert_eq!(tmux_session_name("  ", "api"), "");
     }
 }

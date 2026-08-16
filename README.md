@@ -38,7 +38,7 @@ theme = "sage" # sage | dusk | mono
 
 [remote]
 user = "chae"
-tmux = "lolterm" # vacío = ssh sin tmux
+tmux = "lolterm" # prefijo; vacío = ssh sin tmux. sesión = lolterm-<workspace>
 
 [[machines]]
 name = "chae"
@@ -50,10 +50,10 @@ kind = "tailscale"
 Conectar (sidebar Remoto, `/ssh`, `/ts-ssh`) abre:
 
 ```text
-PTY → ssh -tt dest → tmux new-session -A -s lolterm
+PTY → ssh -tt dest → tmux new-session -A -s lolterm-<workspace>
 ```
 
-Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12).
+Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12). Cada workspace usa su propia sesión remota para no pisarse.
 
 ## Config y sesión
 

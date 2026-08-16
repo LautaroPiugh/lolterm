@@ -60,7 +60,13 @@ const SIDE_LABEL: Record<Activity, string> = {
   remote: "Remoto",
 };
 
+function tabRemote(tab: TabSnap): string | null {
+  const focused = tab.panes.find((pane) => pane.id === tab.focused);
+  return focused?.remote ?? tab.panes.find((pane) => pane.remote)?.remote ?? null;
+}
+
 function tabIcon(tab: TabSnap): IconFn {
+  if (tabRemote(tab)) return Cloud;
   const key = `${tab.name} ${tab.panes[0]?.program ?? ""}`.toLowerCase();
   if (key.includes("nvim") || key.includes("vim")) return FileCode;
   if (key.includes("claude") || key.includes("codex")) return Sparkles;
@@ -300,6 +306,7 @@ export default function App() {
   }, [snap?.theme]);
 
   const tab = snap?.tabs[snap.active_tab];
+  const remoteHost = tab ? tabRemote(tab) : null;
   const crumbs = useMemo(() => {
     if (!snap) return ["lolterm"];
     return snap.branch ? [snap.name, snap.branch] : [snap.name];
@@ -700,7 +707,7 @@ export default function App() {
                   />
                   <input
                     value={tmuxSession}
-                    placeholder="tmux (vacío = ssh directo)"
+                    placeholder="prefijo tmux (vacío = ssh directo)"
                     spellCheck={false}
                     autoComplete="off"
                     onChange={(e) => setTmuxSession(e.target.value)}
@@ -839,6 +846,7 @@ export default function App() {
             {snap.tabs.map((item, index) => {
               const Icon = tabIcon(item);
               const on = index === snap.active_tab;
+              const remote = tabRemote(item);
               if (renaming === index) {
                 return (
                   <input
@@ -864,7 +872,7 @@ export default function App() {
                 <button
                   key={`${item.name}-${index}`}
                   type="button"
-                  className={on ? "tab-pill on" : "tab-pill"}
+                  className={`${on ? "tab-pill on" : "tab-pill"}${remote ? " remote" : ""}`}
                   draggable
                   onClick={() => void call("selectTab", { index })}
                   onDoubleClick={(e) => {
@@ -955,6 +963,16 @@ export default function App() {
         </span>
         <span className="status-sep">·</span>
         <span className="status-path">{snap.root}</span>
+        {remoteHost && (
+          <>
+            <span className="status-sep">·</span>
+            <span className="status-item status-remote">
+              <Cloud size={11} color="rgba(255,255,255,0.85)" />
+              {remoteHost}
+              {snap.ssh_tmux_session ? ` · ${snap.ssh_tmux_session}` : ""}
+            </span>
+          </>
+        )}
         <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
