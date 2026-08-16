@@ -7,6 +7,7 @@ import {
   Cloud,
   Columns,
   Command,
+  Copy,
   FileCode,
   Files,
   Folder,
@@ -564,6 +565,14 @@ export default function App() {
             })}
             <button type="button" className="tab-add" title="Nueva terminal" onClick={() => void call("newTab")}>
               <Plus size={14} />
+            </button>
+            <button
+              type="button"
+              className="tab-add"
+              title="Duplicar tab (Ctrl+Alt+D)"
+              onClick={() => void call("duplicateTab", { index: snap.active_tab })}
+            >
+              <Copy size={14} />
             </button>
             <button type="button" className="tab-add" title="Split vertical" onClick={() => void call("split", { dir: "columns" })}>
               <Columns size={14} />

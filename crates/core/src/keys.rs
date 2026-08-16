@@ -24,6 +24,7 @@ pub fn defaults() -> Vec<Binding> {
         bind("ctrl+alt+shift+j", "pane.swapDown"),
         bind("ctrl+alt+z", "pane.zoom"),
         bind("ctrl+alt+n", "tab.new"),
+        bind("ctrl+alt+d", "tab.duplicate"),
         bind("ctrl+alt+w", "tab.close"),
         bind("ctrl+alt+x", "pane.close"),
     ]

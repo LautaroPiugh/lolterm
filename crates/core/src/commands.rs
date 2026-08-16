@@ -28,6 +28,12 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "tab.duplicate",
+        slash: "tab-dup",
+        hint: "duplicar tab (nuevos PTYs, mismo layout)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "pane.splitRight",
         slash: "split-right",
         hint: "partir el pane a la derecha",

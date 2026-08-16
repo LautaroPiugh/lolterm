@@ -111,6 +111,14 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.new_tab(None, None, &[], true)?;
             serde_json::to_value(mux.snapshot())?
         }
+        "duplicateTab" => {
+            let index = params["index"]
+                .as_u64()
+                .map(|n| n as usize)
+                .unwrap_or_else(|| mux.active_index());
+            mux.duplicate_tab(index)?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "closeTab" => {
             mux.close_tab(params["index"].as_u64().unwrap_or(0) as usize)?;
             serde_json::to_value(mux.snapshot())?

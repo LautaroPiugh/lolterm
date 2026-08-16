@@ -136,35 +136,44 @@ impl Mux {
 
     fn restore_tabs(&mut self, saved: &[SavedTab], active: usize) -> Result<()> {
         for tab in saved {
-            let mut live = Tab {
-                name: tab.name.clone(),
-                focused: 0,
-                zoomed: None,
-                layout: LayoutNode::leaf(0),
-                panes: HashMap::new(),
-            };
-            let specs = tab.tree.leaf_specs();
-            let mut ids = Vec::new();
-            for spec in &specs {
-                let cwd = spec.cwd.clone().unwrap_or_else(|| self.root.clone());
-                let program = spec
-                    .program
-                    .as_deref()
-                    .filter(|name| files::command_on_path(name));
-                let id = self.spawn_pane(&cwd, program, &spec.args)?;
-                ids.push(id);
-            }
-            if ids.is_empty() {
-                continue;
-            }
-            live.layout = layout_from_saved(&tab.tree, &ids);
-            live.focused = ids.get(tab.focused).copied().unwrap_or(ids[0]);
-            live.zoomed = tab.zoomed.and_then(|index| ids.get(index).copied());
-            self.tabs.push(live);
+            self.restore_one(tab)?;
         }
         if !self.tabs.is_empty() {
             self.active = active.min(self.tabs.len() - 1);
         }
+        Ok(())
+    }
+
+    fn restore_one(&mut self, saved: &SavedTab) -> Result<()> {
+        self.tabs.push(Tab {
+            name: saved.name.clone(),
+            focused: 0,
+            zoomed: None,
+            layout: LayoutNode::leaf(0),
+            panes: HashMap::new(),
+        });
+        self.active = self.tabs.len() - 1;
+        let specs = saved.tree.leaf_specs();
+        let mut ids = Vec::new();
+        for spec in &specs {
+            let cwd = spec.cwd.clone().unwrap_or_else(|| self.root.clone());
+            let program = spec
+                .program
+                .as_deref()
+                .filter(|name| files::command_on_path(name));
+            ids.push(self.spawn_pane(&cwd, program, &spec.args)?);
+        }
+        if ids.is_empty() {
+            let root = self.root.clone();
+            ids.push(self.spawn_pane(&root, None, &[])?);
+        }
+        let tab = self
+            .tabs
+            .get_mut(self.active)
+            .ok_or_else(|| eyre!("no tab"))?;
+        tab.layout = layout_from_saved(&saved.tree, &ids);
+        tab.focused = ids.get(saved.focused).copied().unwrap_or(ids[0]);
+        tab.zoomed = saved.zoomed.and_then(|index| ids.get(index).copied());
         Ok(())
     }
 
@@ -365,6 +374,10 @@ impl Mux {
         }
     }
 
+    pub fn active_index(&self) -> usize {
+        self.active
+    }
+
     pub fn new_tab(
         &mut self,
         program: Option<&str>,
@@ -424,6 +437,42 @@ impl Mux {
             }
         }
         Ok(())
+    }
+
+    pub fn duplicate_tab(&mut self, index: usize) -> Result<()> {
+        let Some(src) = self.tabs.get(index) else {
+            return Ok(());
+        };
+        let keep: HashSet<u64> = src.panes.keys().copied().collect();
+        let specs = src
+            .panes
+            .iter()
+            .map(|(id, pane)| {
+                (
+                    *id,
+                    session::LeafSpec {
+                        cwd: pane.pty.cwd(),
+                        program: pane.program.clone(),
+                        args: pane.args.clone(),
+                    },
+                )
+            })
+            .collect();
+        let name = src.name.clone().unwrap_or_else(|| tab_label(src));
+        let saved = SavedTab {
+            focused: src
+                .layout
+                .ids()
+                .iter()
+                .position(|id| *id == src.focused)
+                .unwrap_or(0),
+            name: Some(format!("{name} copia")),
+            zoomed: src
+                .zoomed
+                .and_then(|id| src.layout.ids().iter().position(|pane| *pane == id)),
+            tree: session::SavedNode::from_layout(&src.layout, &keep, &specs),
+        };
+        self.restore_one(&saved)
     }
 
     pub fn split(&mut self, dir: SplitDir, program: Option<&str>, args: &[String]) -> Result<u64> {
@@ -691,6 +740,7 @@ impl Mux {
                 self.new_tab(None, None, &[], true)?;
             }
             "tab.close" => self.close_tab(self.active)?,
+            "tab.duplicate" => self.duplicate_tab(self.active)?,
             "pane.splitRight" => {
                 self.split(SplitDir::Columns, None, &[])?;
             }
