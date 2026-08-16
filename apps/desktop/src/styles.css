@@ -302,6 +302,17 @@ button {
   font: inherit;
 }
 
+.env-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.env-form .open-folder-btn {
+  margin: 0;
+}
+
 .sidebar-content::-webkit-scrollbar {
   width: 4px;
 }

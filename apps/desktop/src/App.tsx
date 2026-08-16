@@ -125,6 +125,8 @@ export default function App() {
   const [sshUser, setSshUser] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [envKey, setEnvKey] = useState("");
+  const [envVal, setEnvVal] = useState("");
   const dragTab = useRef<number | null>(null);
 
   const apply = useCallback((value: unknown) => {
@@ -418,6 +420,52 @@ export default function App() {
                       <div className="proj-path">agregar al arranque</div>
                     </button>
                   ))}
+                <div className="section-label">Variables de entorno</div>
+                <div className="proj-path" style={{ padding: "0 12px 6px" }}>
+                  solo para PTYs nuevos de este workspace
+                </div>
+                {(snap.env ?? []).map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="recent-item on"
+                    onClick={() => void call("removeEnv", { key: item.key })}
+                    title="quitar variable"
+                  >
+                    <span className="proj-name">{item.key}</span>
+                    <div className="proj-path">clic para quitar</div>
+                  </button>
+                ))}
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const key = envKey.trim();
+                    if (!key) return;
+                    void call("setEnv", { key, value: envVal }).then(() => {
+                      setEnvKey("");
+                      setEnvVal("");
+                    });
+                  }}
+                >
+                  <input
+                    value={envKey}
+                    onChange={(event) => setEnvKey(event.target.value)}
+                    placeholder="NOMBRE"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <input
+                    value={envVal}
+                    onChange={(event) => setEnvVal(event.target.value)}
+                    placeholder="valor"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
+                    Guardar
+                  </button>
+                </form>
                 <div className="section-label">Layouts</div>
                 {(snap.presets ?? []).map((preset) => (
                   <button

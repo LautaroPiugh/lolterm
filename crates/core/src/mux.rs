@@ -41,6 +41,7 @@ pub struct Snapshot {
     pub presets: Vec<crate::presets::Preset>,
     pub workspaces: Vec<WorkspaceSnap>,
     pub startup: Vec<session::StartupCmd>,
+    pub env: Vec<session::EnvVar>,
 }
 
 #[derive(Serialize)]
@@ -101,6 +102,7 @@ pub struct Mux {
     recent_projects: Vec<PathBuf>,
     saved_workspaces: Vec<SavedWorkspace>,
     startup: Vec<session::StartupCmd>,
+    env: Vec<session::EnvVar>,
     notice: Option<String>,
     theme: Theme,
 }
@@ -126,6 +128,7 @@ impl Mux {
             recent_projects: Vec::new(),
             saved_workspaces: Vec::new(),
             startup: Vec::new(),
+            env: Vec::new(),
             notice: None,
             theme: cfg.theme,
         };
@@ -148,6 +151,7 @@ impl Mux {
                 mux.name = ws.name.clone();
                 mux.branch = git::branch_label(&mux.root);
                 mux.startup = ws.startup.clone();
+                mux.env = ws.env.clone();
                 mux.restore_tabs(&ws.tabs, ws.active_tab)?;
             }
         }
@@ -258,7 +262,15 @@ impl Mux {
     }
 
     fn context_env(&self) -> Vec<(String, String)> {
-        vec![("LOLTERM_ROOT".into(), self.root.display().to_string())]
+        let mut out: Vec<(String, String)> = self
+            .env
+            .iter()
+            .filter(|item| session::env_key_ok(&item.key))
+            .map(|item| (item.key.clone(), item.value.clone()))
+            .collect();
+        out.retain(|(key, _)| key != "LOLTERM_ROOT");
+        out.push(("LOLTERM_ROOT".into(), self.root.display().to_string()));
+        out
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -306,6 +318,7 @@ impl Mux {
             presets: crate::presets::summaries(),
             workspaces: self.workspace_snaps(),
             startup: self.startup.clone(),
+            env: self.env.clone(),
         }
     }
 
@@ -327,6 +340,7 @@ impl Mux {
             root: self.root.clone(),
             active_tab: self.active,
             startup: self.startup.clone(),
+            env: self.env.clone(),
             tabs: self
                 .tabs
                 .iter()
@@ -622,9 +636,11 @@ impl Mux {
         if let Some(ws) = saved {
             self.name = ws.name;
             self.startup = ws.startup;
+            self.env = ws.env;
             self.restore_tabs(&ws.tabs, ws.active_tab)?;
         } else {
             self.startup.clear();
+            self.env.clear();
         }
         if self.tabs.is_empty() {
             let root = self.root.clone();
@@ -679,6 +695,30 @@ impl Mux {
 
     pub fn remove_startup(&mut self, program: &str) -> Result<()> {
         self.startup.retain(|cmd| cmd.program != program);
+        self.persist();
+        Ok(())
+    }
+
+    pub fn set_env(&mut self, key: &str, value: &str) -> Result<()> {
+        let key = key.trim();
+        if !session::env_key_ok(key) {
+            self.notice = Some("nombre de variable inválido (letras, números y _)".into());
+            return Ok(());
+        }
+        if let Some(existing) = self.env.iter_mut().find(|item| item.key == key) {
+            existing.value = value.to_string();
+        } else {
+            self.env.push(session::EnvVar {
+                key: key.to_string(),
+                value: value.to_string(),
+            });
+        }
+        self.persist();
+        Ok(())
+    }
+
+    pub fn remove_env(&mut self, key: &str) -> Result<()> {
+        self.env.retain(|item| item.key != key);
         self.persist();
         Ok(())
     }

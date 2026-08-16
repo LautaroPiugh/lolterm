@@ -62,6 +62,7 @@ export type Snapshot = {
   presets: { id: string; name: string; hint: string }[];
   workspaces: { name: string; root: string; current: boolean }[];
   startup: { program: string; args: string[] }[];
+  env: { key: string; value: string }[];
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };

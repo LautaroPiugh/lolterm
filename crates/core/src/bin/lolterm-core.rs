@@ -139,6 +139,17 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.remove_startup(params["program"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "setEnv" => {
+            mux.set_env(
+                params["key"].as_str().unwrap_or(""),
+                params["value"].as_str().unwrap_or(""),
+            )?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "removeEnv" => {
+            mux.remove_env(params["key"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "closeTab" => {
             mux.close_tab(params["index"].as_u64().unwrap_or(0) as usize)?;
             serde_json::to_value(mux.snapshot())?

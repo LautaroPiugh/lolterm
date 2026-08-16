@@ -28,6 +28,14 @@ pub struct SavedWorkspace {
     pub tabs: Vec<SavedTab>,
     #[serde(default)]
     pub startup: Vec<StartupCmd>,
+    #[serde(default)]
+    pub env: Vec<EnvVar>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnvVar {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -176,6 +184,17 @@ pub fn exists() -> bool {
     Path::new(&path()).is_file()
 }
 
+/// Nombre POSIX de variable: `[A-Za-z_][A-Za-z0-9_]*`.
+pub fn env_key_ok(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
+            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +241,7 @@ mod tests {
                 active_tab: 0,
                 tabs: vec![],
                 startup: vec![],
+                env: vec![],
             },
             SavedWorkspace {
                 name: "b".into(),
@@ -229,6 +249,7 @@ mod tests {
                 active_tab: 0,
                 tabs: vec![],
                 startup: vec![],
+                env: vec![],
             },
         ];
         upsert_workspace(
@@ -239,6 +260,7 @@ mod tests {
                 active_tab: 1,
                 tabs: vec![],
                 startup: vec![],
+                env: vec![],
             },
             12,
         );
@@ -254,5 +276,16 @@ mod tests {
             toml::from_str("name = \"a\"\nroot = \"/a\"\nactive_tab = 0\ntabs = []\n")
                 .expect("toml");
         assert!(ws.startup.is_empty());
+        assert!(ws.env.is_empty());
+    }
+
+    #[test]
+    fn env_key_accepts_unix_names() {
+        assert!(super::env_key_ok("LOLTERM_FOO"));
+        assert!(super::env_key_ok("_private"));
+        assert!(!super::env_key_ok(""));
+        assert!(!super::env_key_ok("1FOO"));
+        assert!(!super::env_key_ok("FOO-BAR"));
+        assert!(!super::env_key_ok("FOO=BAR"));
     }
 }
