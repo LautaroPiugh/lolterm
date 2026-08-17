@@ -1,6 +1,16 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.5.2 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.6.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.6.0](https://github.com/LautaroPiugh/lolterm/compare/v0.5.2...v0.6.0) (2026-08-17)
+
+Era **Context Layer** (`AGENTS.md` v0.6.x). `lolterm context` / `panes` / `processes` leen el mux en vivo si el Desktop está abierto.
+
+### Features
+
+* Unix socket de solo lectura (`$XDG_RUNTIME_DIR/lolterm/mux.sock`) entre la CLI y `lolterm-core`
+* JSON de contexto con `"live": true` (cwd del pane enfocado, procesos, panes) o fallback a `session.toml` con `"live": false`
+* el JSON nunca incluye valores de env ni keys que parezcan secretos
 
 ## [0.5.2](https://github.com/LautaroPiugh/lolterm/compare/v0.5.1...v0.5.2) (2026-08-17)
 

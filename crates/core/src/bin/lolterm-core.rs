@@ -22,6 +22,7 @@ fn main() -> Result<()> {
     let open = std::env::args().nth(1).map(PathBuf::from);
     let (tx, rx) = mpsc::channel::<(u64, Vec<u8>)>();
     let mux = Arc::new(Mutex::new(Mux::boot(open, tx)?));
+    lolterm_core::ctl::serve(Arc::clone(&mux));
     let out = Arc::new(Mutex::new(std::io::stdout()));
 
     {
@@ -86,6 +87,7 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
     let params = &req.params;
     let value = match req.method.as_str() {
         "snapshot" => serde_json::to_value(mux.snapshot())?,
+        "context" => serde_json::to_value(mux.context())?,
         "write" => {
             let pane = params["pane"].as_u64().unwrap_or(0);
             let bytes = b64(params["b64"].as_str().unwrap_or(""));

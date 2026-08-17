@@ -526,14 +526,15 @@ Antes de implementar esta capa, estabilizar los modelos de terminal, mux y works
 
 ---
 
-## 9. Context Layer: dirección futura
+## 9. Context Layer
 
-LoLTerm debe poder conocer y exponer contexto estructurado del entorno de trabajo.
+LoLTerm conoce y expone contexto estructurado del entorno de trabajo. Con el Desktop abierto, `lolterm context` habla con el mux (Unix socket de solo lectura). Si no hay instancia, lee `session.toml` y marca `"live": false`.
 
-Ejemplo conceptual:
+Ejemplo:
 
 ```json
 {
+  "live": true,
   "workspace": "lolterm",
   "cwd": "~/dev/lolterm",
   "machine": "local",
@@ -542,13 +543,11 @@ Ejemplo conceptual:
   },
   "processes": [
     "nvim",
-    "codex",
-    "cargo watch"
-  ]
+    "codex"
+  ],
+  "env": ["TERM", "EDITOR"]
 }
 ```
-
-Eventualmente:
 
 ```bash
 lolterm context
@@ -870,7 +869,7 @@ personal environment
 
 ---
 
-## 13. Estado del repositorio al 2026-08-15
+## 13. Estado del repositorio al 2026-08-17
 
 El repositorio actual ya contiene una base funcional:
 
@@ -886,15 +885,16 @@ El repositorio actual ya contiene una base funcional:
 * explorer;
 * overlay Git básico;
 * sesión básica;
+* contexto en vivo vía Unix socket (`lolterm context`);
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
-Versión global al alinear este documento con el código (era CLI, `v0.5.x`):
+Versión global al alinear este documento con el código (era Context, `v0.6.x`):
 
 ```text
-Cargo workspace:          0.5.2
-apps/desktop/package.json 0.5.2
-lolterm / lolterm-core    0.5.2
+Cargo workspace:          0.6.0
+apps/desktop/package.json 0.6.0
+lolterm / lolterm-core    0.6.0
 ```
 
 Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
@@ -974,10 +974,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.5.2
-├── Cargo workspace   0.5.2
-├── lolterm-core      0.5.2
-└── desktop package   0.5.2
+LoLTerm 0.6.0
+├── Cargo workspace   0.6.0
+├── lolterm-core      0.6.0
+└── desktop package   0.6.0
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
@@ -1229,6 +1229,7 @@ Separar conceptualmente:
 **Machine-local state**
 
 * PID/process state;
+* `$XDG_RUNTIME_DIR/lolterm/mux.sock` (consulta de contexto; no es config portable);
 * paths específicos cuando no sean portables;
 * geometría de ventanas;
 * cache;
@@ -1594,26 +1595,23 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-LoLTerm está en **`v0.5.x` (CLI)**. No agrandar la CLI ni perseguir el `.deb` en blanco salvo instrucción explícita.
+LoLTerm está en **`v0.6.x` (Context)**. No agrandar el catálogo de la CLI ni empezar v0.7 (orquestación de IA) salvo instrucción explícita.
 
 Orden recomendado:
 
-### A. Multiplexer cómodo (huecos de v0.2)
+### A. Contexto en vivo (huecos de v0.6)
 
-1. splits y restart desde teclado (defaults), no sólo paleta;
-2. tab rename/reorder ya existentes: hacerlos descubribles;
-3. pruebas diarias con nvim/lazygit/btop/fzf/yazi/ssh/tmux;
-4. resize/focus si fallan con esas TUIs.
+1. `lolterm context` con Desktop abierto debe mostrar `"live": true` y el cwd del pane enfocado;
+2. no filtrar secretos (solo keys de env públicas);
+3. no agregar subcomandos nuevos: el JSON de `context` es la API.
 
-### B. Workspaces (v0.3, ya hay base)
+### B. Multiplexer cómodo (huecos de v0.2)
+
+Pruebas diarias con nvim/lazygit/btop/fzf/yazi/ssh/tmux; resize/focus si fallan.
+
+### C. Workspaces (v0.3, ya hay base)
 
 Restauración fiel, startup, navegación entre workspaces. No reimplementar el explorer.
-
-### C. Context layer (v0.6)
-
-`lolterm context` / `panes` / `processes` ya leen la sesión guardada. El siguiente salto es contexto **en vivo** (IPC al mux), no más subcomandos de catálogo.
-
-No comenzar extensibilidad, AI orchestration o música antes de que el mux diario sea cómodo, salvo instrucción explícita del usuario.
 
 ---
 

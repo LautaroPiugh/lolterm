@@ -20,5 +20,5 @@ export function eraLabel(raw: string | undefined | null): string {
   const value = (raw ?? "").trim().replace(/^v/, "");
   const minor = Number(value.split(".")[1] ?? 0);
   if (value.startsWith("1.")) return "Personal Environment";
-  return ERAS[minor] ?? "LoLTerm";
+  return ERAS[minor - 1] ?? "LoLTerm";
 }

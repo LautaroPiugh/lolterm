@@ -354,6 +354,78 @@ impl Mux {
         }
     }
 
+    pub fn context(&self) -> crate::context::ContextView {
+        let panes = self.pane_rows();
+        let focused = panes.iter().find(|pane| pane.focused);
+        let cwd = focused
+            .map(|pane| pane.cwd.clone())
+            .unwrap_or_else(|| crate::workspaces::compact_root(&self.root));
+        let machine = focused
+            .and_then(|pane| pane.remote.clone())
+            .unwrap_or_else(|| "local".into());
+        crate::context::ContextView {
+            version: crate::VERSION.to_string(),
+            live: true,
+            workspace: self.name.clone(),
+            cwd,
+            machine,
+            git: crate::context::ContextGit {
+                branch: self.branch.clone(),
+                remote: git::origin_label(&self.root),
+            },
+            tmux: self.active_tmux_session(),
+            processes: self.process_names(),
+            panes,
+            env: crate::context::env_keys_public(self.env.iter().map(|item| item.key.as_str())),
+            machines: self.machines.iter().map(|item| item.name.clone()).collect(),
+        }
+    }
+
+    pub fn pane_rows(&self) -> Vec<crate::context::ContextPane> {
+        let mut rows = Vec::new();
+        for (tab_idx, tab) in self.tabs.iter().enumerate() {
+            let tab_name = tab.name.clone().unwrap_or_else(|| tab_label(tab));
+            let mut panes: Vec<_> = tab.panes.iter().collect();
+            panes.sort_by_key(|(id, _)| *id);
+            for (id, pane) in panes {
+                let program = pane
+                    .program
+                    .clone()
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| "shell".into());
+                let cwd = pane
+                    .pty
+                    .cwd()
+                    .map(|path| crate::workspaces::compact_root(&path))
+                    .unwrap_or_else(|| crate::workspaces::compact_root(&self.root));
+                rows.push(crate::context::ContextPane {
+                    tab: tab_idx,
+                    tab_name: tab_name.clone(),
+                    program,
+                    cwd,
+                    remote: pane_remote(pane.program.as_deref(), &pane.args),
+                    focused: tab_idx == self.active && *id == tab.focused,
+                });
+            }
+        }
+        rows
+    }
+
+    pub fn process_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for tab in &self.tabs {
+            for pane in tab.panes.values() {
+                let Some(program) = pane.program.as_deref().filter(|name| !name.is_empty()) else {
+                    continue;
+                };
+                if !names.iter().any(|seen| seen == program) {
+                    names.push(program.to_string());
+                }
+            }
+        }
+        names
+    }
+
     fn workspace_snaps(&self) -> Vec<WorkspaceSnap> {
         let mut catalog = crate::workspaces::load();
         crate::workspaces::upsert_def(
@@ -1568,7 +1640,7 @@ fn startup_needed<'a>(open: impl IntoIterator<Item = Option<&'a str>>, program: 
 
 #[cfg(test)]
 mod tests {
-    use super::{sanitize_new_tab, startup_already_open, startup_needed};
+    use super::{pane_remote, sanitize_new_tab, startup_already_open, startup_needed};
 
     #[test]
     fn startup_skips_when_layout_already_has_program() {
@@ -1586,5 +1658,14 @@ mod tests {
         assert_eq!(sanitize_new_tab("ts"), "tailscale");
         assert_eq!(sanitize_new_tab("/bin/bash"), "shell");
         assert_eq!(sanitize_new_tab("rm"), "shell");
+    }
+
+    #[test]
+    fn ssh_pane_exposes_host_not_argv() {
+        assert_eq!(
+            pane_remote(Some("ssh"), &["chae".into()]),
+            Some("chae".into())
+        );
+        assert_eq!(pane_remote(Some("nvim"), &["README.md".into()]), None);
     }
 }

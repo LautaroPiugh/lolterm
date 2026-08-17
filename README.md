@@ -6,7 +6,7 @@ No reemplaza nvim, lazygit ni tmux: los abre en una ventana (Electron). No orque
 ```text
 ventana Electron → lolterm-core → PTY → cualquier CLI
 ventana Electron → lolterm-core → PTY → ssh → tmux
-lolterm CLI      → el mismo crate (config / workspaces) y abre o enfoca el Desktop
+lolterm CLI      → socket local al mux (context/panes/processes) o config / session.toml
 ```
 
 ## CLI
@@ -28,7 +28,7 @@ cargo run -p lolterm-core --bin lolterm -- ssh chae
 cargo run -p lolterm-core --bin lolterm -- run nvim
 ```
 
-Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. `context` es JSON para otras herramientas; `workspace current`, `panes`, `processes` y `machines` son tablas del último layout guardado (no el mux en vivo). No imprime env, secretos ni args de panes.
+Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. Con el Desktop abierto, `context`, `panes` y `processes` preguntan al mux por un Unix socket en el runtime dir (no en config sincronizable). Si no hay instancia, caen a `session.toml` y `context` lleva `"live": false`. No imprime valores de env, secretos ni args de panes.
 
 Para tener `lolterm` en PATH (este repo, `~/.local/bin`):
 
@@ -58,20 +58,20 @@ Quedan archivos en `apps/desktop/release/`. El sidecar Rust va en `resources/`, 
 **AppImage** — no se instala. Es un archivo ejecutable (útil para probar o copiar a otra máquina):
 
 ```bash
-chmod +x apps/desktop/release/LoLTerm-0.5.2-linux-x86_64.AppImage
-./apps/desktop/release/LoLTerm-0.5.2-linux-x86_64.AppImage
+chmod +x apps/desktop/release/LoLTerm-0.6.0-linux-x86_64.AppImage
+./apps/desktop/release/LoLTerm-0.6.0-linux-x86_64.AppImage
 ```
 
 **.deb** — es el formato de Ubuntu/Debian. Instala LoLTerm en el menú de aplicaciones y un `lolterm` en `/usr/bin`:
 
 ```bash
-sudo apt install ./apps/desktop/release/LoLTerm-0.5.2-linux-amd64.deb
+sudo apt install ./apps/desktop/release/LoLTerm-0.6.0-linux-amd64.deb
 ```
 
 Si `apt` se queja de dependencias:
 
 ```bash
-sudo dpkg -i apps/desktop/release/LoLTerm-0.5.2-linux-amd64.deb
+sudo dpkg -i apps/desktop/release/LoLTerm-0.6.0-linux-amd64.deb
 sudo apt-get install -f
 ```
 

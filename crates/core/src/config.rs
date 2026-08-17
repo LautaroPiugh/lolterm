@@ -242,6 +242,15 @@ pub fn config_dir() -> std::path::PathBuf {
     base.join("lolterm")
 }
 
+/// Estado efímero de esta máquina (sockets). No va en dotfiles sincronizados.
+pub fn runtime_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return std::path::PathBuf::from(dir).join("lolterm");
+    }
+    let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+    std::env::temp_dir().join(format!("lolterm-{user}"))
+}
+
 pub fn config_path() -> std::path::PathBuf {
     config_dir().join("config.toml")
 }

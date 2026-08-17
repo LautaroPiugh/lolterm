@@ -6,13 +6,14 @@ use std::time::Duration;
 
 use crate::VERSION;
 use crate::config::{self, AppConfig, Machine, PendingLaunch};
+use crate::context::{self, ContextPane, ContextView};
+use crate::ctl;
 use crate::files;
 use crate::git;
 use crate::mux::RUN_CLIS;
 use crate::session::{self, SavedWorkspace, Session};
 use crate::ssh;
 use crate::workspaces;
-use serde::Serialize;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -84,7 +85,7 @@ pub fn run(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         Command::Context => {
-            print!("{}", format_context(&load_context()));
+            print!("{}", context::format_context(&load_context()));
             Ok(0)
         }
         Command::WorkspaceList => {
@@ -278,8 +279,9 @@ Uso:
   lolterm -V | --version
 
 Sin argumentos abre o enfoca el Desktop en el workspace activo. `context`
-imprime JSON; `panes` / `processes` / `machines` listan el último estado
-guardado (sin secretos). `.`, `workspace open`, `ssh` y `run` abren el Desktop.
+imprime JSON en vivo si el Desktop está abierto (si no, la última sesión
+guardada). Sin secretos ni valores de env. `.`, `workspace open`, `ssh` y
+`run` abren el Desktop.
 "
     )
 }
@@ -307,30 +309,6 @@ tmux       {tmux}
     )
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct ContextGit {
-    pub branch: Option<String>,
-    pub remote: Option<String>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct ContextView {
-    pub version: String,
-    pub workspace: String,
-    pub cwd: String,
-    pub machine: String,
-    pub git: ContextGit,
-    pub tmux: String,
-    pub processes: Vec<String>,
-    pub machines: Vec<String>,
-}
-
-pub fn format_context(view: &ContextView) -> String {
-    let mut text = serde_json::to_string_pretty(view).unwrap_or_else(|_| "{}".into());
-    text.push('\n');
-    text
-}
-
 pub fn format_workspace_list(rows: &[WorkspaceRow]) -> String {
     if rows.is_empty() {
         return "ningún workspace (abrí uno desde el Desktop o lolterm . más adelante)\n".into();
@@ -352,7 +330,7 @@ pub fn format_workspace_list(rows: &[WorkspaceRow]) -> String {
 
 pub fn format_pane_list(rows: &[PaneRow]) -> String {
     if rows.is_empty() {
-        return "ningún pane guardado (el Desktop aún no persistió el layout)\n".into();
+        return "ningún pane (Desktop cerrado y sin layout guardado)\n".into();
     }
     let name_w = rows
         .iter()
@@ -381,7 +359,7 @@ pub fn format_pane_list(rows: &[PaneRow]) -> String {
 
 pub fn format_process_list(names: &[String]) -> String {
     if names.is_empty() {
-        return "ningún proceso guardado (solo shells, o el Desktop aún no persistió)\n".into();
+        return "ningún proceso (solo shells, o el Desktop no está abierto)\n".into();
     }
     let mut out = String::new();
     for name in names {
@@ -714,27 +692,48 @@ fn load_status() -> StatusView {
 }
 
 fn load_context() -> ContextView {
+    if let Some(value) = ctl::query("context")
+        && let Ok(view) = serde_json::from_value::<ContextView>(value)
+    {
+        return view;
+    }
+    saved_context()
+}
+
+fn saved_context() -> ContextView {
     let session = loaded_session();
     let cfg = config::load();
-    let (name, root, processes) = match session.workspaces.get(session.active_workspace) {
-        Some(ws) => (Some(ws.name.as_str()), ws.root.clone(), saved_processes(ws)),
+    let (name, root, processes, panes) = match session.workspaces.get(session.active_workspace) {
+        Some(ws) => (
+            Some(ws.name.as_str()),
+            ws.root.clone(),
+            saved_processes(ws),
+            saved_panes(ws),
+        ),
         None => {
             let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            (None, cwd, Vec::new())
+            (None, cwd, Vec::new(), Vec::new())
         }
     };
     let status = status_for(name, &root);
+    let env = match session.workspaces.get(session.active_workspace) {
+        Some(ws) => context::env_keys_public(ws.env.iter().map(|item| item.key.as_str())),
+        None => Vec::new(),
+    };
     ContextView {
         version: status.version,
+        live: false,
         workspace: status.workspace,
         cwd: status.root,
         machine: "local".into(),
-        git: ContextGit {
+        git: context::ContextGit {
             branch: status.branch,
             remote: git::origin_label(&root),
         },
         tmux: status.tmux_session,
         processes,
+        panes,
+        env,
         machines: cfg
             .machines
             .iter()
@@ -758,12 +757,8 @@ fn saved_processes(ws: &SavedWorkspace) -> Vec<String> {
     names
 }
 
-fn load_pane_rows() -> Vec<PaneRow> {
-    let session = loaded_session();
-    let Some(ws) = session.workspaces.get(session.active_workspace) else {
-        return Vec::new();
-    };
-    let mut rows = Vec::new();
+fn saved_panes(ws: &SavedWorkspace) -> Vec<ContextPane> {
+    let mut rows: Vec<ContextPane> = Vec::new();
     for (tab_idx, tab) in ws.tabs.iter().enumerate() {
         let tab_name = tab.name.clone().unwrap_or_else(|| format!("#{tab_idx}"));
         for spec in tab.tree.leaf_specs() {
@@ -776,18 +771,51 @@ fn load_pane_rows() -> Vec<PaneRow> {
                 .as_deref()
                 .map(workspaces::compact_root)
                 .unwrap_or_else(|| workspaces::compact_root(&ws.root));
-            rows.push(PaneRow {
+            let focused = tab_idx == ws.active_tab && !rows.iter().any(|row| row.focused);
+            rows.push(ContextPane {
                 tab: tab_idx,
                 tab_name: tab_name.clone(),
                 program,
                 cwd,
+                remote: None,
+                focused,
             });
         }
     }
     rows
 }
 
+fn load_pane_rows() -> Vec<PaneRow> {
+    if let Some(value) = ctl::query("panes")
+        && let Ok(rows) = serde_json::from_value::<Vec<ContextPane>>(value)
+    {
+        return rows.into_iter().map(pane_row_from_context).collect();
+    }
+    let session = loaded_session();
+    let Some(ws) = session.workspaces.get(session.active_workspace) else {
+        return Vec::new();
+    };
+    saved_panes(ws)
+        .into_iter()
+        .map(pane_row_from_context)
+        .collect()
+}
+
+fn pane_row_from_context(pane: ContextPane) -> PaneRow {
+    PaneRow {
+        tab: pane.tab,
+        tab_name: pane.tab_name,
+        program: pane.program,
+        cwd: pane.cwd,
+    }
+}
+
 fn load_process_names() -> Vec<String> {
+    if let Some(value) = ctl::query("processes")
+        && let Ok(names) = serde_json::from_value::<Vec<String>>(value)
+    {
+        return names;
+    }
     let session = loaded_session();
     session
         .workspaces
@@ -947,28 +975,6 @@ mod tests {
         assert!(text.contains("lolterm-lolterm"));
         assert!(!text.contains("TOKEN"));
         assert!(!text.contains("password"));
-    }
-
-    #[test]
-    fn format_context_omits_secrets_and_env_values() {
-        let text = format_context(&ContextView {
-            version: "0.5.2".into(),
-            workspace: "lolterm".into(),
-            cwd: "~/Projects/lolterm".into(),
-            machine: "local".into(),
-            git: ContextGit {
-                branch: Some("master".into()),
-                remote: Some("github.com/LautaroPiugh/lolterm".into()),
-            },
-            tmux: "lolterm-lolterm".into(),
-            processes: vec!["nvim".into()],
-            machines: vec!["chae".into()],
-        });
-        assert!(text.contains("\"workspace\": \"lolterm\""));
-        assert!(text.contains("nvim"));
-        assert!(!text.contains("TOKEN"));
-        assert!(!text.contains("password"));
-        assert!(!text.contains("sk-"));
     }
 
     #[test]
