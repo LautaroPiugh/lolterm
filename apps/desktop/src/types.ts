@@ -31,6 +31,7 @@ export type TreeRow = {
   expanded: boolean;
   mark: string | null;
   lang: string | null;
+  hidden?: boolean;
 };
 
 export type GitStatus = {
@@ -71,6 +72,12 @@ export type Snapshot = {
   new_tab: string;
   agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean }[];
   agent_log?: { ts: number; workspace: string; program: string; worktree?: string | null }[];
+  themes?: { id: string; label: string; hint: string; vars: Record<string, string> }[];
+  extensions?: string[];
+  status_ext?: { id: string; text: string }[];
+  ext_commands?: { id: string; slash: string; hint: string; run: string; args?: string[] }[];
+  commands_path?: string;
+  keybindings_path?: string;
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };

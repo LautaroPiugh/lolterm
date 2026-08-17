@@ -134,7 +134,7 @@ pub fn machine_target_ok(target: &str) -> bool {
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
-    pub theme: Theme,
+    pub theme: String,
     pub remote: RemoteConfig,
     pub machines: Vec<Machine>,
     /// Qué abre `tab.new` / Ctrl-Alt-N: `shell`, `ssh`, `tailscale` o una CLI del catálogo.
@@ -146,7 +146,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            theme: Theme::Sage,
+            theme: "sage".into(),
             remote: RemoteConfig::default(),
             machines: Vec::new(),
             new_tab: "shell".into(),
@@ -166,8 +166,10 @@ pub fn load() -> AppConfig {
             .ui
             .theme
             .as_deref()
-            .and_then(Theme::parse)
-            .unwrap_or_default(),
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or("sage")
+            .to_ascii_lowercase(),
         remote: RemoteConfig {
             user: parsed.remote.user.filter(|user| !user.is_empty()),
             tmux: match parsed.remote.tmux {
@@ -214,7 +216,7 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
     }
     let file = FileConfig {
         ui: FileUi {
-            theme: Some(config.theme.as_str().to_string()),
+            theme: Some(config.theme.clone()),
             new_tab: Some(config.new_tab.clone()),
         },
         ai: FileAi {
@@ -359,6 +361,7 @@ mod tests {
         assert_eq!(Theme::parse("dusk"), Some(Theme::Dusk));
         assert_eq!(Theme::parse("MONO"), Some(Theme::Mono));
         assert_eq!(Theme::parse("solarized"), None);
+        assert_eq!(Theme::Sage.as_str(), "sage");
     }
 
     #[test]

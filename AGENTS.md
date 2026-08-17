@@ -772,18 +772,16 @@ Features posibles:
 
 Objetivo: abrir capacidades estables del producto.
 
-Features posibles:
+Primera entrega (TOML local, sin JS/WASM):
 
-* plugins;
-* custom commands;
-* custom panels;
-* themes;
-* hooks;
-* runners;
-* context providers;
-* status items.
+* custom commands (`ext.<slug>`);
+* themes (`themes/*.toml`);
+* hooks (`workspace.open`);
+* context providers (`context.toml` → `extra`);
+* status items (`status.toml`);
+* packs `extensions/<nombre>/extension.toml`.
 
-No definir API de plugins antes de estabilizar las abstracciones que se expondrán.
+No hay paneles React custom ni plugins remotos. No definir una API de plugins JS antes de estabilizar estas abstracciones.
 
 ### v0.9.x — Stabilization & Distribution
 
@@ -885,15 +883,16 @@ El repositorio actual ya contiene una base funcional:
 * contexto en vivo vía Unix socket (`lolterm context`);
 * cada PTY recibe `LOLTERM_CONTEXT` (JSON en el runtime dir);
 * agentes en git worktree + status/historial;
+* extensiones TOML (comandos, hooks, temas, status, context.extra);
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
-Versión global al alinear este documento con el código (era AI host, `v0.7.x`):
+Versión global al alinear este documento con el código (era Extensibility, `v0.8.x`):
 
 ```text
-Cargo workspace:          0.7.0
-apps/desktop/package.json 0.7.0
-lolterm / lolterm-core    0.7.0
+Cargo workspace:          0.8.0
+apps/desktop/package.json 0.8.0
+lolterm / lolterm-core    0.8.0
 ```
 
 Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
@@ -973,10 +972,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.7.0
-├── Cargo workspace   0.7.0
-├── lolterm-core      0.7.0
-└── desktop package   0.7.0
+LoLTerm 0.8.0
+├── Cargo workspace   0.8.0
+├── lolterm-core      0.8.0
+└── desktop package   0.8.0
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
@@ -1212,8 +1211,15 @@ Dirección preferida:
 ├── config.toml
 ├── keybindings.toml
 ├── workspaces.toml
-└── state/
-    └── ...
+├── commands.toml
+├── hooks.toml
+├── status.toml
+├── context.toml
+├── themes/
+│   └── nord.toml
+└── extensions/
+    └── <nombre>/
+        └── extension.toml
 ```
 
 Separar conceptualmente:
@@ -1596,13 +1602,13 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-LoLTerm está en **`v0.7.x` (AI host)**. No construir chat, ACP ni orquestación de un proveedor. No agrandar el catálogo de la CLI.
+LoLTerm está en **`v0.8.x` (Extensibility)**. No construir un runtime de plugins JS. No agrandar el catálogo de la CLI. No empezar v0.9 (empaquetado/auto-update) salvo instrucción explícita.
 
 Orden recomendado:
 
-### A. Usar el host (huecos de v0.7)
+### A. Extensiones TOML (huecos de v0.8)
 
-Probar abrir OpenCode/Codex: worktree nuevo, `$LOLTERM_CONTEXT`, aviso al cerrar. `[ai] worktrees = false` si molesta.
+Probar `commands.toml`, un tema custom, un hook `workspace.open` y un `status.toml`. Los ids de comando deben ser `ext.<slug>`. En Desktop, `/commands` (o el engranaje) edita `commands.toml` y `keybindings.toml`; el archivo sigue siendo la fuente de verdad.
 
 ### B. Multiplexer cómodo (huecos de v0.2)
 

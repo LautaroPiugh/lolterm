@@ -29,7 +29,8 @@ import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes } from "./TerminalPane";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
-import { THEMES, parseTheme, type ThemeId } from "./themes";
+import { CommandsEditor } from "./CommandsEditor";
+import { THEMES } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
 import type { CommandHit, HostItem, Peer, Snapshot, TabSnap, TreeRow } from "./types";
@@ -42,6 +43,7 @@ type Modal =
   | { kind: "ssh"; query: string }
   | { kind: "ts"; user: string; selected: number }
   | { kind: "theme" }
+  | { kind: "commands" }
   | null;
 
 type IconFn = ComponentType<{ size?: number; color?: string }>;
@@ -116,14 +118,16 @@ function dockEdgeFromPoint(host: HTMLElement, clientX: number, clientY: number):
 
 function ThemePicker({
   current,
+  themes,
   onPick,
 }: {
-  current: ThemeId;
-  onPick: (id: ThemeId) => void;
+  current: string;
+  themes: { id: string; label: string; hint: string }[];
+  onPick: (id: string) => void;
 }) {
   return (
     <div className="theme-list">
-      {THEMES.map((item) => (
+      {themes.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -243,6 +247,10 @@ export default function App() {
         setRenameDraft(snap?.tabs[index]?.name ?? "");
         return;
       }
+      if (key === "ui.commands" || key === "commands") {
+        setModal({ kind: "commands" });
+        return;
+      }
       await call("dispatch", { id: key });
     },
     [call, launchKind, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
@@ -318,11 +326,15 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (modal?.kind === "commands") return;
         setModal(null);
         setRenaming(null);
         setRenameWs(false);
         setGearOpen(false);
         setNewTabOpen(false);
+        return;
+      }
+      if (modal?.kind === "commands") {
         return;
       }
       if (isChromeField(e.target)) return;
@@ -334,7 +346,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [runBound]);
+  }, [modal?.kind, runBound]);
 
   useEffect(() => {
     return window.lolterm.onChord((chord) => {
@@ -344,8 +356,9 @@ export default function App() {
   }, [runBound]);
 
   useEffect(() => {
-    if (modal?.kind === "palette") {
-      void window.lolterm.invoke("commands", { query: modal.query }).then((list) => {
+    if (modal?.kind === "palette" || modal?.kind === "commands") {
+      const query = modal.kind === "palette" ? modal.query : "";
+      void window.lolterm.invoke("commands", { query }).then((list) => {
         setCmds((list as CommandHit[]) ?? []);
       });
     }
@@ -384,10 +397,20 @@ export default function App() {
   }, [snap?.ssh_tmux]);
 
   useEffect(() => {
-    const id = parseTheme(snap?.theme);
-    document.documentElement.dataset.theme = id;
-    applyXtermTheme(id);
-  }, [snap?.theme]);
+    if (!snap) return;
+    const pack = (snap.themes ?? []).find((item) => item.id === snap.theme);
+    const builtin = snap.theme === "sage" || snap.theme === "dusk" || snap.theme === "mono";
+    document.documentElement.dataset.theme = builtin ? snap.theme : "custom";
+    const keys = ["fill", "text", "brand", "bar", "pane", "muted", "focus", "border", "err", "ok"];
+    if (builtin || !pack) {
+      for (const key of keys) document.documentElement.style.removeProperty(`--${key}`);
+    } else {
+      for (const [key, value] of Object.entries(pack.vars ?? {})) {
+        document.documentElement.style.setProperty(`--${key}`, value);
+      }
+    }
+    applyXtermTheme(snap.theme, builtin ? undefined : pack?.vars);
+  }, [snap]);
 
   const tab = snap?.tabs[snap.active_tab];
   const remoteHost = tab ? tabRemote(tab) : null;
@@ -471,10 +494,23 @@ export default function App() {
             </button>
             {gearOpen && (
               <div className="gear-menu">
+                <button
+                  type="button"
+                  className="gear-hit"
+                  onClick={() => {
+                    setGearOpen(false);
+                    setModal({ kind: "commands" });
+                  }}
+                >
+                  <Command size={12} color="var(--muted)" />
+                  <span>Comandos y atajos</span>
+                  <span className="hint">Ctrl-Alt-,</span>
+                </button>
                 <details open>
                   <summary>Tema</summary>
                   <ThemePicker
-                    current={parseTheme(snap.theme)}
+                    current={snap.theme}
+                    themes={snap.themes ?? THEMES}
                     onPick={(id) => void call("setTheme", { theme: id })}
                   />
                 </details>
@@ -722,8 +758,8 @@ export default function App() {
                     <button
                       key={row.rel || "/"}
                       type="button"
-                      className="tree-item"
-                      title={row.lang ?? undefined}
+                      className={row.hidden ? "tree-item hidden" : "tree-item"}
+                      title={row.hidden ? `${row.name} (oculto)` : (row.lang ?? undefined)}
                       style={{ paddingLeft: 8 + row.depth * 16 }}
                       onClick={() =>
                         row.is_dir
@@ -1151,6 +1187,11 @@ export default function App() {
             </span>
           </>
         )}
+        {(snap.status_ext ?? []).map((item) => (
+          <span key={item.id} className="status-item" title={item.id}>
+            {item.text}
+          </span>
+        ))}
         <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
@@ -1184,12 +1225,33 @@ export default function App() {
           </div>
         </div>
       )}
+      {modal?.kind === "commands" && (
+        <div className="modal" onClick={() => setModal(null)}>
+          <CommandsEditor
+            commands={snap.ext_commands ?? []}
+            bindings={snap.keybindings ?? []}
+            catalog={cmds}
+            commandsPath={snap.commands_path ?? "~/.config/lolterm/commands.toml"}
+            keybindingsPath={snap.keybindings_path ?? "~/.config/lolterm/keybindings.toml"}
+            onSave={(draft) => void call("saveExtCommand", draft)}
+            onRemove={(id) => void call("removeExtCommand", { id })}
+            onBind={(chord, command) => void call("setKeybinding", { chord, command })}
+            onResetKeys={() => void call("resetKeybindings")}
+            onOpenFile={(file) => {
+              setModal(null);
+              void call("openConfig", { file });
+            }}
+            onClose={() => setModal(null)}
+          />
+        </div>
+      )}
       {modal?.kind === "theme" && (
         <div className="modal" onClick={() => setModal(null)}>
           <div className="card" onClick={(e) => e.stopPropagation()}>
             <h2>tema</h2>
             <ThemePicker
-              current={parseTheme(snap.theme)}
+              current={snap.theme}
+              themes={snap.themes ?? THEMES}
               onPick={(id) => {
                 setModal(null);
                 void call("setTheme", { theme: id });

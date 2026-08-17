@@ -13,6 +13,7 @@ const FALLBACK: Binding[] = [
   { chord: "alt+ctrl+e", command: "ui.tabRename" },
   { chord: "ctrl+tab", command: "tab.next" },
   { chord: "ctrl+shift+tab", command: "tab.prev" },
+  { chord: "alt+ctrl+,", command: "ui.commands" },
 ];
 
 let bindings: Binding[] = FALLBACK;

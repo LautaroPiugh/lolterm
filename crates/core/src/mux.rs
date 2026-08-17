@@ -8,7 +8,7 @@ use portable_pty::PtySize;
 use serde::Serialize;
 
 use crate::commands::{self, CommandHit};
-use crate::config::{Machine, MachineKind, RemoteConfig, Theme};
+use crate::config::{Machine, MachineKind, RemoteConfig};
 use crate::files;
 use crate::git;
 use crate::keys::{self, Binding};
@@ -34,7 +34,7 @@ pub struct Snapshot {
     pub tailscale: crate::tailscale::Status,
     pub run_clis: Vec<RunCli>,
     pub notice: Option<String>,
-    pub theme: Theme,
+    pub theme: String,
     pub ssh_user: Option<String>,
     pub ssh_tmux: String,
     pub ssh_tmux_session: String,
@@ -49,6 +49,12 @@ pub struct Snapshot {
     pub new_tab: String,
     pub agents: Vec<AgentSnap>,
     pub agent_log: Vec<crate::agents::SessionRecord>,
+    pub themes: Vec<crate::ext::ThemePack>,
+    pub extensions: Vec<String>,
+    pub status_ext: Vec<crate::ext::StatusItem>,
+    pub ext_commands: Vec<crate::ext::ExtCommand>,
+    pub commands_path: PathBuf,
+    pub keybindings_path: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -133,7 +139,7 @@ pub struct Mux {
     notes: String,
     machines: Vec<Machine>,
     notice: Option<String>,
-    theme: Theme,
+    theme: String,
     new_tab: String,
     agent_worktrees: bool,
 }
@@ -163,7 +169,11 @@ impl Mux {
             notes: String::new(),
             machines: cfg.machines,
             notice: None,
-            theme: cfg.theme,
+            theme: if crate::ext::theme_known(&cfg.theme) {
+                cfg.theme
+            } else {
+                "sage".into()
+            },
             new_tab: sanitize_new_tab(&cfg.new_tab),
             agent_worktrees: cfg.agent_worktrees,
         };
@@ -191,6 +201,7 @@ impl Mux {
         mux.notes = crate::workspaces::notes_for(&mux.root);
         mux.consume_pending()?;
         mux.apply_startup()?;
+        mux.run_hooks("workspace.open")?;
         session::push_unique_path(&mut mux.recent_projects, mux.root.clone(), 12);
         Ok(mux)
     }
@@ -421,7 +432,7 @@ impl Mux {
                 })
                 .collect(),
             notice: self.notice.clone(),
-            theme: self.theme,
+            theme: self.theme.clone(),
             ssh_user: self.remote.user.clone(),
             ssh_tmux: self.remote.tmux.clone(),
             ssh_tmux_session: self.active_tmux_session(),
@@ -440,6 +451,12 @@ impl Mux {
             new_tab: self.new_tab.clone(),
             agents: self.agent_snaps(),
             agent_log: crate::agents::recent_sessions(8),
+            themes: crate::ext::all_themes(),
+            extensions: crate::ext::load().extensions,
+            status_ext: crate::ext::status_items(&self.root),
+            ext_commands: crate::ext::user_commands(),
+            commands_path: crate::ext::commands_path(),
+            keybindings_path: keys::keybindings_path(),
         }
     }
 
@@ -470,6 +487,7 @@ impl Mux {
             env: crate::context::env_keys_public(self.env.iter().map(|item| item.key.as_str())),
             machines: self.machines.iter().map(|item| item.name.clone()).collect(),
             worktrees: self.agent_worktree_labels(),
+            extra: crate::ext::extra_context(&self.root),
         };
         let _ = crate::context::write_live_file(&view);
         view
@@ -648,9 +666,11 @@ impl Mux {
     }
 
     pub fn set_theme(&mut self, name: &str) -> Result<()> {
-        let theme = Theme::parse(name)
-            .ok_or_else(|| eyre!("tema desconocido: {name} (sage, dusk, mono)"))?;
-        self.theme = theme;
+        let name = name.trim().to_ascii_lowercase();
+        if !crate::ext::theme_known(&name) {
+            return Err(eyre!("tema desconocido: {name}"));
+        }
+        self.theme = name;
         self.write_config()
     }
 
@@ -661,7 +681,7 @@ impl Mux {
 
     fn write_config(&self) -> Result<()> {
         let cfg = crate::config::AppConfig {
-            theme: self.theme,
+            theme: self.theme.clone(),
             remote: self.remote.clone(),
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
@@ -958,6 +978,29 @@ impl Mux {
             }
             return Ok(0);
         }
+        self.open_abs(&path)
+    }
+
+    pub fn open_config(&mut self, which: &str) -> Result<u64> {
+        let path = match which {
+            "keybindings" => keys::keybindings_path(),
+            _ => crate::ext::commands_path(),
+        };
+        if !path.exists() {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let stub = if which == "keybindings" {
+                "# Atajos. Vacío desactiva el default.\n[keys]\n"
+            } else {
+                "# Comandos custom (ext.<slug>).\n# [[command]]\n# id = \"ext.htop\"\n# slash = \"htop\"\n# hint = \"monitor\"\n# run = \"htop\"\n"
+            };
+            std::fs::write(&path, stub)?;
+        }
+        self.open_abs(&path)
+    }
+
+    fn open_abs(&mut self, path: &Path) -> Result<u64> {
         let Some((editor, extra)) = files::editor() else {
             self.notice = Some("no hay $EDITOR / nvim".into());
             return Ok(0);
@@ -965,6 +1008,42 @@ impl Mux {
         let mut args = extra;
         args.push(path.display().to_string());
         self.new_tab(Some(&editor), None, &args, false)
+    }
+
+    pub fn save_ext_command(&mut self, draft: crate::ext::CommandDraft) -> Result<()> {
+        match crate::ext::upsert_user_command(draft) {
+            Ok(cmd) => {
+                self.notice = Some(format!("comando /{} guardado", cmd.slash));
+            }
+            Err(err) => {
+                self.notice = Some(err);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove_ext_command(&mut self, id: &str) -> Result<()> {
+        match crate::ext::remove_user_command(id) {
+            Ok(()) => self.notice = Some("comando quitado".into()),
+            Err(err) => self.notice = Some(err),
+        }
+        Ok(())
+    }
+
+    pub fn set_keybinding(&mut self, chord: &str, command: &str) -> Result<()> {
+        keys::apply(chord, command)?;
+        self.notice = if command.trim().is_empty() {
+            Some("atajo quitado".into())
+        } else {
+            Some(format!("atajo {chord}"))
+        };
+        Ok(())
+    }
+
+    pub fn reset_keybindings(&mut self) -> Result<()> {
+        keys::reset()?;
+        self.notice = Some("atajos por defecto".into());
+        Ok(())
     }
 
     pub fn toggle_expand(&mut self, rel: &str) {
@@ -1003,6 +1082,7 @@ impl Mux {
         }
         self.notes = crate::workspaces::notes_for(&self.root);
         self.apply_startup()?;
+        self.run_hooks("workspace.open")?;
         session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
         self.persist();
         Ok(())
@@ -1029,6 +1109,16 @@ impl Mux {
                 continue;
             }
             self.run(&cmd.program, &cmd.args)?;
+        }
+        Ok(())
+    }
+
+    fn run_hooks(&mut self, event: &str) -> Result<()> {
+        for hook in crate::ext::hooks_for(event) {
+            if self.has_program(&hook.run) {
+                continue;
+            }
+            self.run(&hook.run, &hook.args)?;
         }
         Ok(())
     }
@@ -1446,6 +1536,26 @@ impl Mux {
                 });
             }
         }
+        for cmd in crate::ext::load().commands {
+            let matches = needle.is_empty()
+                || cmd.id.contains(needle)
+                || cmd.slash.contains(needle)
+                || cmd
+                    .hint
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase());
+            if matches {
+                hits.push(CommandHit {
+                    id: cmd.id,
+                    slash: cmd.slash,
+                    hint: if cmd.hint.is_empty() {
+                        format!("extensión: {}", cmd.run)
+                    } else {
+                        cmd.hint
+                    },
+                });
+            }
+        }
         hits
     }
 
@@ -1579,6 +1689,10 @@ impl Mux {
             return Ok(true);
         }
         let Some(spec) = commands::lookup(name) else {
+            if let Some(cmd) = crate::ext::command(name) {
+                self.run(&cmd.run, &cmd.args)?;
+                return Ok(true);
+            }
             self.notice = Some(format!("comando desconocido: {name}"));
             return Ok(false);
         };

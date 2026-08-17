@@ -285,6 +285,31 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.set_new_tab(params["kind"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "saveExtCommand" => {
+            let draft: lolterm_core::ext::CommandDraft =
+                serde_json::from_value(params.clone()).unwrap_or_default();
+            mux.save_ext_command(draft)?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "removeExtCommand" => {
+            mux.remove_ext_command(params["id"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "setKeybinding" => {
+            mux.set_keybinding(
+                params["chord"].as_str().unwrap_or(""),
+                params["command"].as_str().unwrap_or(""),
+            )?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "resetKeybindings" => {
+            mux.reset_keybindings()?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "openConfig" => {
+            mux.open_config(params["file"].as_str().unwrap_or("commands"))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "dispatch" => {
             mux.dispatch(params["id"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -45,6 +46,8 @@ pub struct ContextView {
     pub machines: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worktrees: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
 }
 
 pub fn format_context(view: &ContextView) -> String {
@@ -149,6 +152,7 @@ mod tests {
             env: vec!["FOO".into()],
             machines: vec!["chae".into()],
             worktrees: Vec::new(),
+            extra: std::collections::BTreeMap::new(),
         });
         assert!(text.contains("\"live\": true"));
         assert!(text.contains("nvim"));
@@ -191,6 +195,7 @@ mod tests {
             env: vec!["TERM".into()],
             machines: Vec::new(),
             worktrees: Vec::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         write_live_file_at(&path, &view).expect("write context.json");
         let text = std::fs::read_to_string(&path).expect("read context.json");

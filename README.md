@@ -58,20 +58,20 @@ Quedan archivos en `apps/desktop/release/`. El sidecar Rust va en `resources/`, 
 **AppImage** — no se instala. Es un archivo ejecutable (útil para probar o copiar a otra máquina):
 
 ```bash
-chmod +x apps/desktop/release/LoLTerm-0.7.0-linux-x86_64.AppImage
-./apps/desktop/release/LoLTerm-0.7.0-linux-x86_64.AppImage
+chmod +x apps/desktop/release/LoLTerm-0.8.0-linux-x86_64.AppImage
+./apps/desktop/release/LoLTerm-0.8.0-linux-x86_64.AppImage
 ```
 
 **.deb** — es el formato de Ubuntu/Debian. Instala LoLTerm en el menú de aplicaciones y un `lolterm` en `/usr/bin`:
 
 ```bash
-sudo apt install ./apps/desktop/release/LoLTerm-0.7.0-linux-amd64.deb
+sudo apt install ./apps/desktop/release/LoLTerm-0.8.0-linux-amd64.deb
 ```
 
 Si `apt` se queja de dependencias:
 
 ```bash
-sudo dpkg -i apps/desktop/release/LoLTerm-0.7.0-linux-amd64.deb
+sudo dpkg -i apps/desktop/release/LoLTerm-0.8.0-linux-amd64.deb
 sudo apt-get install -f
 ```
 
@@ -97,7 +97,7 @@ El chrome es mint (activity rail `⌂ F ± > ☁`, explorer, tabs, status). El t
 ```toml
 # ~/.config/lolterm/config.toml
 [ui]
-theme = "sage" # sage | dusk | mono
+theme = "sage" # sage | dusk | mono | id de themes/*.toml
 
 [remote]
 user = "chae"
@@ -117,6 +117,55 @@ PTY → ssh -tt dest → tmux new-session -A -s lolterm-<workspace>
 ```
 
 Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12). Cada workspace usa su propia sesión remota para no pisarse.
+
+## Extensiones (TOML)
+
+No hay plugins JS. LoLTerm lee archivos locales en `~/.config/lolterm/`.
+
+En Desktop, **Comandos y atajos** (engranaje, `/commands` o Ctrl-Alt-,) edita `commands.toml` y `keybindings.toml`. Es el equivalente al `keybindings.json` de VS Code: la UI escribe el archivo; también se puede abrir en `$EDITOR`.
+
+```toml
+# keybindings.toml — solo overrides; "" desactiva un default
+[keys]
+"ctrl+alt+b" = "ui.palette"
+"ctrl+alt+z" = ""
+```
+
+```toml
+# commands.toml
+[[command]]
+id = "ext.htop"
+slash = "htop"
+hint = "monitor"
+run = "htop"
+
+# hooks.toml — solo workspace.open; no relanza si ya está abierto
+[[hook]]
+on = "workspace.open"
+run = "lazygit"
+
+# status.toml
+[[status]]
+id = "branch-file"
+file = ".git/HEAD"
+
+# context.toml — JSON en el repo → context.extra
+files = ["lolterm-context.json"]
+```
+
+```toml
+# themes/nord.toml
+id = "nord"
+label = "Nord"
+hint = "oscuro frío"
+bg = "#2e3440"
+fg = "#eceff4"
+accent = "#88c0d0"
+bar = "#3b4252"
+pane = "#2e3440"
+```
+
+Un pack: `extensions/<nombre>/extension.toml` puede mezclar `name`, `[[command]]`, `[[hook]]`, `[[status]]`, `files` y `[theme]`. `run` tiene que pasar `program_ok` (sin `/` ni flags). Los args no pueden empezar con `-` ni contener `..` o `/`.
 
 ## Config y sesión
 

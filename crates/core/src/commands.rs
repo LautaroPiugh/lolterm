@@ -210,13 +210,19 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "ui.theme",
         slash: "theme",
-        hint: "sage, dusk o mono",
+        hint: "sage, dusk, mono o un tema de ~/.config/lolterm/themes",
         kind: CommandKind::Ui,
     },
     CommandSpec {
         id: "ui.tabRename",
         slash: "tab-rename",
         hint: "renombrar la tab activa",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "ui.commands",
+        slash: "commands",
+        hint: "editar comandos custom y atajos",
         kind: CommandKind::Ui,
     },
 ];

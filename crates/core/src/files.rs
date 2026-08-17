@@ -35,10 +35,15 @@ pub struct TreeRow {
     pub expanded: bool,
     pub mark: Option<char>,
     pub lang: Option<String>,
+    pub hidden: bool,
 }
 
 pub fn skipped(name: &str) -> bool {
     SKIP.contains(&name)
+}
+
+pub fn is_hidden(name: &str) -> bool {
+    name.starts_with('.')
 }
 
 pub fn list_files(root: &Path) -> Vec<FileEntry> {
@@ -60,9 +65,6 @@ fn walk_files(root: &Path, dir: &Path, depth: usize, out: &mut Vec<FileEntry>) {
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             if skipped(&name) {
-                return None;
-            }
-            if name.starts_with('.') && name != ".env" && name != ".gitignore" {
                 return None;
             }
             let path = entry.path();
@@ -145,6 +147,7 @@ pub fn visible_tree(
         .to_string();
     let mut rows = vec![TreeRow {
         rel: String::new(),
+        hidden: is_hidden(&name),
         name,
         depth: 0,
         is_dir: true,
@@ -179,9 +182,6 @@ fn push_children(
             if skipped(&name) {
                 return None;
             }
-            if name.starts_with('.') && name != ".env" && name != ".gitignore" {
-                return None;
-            }
             let path = entry.path();
             let is_dir = path.is_dir();
             Some((name, path, is_dir))
@@ -203,6 +203,7 @@ fn push_children(
             } else {
                 language_id(&name).map(str::to_string)
             },
+            hidden: is_hidden(&name),
             name,
             depth,
             is_dir,
@@ -429,7 +430,38 @@ mod tests {
     fn skips_build_dirs() {
         assert!(skipped("node_modules"));
         assert!(skipped("target"));
+        assert!(skipped(".git"));
         assert!(!skipped("src"));
+        assert!(!skipped(".github"));
+        assert!(is_hidden(".github"));
+        assert!(!is_hidden("src"));
+    }
+
+    #[test]
+    fn lists_hidden_entries_except_skip() {
+        let root = std::env::temp_dir().join(format!(
+            "lolterm-hidden-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".github")).expect("github");
+        fs::create_dir_all(root.join(".git/objects")).expect("git");
+        fs::write(root.join(".env"), "x").expect("env");
+        fs::write(root.join("README.md"), "x").expect("readme");
+        let rels: Vec<String> = list_files(&root).into_iter().map(|e| e.rel).collect();
+        assert!(rels.iter().any(|rel| rel == ".github"));
+        assert!(rels.iter().any(|rel| rel == ".env"));
+        assert!(rels.iter().any(|rel| rel == "README.md"));
+        assert!(
+            !rels
+                .iter()
+                .any(|rel| rel == ".git" || rel.starts_with(".git/"))
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

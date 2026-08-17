@@ -1,6 +1,22 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.7.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.8.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.8.0](https://github.com/LautaroPiugh/lolterm/compare/v0.7.0...v0.8.0) (2026-08-17)
+
+Era **Extensibility** (`AGENTS.md` v0.8.x). Superficie estable en TOML local; no hay VM de plugins ni paneles React custom.
+
+### Features
+
+* `~/.config/lolterm/commands.toml` — comandos `ext.<slug>` que abren un binario (`program_ok`, args sin flags/paths)
+* `hooks.toml` — solo `on = "workspace.open"`; no relanza si el programa ya está abierto
+* `themes/*.toml` — temas `#RRGGBB` (no pisan sage/dusk/mono)
+* `status.toml` — primera línea de un archivo o stdout de un programa (máx. 40 chars)
+* `context.toml` — JSON string:string → `context.extra` (sin keys/valores que parezcan secretos)
+* `extensions/<nombre>/extension.toml` — empaqueta lo anterior
+* paleta, barra de estado, picker de temas e Inicio leen el bundle
+* editor en Desktop (`/commands`, Ctrl-Alt-,) para `commands.toml` y atajos; doble clic graba la combinación y avisa si ya está en uso
+* el explorer lista carpetas/archivos ocultos (sigue omitiendo `.git`, `node_modules`, `target`, …)
 
 ## [0.7.0](https://github.com/LautaroPiugh/lolterm/compare/v0.6.0...v0.7.0) (2026-08-17)
 

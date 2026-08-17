@@ -745,6 +745,7 @@ fn saved_context() -> ContextView {
             .map(|machine| machine.name.clone())
             .collect(),
         worktrees: Vec::new(),
+        extra: crate::ext::extra_context(&root),
     }
 }
 

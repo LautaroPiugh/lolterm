@@ -8,6 +8,7 @@ pub mod commands;
 pub mod config;
 pub mod context;
 pub mod ctl;
+pub mod ext;
 pub mod files;
 pub mod git;
 pub mod keys;

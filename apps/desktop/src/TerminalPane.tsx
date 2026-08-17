@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { bindingFor } from "./chords";
-import { type ThemeId, xtermTheme } from "./themes";
+import { parseTheme, type ThemeId, xtermTheme } from "./themes";
 import { b64decode, b64encode } from "./types";
 
 type Cached = {
@@ -13,12 +13,21 @@ type Cached = {
 
 const cache = new Map<number, Cached>();
 let currentTheme: ThemeId = "sage";
+let lastXterm = xtermTheme("sage");
 
-export function applyXtermTheme(id: ThemeId) {
-  currentTheme = id;
-  const theme = xtermTheme(id);
+export function applyXtermTheme(id: string, vars?: Record<string, string>) {
+  currentTheme = parseTheme(id);
+  lastXterm = vars
+    ? {
+        background: vars.pane ?? vars.fill ?? "#f4f7f4",
+        foreground: vars.text ?? "#28302a",
+        cursor: vars.brand ?? "#488c58",
+        cursorAccent: vars.pane ?? vars.fill ?? "#f4f7f4",
+        selectionBackground: vars.focus ?? vars.brand ?? "#a8d4b0",
+      }
+    : xtermTheme(currentTheme);
   for (const entry of cache.values()) {
-    entry.term.options.theme = theme;
+    entry.term.options.theme = lastXterm;
   }
 }
 
@@ -172,7 +181,7 @@ function ensureTerm(pane: number): Cached {
     fontSize: 13,
     cursorBlink: true,
     scrollback: 2000,
-    theme: xtermTheme(currentTheme),
+    theme: lastXterm,
     allowProposedApi: true,
     rightClickSelectsWord: true,
     macOptionIsMeta: true,

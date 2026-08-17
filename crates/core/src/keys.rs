@@ -35,15 +35,97 @@ pub fn defaults() -> Vec<Binding> {
         bind("ctrl+alt+x", "pane.close"),
         bind("ctrl+alt+[", "workspace.prev"),
         bind("ctrl+alt+]", "workspace.next"),
+        bind("ctrl+alt+,", "ui.commands"),
     ]
 }
 
 pub fn load() -> Vec<Binding> {
+    load_at(&keybindings_path())
+}
+
+pub fn keybindings_path() -> std::path::PathBuf {
+    config::config_dir().join("keybindings.toml")
+}
+
+pub fn apply(chord: &str, command: &str) -> std::io::Result<Vec<Binding>> {
+    apply_at(&keybindings_path(), chord, command)
+}
+
+pub fn apply_at(
+    path: &std::path::Path,
+    chord: &str,
+    command: &str,
+) -> std::io::Result<Vec<Binding>> {
+    let chord = normalize_chord(chord);
+    if chord.is_empty() {
+        return Ok(load_at(path));
+    }
+    let mut map: BTreeMap<String, String> = load_at(path)
+        .into_iter()
+        .map(|item| (item.chord, item.command))
+        .collect();
+    if command.trim().is_empty() {
+        map.remove(&chord);
+    } else {
+        let command = command.trim().to_string();
+        map.retain(|_, bound| bound != &command);
+        map.insert(chord, command);
+    }
+    let bindings: Vec<Binding> = map
+        .into_iter()
+        .map(|(chord, command)| Binding { chord, command })
+        .collect();
+    save_at(path, &bindings)?;
+    Ok(bindings)
+}
+
+pub fn reset() -> std::io::Result<Vec<Binding>> {
+    reset_at(&keybindings_path())
+}
+
+pub fn reset_at(path: &std::path::Path) -> std::io::Result<Vec<Binding>> {
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(defaults())
+}
+
+pub fn save_at(path: &std::path::Path, bindings: &[Binding]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let default_map: BTreeMap<String, String> = defaults()
+        .into_iter()
+        .map(|item| (item.chord, item.command))
+        .collect();
+    let current: BTreeMap<String, String> = bindings
+        .iter()
+        .map(|item| (item.chord.clone(), item.command.clone()))
+        .collect();
+    let mut keys = BTreeMap::new();
+    for (chord, command) in &current {
+        if default_map.get(chord) != Some(command) {
+            keys.insert(chord.clone(), command.clone());
+        }
+    }
+    for chord in default_map.keys() {
+        if !current.contains_key(chord) {
+            keys.insert(chord.clone(), String::new());
+        }
+    }
+    let text = toml::to_string_pretty(&FileKeysOut { keys }).unwrap_or_default();
+    std::fs::write(
+        path,
+        format!("# Atajos. Vacío desactiva el default. También: LoLTerm → /commands\n{text}"),
+    )
+}
+
+fn load_at(path: &std::path::Path) -> Vec<Binding> {
     let mut map: BTreeMap<String, String> = defaults()
         .into_iter()
         .map(|item| (item.chord, item.command))
         .collect();
-    if let Ok(text) = std::fs::read_to_string(keybindings_path())
+    if let Ok(text) = std::fs::read_to_string(path)
         && let Ok(file) = toml::from_str::<FileKeys>(&text)
     {
         for (chord, command) in file.keys {
@@ -58,10 +140,6 @@ pub fn load() -> Vec<Binding> {
     map.into_iter()
         .map(|(chord, command)| Binding { chord, command })
         .collect()
-}
-
-pub fn keybindings_path() -> std::path::PathBuf {
-    config::config_dir().join("keybindings.toml")
 }
 
 pub fn normalize_chord(raw: &str) -> String {
@@ -95,6 +173,11 @@ struct FileKeys {
     keys: BTreeMap<String, String>,
 }
 
+#[derive(serde::Serialize)]
+struct FileKeysOut {
+    keys: BTreeMap<String, String>,
+}
+
 fn bind(chord: &str, command: &str) -> Binding {
     Binding {
         chord: normalize_chord(chord),
@@ -125,5 +208,39 @@ mod tests {
         assert!(chords.contains(&"pane.restart".into()));
         assert!(chords.contains(&"ui.tabRename".into()));
         assert!(chords.contains(&"workspace.next".into()));
+        assert!(chords.contains(&"ui.commands".into()));
+    }
+
+    #[test]
+    fn apply_overrides_and_reset() {
+        let dir = std::env::temp_dir().join(format!(
+            "lolterm-keys-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("keybindings.toml");
+        let bindings = apply_at(&path, "ctrl+alt+b", "ui.palette").expect("apply");
+        assert!(
+            bindings
+                .iter()
+                .any(|item| item.chord == "alt+ctrl+b" && item.command == "ui.palette")
+        );
+        assert_eq!(
+            bindings
+                .iter()
+                .filter(|item| item.command == "ui.palette")
+                .count(),
+            1,
+            "reasignar deja un solo atajo por comando"
+        );
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(text.contains("ui.palette"));
+        reset_at(&path).expect("reset");
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

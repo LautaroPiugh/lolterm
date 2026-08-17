@@ -180,6 +180,16 @@ export function Welcome({
               ))}
             </>
           ) : null}
+          {(snap.extensions ?? []).length > 0 ? (
+            <>
+              <h2 className="welcome-subhead">Extensiones</h2>
+              {(snap.extensions ?? []).map((name) => (
+                <p key={name} className="welcome-empty">
+                  {name}
+                </p>
+              ))}
+            </>
+          ) : null}
         </section>
         <section>
           <h2>Recientes</h2>
