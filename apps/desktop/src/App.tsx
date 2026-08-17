@@ -373,12 +373,24 @@ export default function App() {
           </span>
         </button>
         <div className="titlebar-center">
-          <div className="workspace-pill">
+          <button
+            type="button"
+            className="workspace-pill"
+            title="Workspaces · clic abre Inicio · Ctrl-Alt-[ ] cicla"
+            onClick={() => {
+              if (activity === "home" && sidebar) {
+                void runBound("workspace.next");
+                return;
+              }
+              setActivity("home");
+              setSidebar(true);
+            }}
+          >
             <GitBranch size={12} color="var(--brand)" />
             <span className="proj">{snap.name}</span>
             <span className="sep">:</span>
             <span className="branch">{snap.branch ?? "HEAD"}</span>
-          </div>
+          </button>
         </div>
         <div className="titlebar-controls">
           <div className="gear-wrap" ref={gearRef}>
@@ -561,6 +573,12 @@ export default function App() {
             <div className="sidebar-header">{SIDE_LABEL[activity]}</div>
             {activity === "home" && (
               <div className="sidebar-content">
+                {(snap.startup?.length ?? 0) > 0 && (
+                  <p className="workspace-startup-hint">
+                    al abrir: {snap.startup.map((cmd) => cmd.program).join(" · ")}
+                  </p>
+                )}
+                <p className="workspace-nav-hint">Ctrl-Alt-[ ] cicla workspaces</p>
                 {(snap.workspaces?.length
                   ? snap.workspaces.map((ws) => ({
                       key: ws.root,
@@ -995,7 +1013,7 @@ export default function App() {
             </span>
           </>
         )}
-        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces</span>
+        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
 

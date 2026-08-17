@@ -44,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Eso compila `lolterm-core`, levanta Vite y abre Electron (tema Sage). Paleta: `Ctrl-b` / `Ctrl-p`. Tabs: `Ctrl-Tab` / `Ctrl-Shift-Tab`. Splits: `Ctrl-Alt-v` (derecha) y `Ctrl-Alt-s` (abajo). Restart del pane: `Ctrl-Alt-r`. Renombrar tab: `Ctrl-Alt-e`.
+Eso compila `lolterm-core`, levanta Vite y abre Electron (tema Sage). Paleta: `Ctrl-b` / `Ctrl-p`. Tabs: `Ctrl-Tab` / `Ctrl-Shift-Tab`. Workspaces: clic en el nombre del titlebar (Inicio) o `Ctrl-Alt-[` `]`. Splits: `Ctrl-Alt-v` (derecha) y `Ctrl-Alt-s` (abajo). Restart del pane: `Ctrl-Alt-r`. Renombrar tab: `Ctrl-Alt-e`.
 
 ## Empaquetar (Linux)
 
@@ -86,6 +86,7 @@ Brief de diseño (Figma Make / designer): `apps/desktop/figma-prompt.txt`.
 El chrome es mint (activity rail `⌂ F ± > ☁`, explorer, tabs, status). El trabajo vive en xterm.js conectado a PTYs reales.
 
 - `+` nueva tab · `‖` split horizontal · `☰` split vertical
+- clic en el nombre del titlebar abre Inicio; de nuevo cicla; `Ctrl-Alt-[` `]` también
 - `/run` (paleta) abre nvim, lazygit, btop, claude, …
 - `/files` busca y abre en `$EDITOR`
 - `/ssh` y `/ts-ssh` piden destino/usuario; la password la pide ssh en el pane

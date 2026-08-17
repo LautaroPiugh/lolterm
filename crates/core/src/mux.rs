@@ -203,10 +203,9 @@ impl Mux {
         let mut ids = Vec::new();
         for spec in &specs {
             let cwd = spec.cwd.clone().unwrap_or_else(|| self.root.clone());
-            let program = spec
-                .program
-                .as_deref()
-                .filter(|name| files::command_on_path(name));
+            // Conservar el nombre guardado: spawn_argv resuelve PATH de login.
+            // Si se degradaba a shell, apply_startup duplicaba nvim/lazygit.
+            let program = spec.program.as_deref().filter(|name| !name.is_empty());
             ids.push(self.spawn_pane(&cwd, program, &spec.args)?);
         }
         if ids.is_empty() {
@@ -782,17 +781,23 @@ impl Mux {
     }
 
     fn has_program(&self, program: &str) -> bool {
-        self.tabs.iter().any(|tab| {
-            tab.panes
-                .values()
-                .any(|pane| pane.program.as_deref() == Some(program))
-        })
+        startup_already_open(
+            self.tabs
+                .iter()
+                .flat_map(|tab| tab.panes.values().map(|pane| pane.program.as_deref())),
+            program,
+        )
     }
 
     pub fn apply_startup(&mut self) -> Result<()> {
         let cmds = self.startup.clone();
         for cmd in cmds {
-            if cmd.program.trim().is_empty() || self.has_program(&cmd.program) {
+            if !startup_needed(
+                self.tabs
+                    .iter()
+                    .flat_map(|tab| tab.panes.values().map(|pane| pane.program.as_deref())),
+                &cmd.program,
+            ) {
                 continue;
             }
             self.run(&cmd.program, &cmd.args)?;
@@ -1497,4 +1502,30 @@ fn layout_from_saved(node: &session::SavedNode, ids: &[u64]) -> LayoutNode {
         }
     }
     walk(node, &mut ids.iter())
+}
+
+fn startup_already_open<'a>(
+    open: impl IntoIterator<Item = Option<&'a str>>,
+    program: &str,
+) -> bool {
+    open.into_iter().any(|name| name == Some(program))
+}
+
+fn startup_needed<'a>(open: impl IntoIterator<Item = Option<&'a str>>, program: &str) -> bool {
+    let program = program.trim();
+    !program.is_empty() && !startup_already_open(open, program)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{startup_already_open, startup_needed};
+
+    #[test]
+    fn startup_skips_when_layout_already_has_program() {
+        let open = [Some("nvim"), None, Some("lazygit")];
+        assert!(!startup_needed(open, "nvim"));
+        assert!(startup_needed(open, "btop"));
+        assert!(!startup_needed(open, ""));
+        assert!(startup_already_open(open, "lazygit"));
+    }
 }
