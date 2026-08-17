@@ -558,6 +558,14 @@ impl Mux {
         }
     }
 
+    pub fn cycle_tab(&mut self, delta: i32) {
+        let len = self.tabs.len() as i32;
+        if len < 2 {
+            return;
+        }
+        self.active = (self.active as i32 + delta).rem_euclid(len) as usize;
+    }
+
     pub fn active_index(&self) -> usize {
         self.active
     }
@@ -1333,6 +1341,8 @@ impl Mux {
             }
             "tab.close" => self.close_tab(self.active)?,
             "tab.duplicate" => self.duplicate_tab(self.active)?,
+            "tab.next" => self.cycle_tab(1),
+            "tab.prev" => self.cycle_tab(-1),
             "pane.splitRight" => {
                 self.split(SplitDir::Columns, None, &[])?;
             }

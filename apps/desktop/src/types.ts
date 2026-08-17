@@ -79,6 +79,7 @@ declare global {
     lolterm: {
       invoke: (method: string, params?: unknown) => Promise<unknown>;
       onEvent: (cb: (msg: { event?: string; params?: { pane?: number; b64?: string } }) => void) => () => void;
+      onChord: (cb: (chord: string) => void) => () => void;
       openFolder: () => Promise<Snapshot | null>;
       window: {
         minimize: () => Promise<void>;

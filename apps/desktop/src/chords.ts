@@ -11,6 +11,8 @@ const FALLBACK: Binding[] = [
   { chord: "alt+ctrl+s", command: "pane.splitDown" },
   { chord: "alt+ctrl+r", command: "pane.restart" },
   { chord: "alt+ctrl+e", command: "ui.tabRename" },
+  { chord: "ctrl+tab", command: "tab.next" },
+  { chord: "ctrl+shift+tab", command: "tab.prev" },
 ];
 
 let bindings: Binding[] = FALLBACK;
@@ -35,6 +37,10 @@ export function eventChord(e: KeyboardEvent): string {
 export function bindingFor(e: KeyboardEvent): Binding | undefined {
   const chord = eventChord(e);
   return bindings.find((item) => item.chord === chord);
+}
+
+export function commandForChord(chord: string): string | undefined {
+  return bindings.find((item) => item.chord === chord)?.command;
 }
 
 export function isChromeField(target: EventTarget | null): boolean {

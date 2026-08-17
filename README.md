@@ -44,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Eso compila `lolterm-core`, levanta Vite y abre Electron (tema Sage). Paleta: `Ctrl-b` / `Ctrl-p`. Splits: `Ctrl-Alt-v` (derecha) y `Ctrl-Alt-s` (abajo). Restart del pane: `Ctrl-Alt-r`. Renombrar tab: `Ctrl-Alt-e`.
+Eso compila `lolterm-core`, levanta Vite y abre Electron (tema Sage). Paleta: `Ctrl-b` / `Ctrl-p`. Tabs: `Ctrl-Tab` / `Ctrl-Shift-Tab`. Splits: `Ctrl-Alt-v` (derecha) y `Ctrl-Alt-s` (abajo). Restart del pane: `Ctrl-Alt-r`. Renombrar tab: `Ctrl-Alt-e`.
 
 ## Empaquetar (Linux)
 

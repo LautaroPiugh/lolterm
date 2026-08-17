@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld("lolterm", {
     ipcRenderer.on("core-event", listener);
     return () => ipcRenderer.removeListener("core-event", listener);
   },
+  onChord: (cb) => {
+    const listener = (_e, chord) => cb(chord);
+    ipcRenderer.on("chord", listener);
+    return () => ipcRenderer.removeListener("chord", listener);
+  },
   openFolder: () => ipcRenderer.invoke("open-folder"),
   window: {
     minimize: () => ipcRenderer.invoke("win-minimize"),

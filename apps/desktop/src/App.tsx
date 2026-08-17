@@ -29,7 +29,7 @@ import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, retainPanes } from "./TerminalPane";
 import { THEMES, parseTheme, type ThemeId } from "./themes";
 import { displayVersion, eraLabel } from "./version";
-import { bindingFor, isChromeField, setBindings } from "./chords";
+import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
 import type { CommandHit, HostItem, Peer, Snapshot, TabSnap, TreeRow } from "./types";
 
 type Activity = "home" | "files" | "git" | "run" | "remote";
@@ -268,6 +268,13 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  }, [runBound]);
+
+  useEffect(() => {
+    return window.lolterm.onChord((chord) => {
+      const command = commandForChord(chord);
+      if (command) void runBound(command);
+    });
   }, [runBound]);
 
   useEffect(() => {

@@ -29,6 +29,8 @@ pub fn defaults() -> Vec<Binding> {
         bind("ctrl+alt+e", "ui.tabRename"),
         bind("ctrl+alt+n", "tab.new"),
         bind("ctrl+alt+d", "tab.duplicate"),
+        bind("ctrl+tab", "tab.next"),
+        bind("ctrl+shift+tab", "tab.prev"),
         bind("ctrl+alt+w", "tab.close"),
         bind("ctrl+alt+x", "pane.close"),
         bind("ctrl+alt+[", "workspace.prev"),
@@ -107,7 +109,8 @@ mod tests {
     #[test]
     fn normalize_orders_modifiers() {
         assert_eq!(normalize_chord("Shift+Ctrl+Alt+H"), "alt+ctrl+shift+h");
-        assert_eq!(normalize_chord("ctrl+b"), "ctrl+b");
+        assert_eq!(normalize_chord("ctrl+shift+tab"), "ctrl+shift+tab");
+        assert_eq!(normalize_chord("Ctrl+Tab"), "ctrl+tab");
     }
 
     #[test]
@@ -115,6 +118,8 @@ mod tests {
         let chords: Vec<_> = defaults().into_iter().map(|b| b.command).collect();
         assert!(chords.contains(&"ui.palette".into()));
         assert!(chords.contains(&"pane.zoom".into()));
+        assert!(chords.contains(&"tab.next".into()));
+        assert!(chords.contains(&"tab.prev".into()));
         assert!(chords.contains(&"pane.splitRight".into()));
         assert!(chords.contains(&"pane.splitDown".into()));
         assert!(chords.contains(&"pane.restart".into()));

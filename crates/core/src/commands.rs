@@ -34,6 +34,18 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "tab.next",
+        slash: "tab-next",
+        hint: "siguiente tab",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "tab.prev",
+        slash: "tab-prev",
+        hint: "tab anterior",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "pane.splitRight",
         slash: "split-right",
         hint: "partir el pane a la derecha",
@@ -221,6 +233,8 @@ mod tests {
     #[test]
     fn lookup_accepts_id_or_slash() {
         assert_eq!(lookup("tab.new").map(|s| s.slash), Some("tab-new"));
+        assert_eq!(lookup("tab-next").map(|s| s.id), Some("tab.next"));
+        assert_eq!(lookup("tab-prev").map(|s| s.id), Some("tab.prev"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert!(lookup("nope").is_none());

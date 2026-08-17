@@ -130,6 +130,12 @@ function createWindow() {
     for (const msg of queued) win.webContents.send("core-event", msg);
     queued.length = 0;
   });
+  // Chromium se queda con Ctrl-Tab; hay que interceptarlo aquí o no llega al renderer.
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.key !== "Tab" || !input.control) return;
+    event.preventDefault();
+    win.webContents.send("chord", input.shift ? "ctrl+shift+tab" : "ctrl+tab");
+  });
 }
 
 process.env.GTK_OVERLAY_SCROLLING = "0";
