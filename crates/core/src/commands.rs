@@ -18,7 +18,7 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "tab.new",
         slash: "tab-new",
-        hint: "nueva tab",
+        hint: "nueva tab (default de +)",
         kind: CommandKind::Core,
     },
     CommandSpec {

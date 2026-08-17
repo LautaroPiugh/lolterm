@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain } from "electron";
+import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage } from "electron";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
@@ -107,12 +107,32 @@ function invoke(method, params) {
   });
 }
 
+function appIconPath() {
+  const candidates = [
+    path.join(process.resourcesPath, "icon.png"),
+    path.join(appRoot, "build", "icon.png"),
+    path.join(appRoot, "build", "icons", "512x512.png"),
+    path.join(appRoot, "dist", "icon.png"),
+    path.join(appRoot, "public", "icon.png"),
+  ];
+  return candidates.find(isFile);
+}
+
+function appIconImage() {
+  const file = appIconPath();
+  if (!file) return undefined;
+  const image = nativeImage.createFromPath(file);
+  return image.isEmpty() ? undefined : image;
+}
+
 function createWindow() {
+  const icon = appIconImage();
   win = new BrowserWindow({
     width: 1280,
     height: 820,
     backgroundColor: "#ECF2EC",
     title: `LoLTerm v${app.getVersion()}`,
+    icon,
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -121,6 +141,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  if (icon) win.setIcon(icon);
   if (process.env.LOLTERM_DEV) {
     win.loadURL(process.env.LOLTERM_URL || "http://127.0.0.1:5173");
   } else {
@@ -139,6 +160,9 @@ function createWindow() {
 }
 
 process.env.GTK_OVERLAY_SCROLLING = "0";
+app.setName("LoLTerm");
+app.setDesktopName("lolterm.desktop");
+app.commandLine.appendSwitch("class", "LoLTerm");
 app.commandLine.appendSwitch("no-sandbox");
 app.commandLine.appendSwitch("disable-features", "OverlayScrollbar,FluentOverlayScrollbar");
 app.commandLine.appendSwitch("disable-blink-features", "OverlayScrollbars");

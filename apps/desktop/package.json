@@ -19,11 +19,13 @@
     "appId": "app.lolterm.desktop",
     "productName": "LoLTerm",
     "directories": {
+      "buildResources": "build",
       "output": "release"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.png",
       "!electron/dev.mjs",
       "!electron/pack.mjs",
       "!**/node_modules/**"
@@ -33,12 +35,23 @@
         "from": "sidecar",
         "to": ".",
         "filter": ["lolterm-core"]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "linux": {
       "target": ["AppImage", "deb"],
+      "icon": "build/icons",
       "category": "Development",
       "executableName": "lolterm",
+      "desktop": {
+        "Name": "LoLTerm",
+        "Comment": "Multiplexor gráfico de terminales",
+        "StartupWMClass": "LoLTerm",
+        "Icon": "lolterm"
+      },
       "maintainer": "LoLTerm <lolterm@users.noreply.github.com>",
       "artifactName": "LoLTerm-${version}-linux-${arch}.${ext}"
     }

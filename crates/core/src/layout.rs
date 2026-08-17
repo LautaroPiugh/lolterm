@@ -147,6 +147,28 @@ impl LayoutNode {
             Self::Leaf { .. } => false,
         }
     }
+
+    /// Envuelve este árbol con `incoming` en el borde indicado (50/50).
+    pub fn wrap(&mut self, incoming: LayoutNode, edge: NavDir) {
+        let current = std::mem::replace(self, Self::leaf(0));
+        let (dir, incoming_first) = match edge {
+            NavDir::Left => (SplitDir::Columns, true),
+            NavDir::Right => (SplitDir::Columns, false),
+            NavDir::Up => (SplitDir::Rows, true),
+            NavDir::Down => (SplitDir::Rows, false),
+        };
+        let (first, second) = if incoming_first {
+            (incoming, current)
+        } else {
+            (current, incoming)
+        };
+        *self = Self::Split {
+            dir,
+            percent: 50,
+            first: Box::new(first),
+            second: Box::new(second),
+        };
+    }
 }
 
 fn walk_neighbor(node: &LayoutNode, focused: u64, dir: NavDir) -> Option<u64> {
@@ -282,5 +304,32 @@ mod tests {
         assert_eq!(node.ids(), vec![2, 1]);
         assert!(!node.swap_ids(1, 1));
         assert!(!node.swap_ids(1, 9));
+    }
+
+    #[test]
+    fn wrap_puts_incoming_on_the_named_edge() {
+        let mut node = LayoutNode::leaf(1);
+        node.wrap(LayoutNode::leaf(2), NavDir::Right);
+        assert_eq!(node.ids(), vec![1, 2]);
+        match &node {
+            LayoutNode::Split {
+                dir,
+                percent,
+                first,
+                second,
+            } => {
+                assert_eq!(*dir, SplitDir::Columns);
+                assert_eq!(*percent, 50);
+                assert_eq!(first.ids(), vec![1]);
+                assert_eq!(second.ids(), vec![2]);
+            }
+            other => panic!("{other:?}"),
+        }
+        node.wrap(LayoutNode::leaf(3), NavDir::Left);
+        assert_eq!(node.ids(), vec![3, 1, 2]);
+        node.wrap(LayoutNode::leaf(4), NavDir::Down);
+        assert_eq!(node.ids(), vec![3, 1, 2, 4]);
+        node.wrap(LayoutNode::leaf(5), NavDir::Up);
+        assert_eq!(node.ids(), vec![5, 3, 1, 2, 4]);
     }
 }

@@ -46,6 +46,7 @@ pub struct Snapshot {
     pub env: Vec<session::EnvVar>,
     pub meta: ProjectMeta,
     pub machines: Vec<Machine>,
+    pub new_tab: String,
 }
 
 #[derive(Serialize)]
@@ -120,6 +121,7 @@ pub struct Mux {
     machines: Vec<Machine>,
     notice: Option<String>,
     theme: Theme,
+    new_tab: String,
 }
 
 impl Mux {
@@ -148,6 +150,7 @@ impl Mux {
             machines: cfg.machines,
             notice: None,
             theme: cfg.theme,
+            new_tab: sanitize_new_tab(&cfg.new_tab),
         };
         let mut session = session::load().unwrap_or_default();
         crate::workspaces::merge_into_session(&mut session, &crate::workspaces::load());
@@ -172,9 +175,6 @@ impl Mux {
         }
         mux.notes = crate::workspaces::notes_for(&mux.root);
         mux.consume_pending()?;
-        if mux.tabs.is_empty() {
-            mux.new_tab(None, None, &[], true)?;
-        }
         mux.apply_startup()?;
         session::push_unique_path(&mut mux.recent_projects, mux.root.clone(), 12);
         Ok(mux)
@@ -350,6 +350,7 @@ impl Mux {
                 notes: self.notes.clone(),
             },
             machines: self.machines.clone(),
+            new_tab: self.new_tab.clone(),
         }
     }
 
@@ -432,12 +433,22 @@ impl Mux {
         let theme = Theme::parse(name)
             .ok_or_else(|| eyre!("tema desconocido: {name} (sage, dusk, mono)"))?;
         self.theme = theme;
-        let mut cfg = crate::config::load();
-        cfg.theme = theme;
-        cfg.machines = self.machines.clone();
-        cfg.remote = self.remote.clone();
-        crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))?;
-        Ok(())
+        self.write_config()
+    }
+
+    pub fn set_new_tab(&mut self, kind: &str) -> Result<()> {
+        self.new_tab = sanitize_new_tab(kind);
+        self.write_config()
+    }
+
+    fn write_config(&self) -> Result<()> {
+        let cfg = crate::config::AppConfig {
+            theme: self.theme,
+            remote: self.remote.clone(),
+            machines: self.machines.clone(),
+            new_tab: self.new_tab.clone(),
+        };
+        crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))
     }
 
     pub fn persist(&self) {
@@ -617,17 +628,31 @@ impl Mux {
         Ok(id)
     }
 
+    pub fn spawn_preferred_tab(&mut self) -> Result<u64> {
+        let kind = self.new_tab.clone();
+        match kind.as_str() {
+            "shell" => self.new_tab(None, None, &[], true),
+            "ssh" | "tailscale" => {
+                self.notice = Some("Ctrl-Alt-N abre SSH: elegí un host con + o la paleta".into());
+                Ok(0)
+            }
+            name => self.new_tab(Some(name), None, &[], false),
+        }
+    }
+
     pub fn close_tab(&mut self, index: usize) -> Result<()> {
-        if self.tabs.len() <= 1 {
-            self.notice = Some("solo hay una tab".into());
+        if index >= self.tabs.len() {
             return Ok(());
         }
-        if index < self.tabs.len() {
-            self.tabs.remove(index);
-            if self.active >= self.tabs.len() {
-                self.active = self.tabs.len() - 1;
-            }
+        self.tabs.remove(index);
+        if self.tabs.is_empty() {
+            self.active = 0;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
+        } else if index < self.active {
+            self.active -= 1;
         }
+        self.persist();
         Ok(())
     }
 
@@ -668,6 +693,9 @@ impl Mux {
     }
 
     pub fn split(&mut self, dir: SplitDir, program: Option<&str>, args: &[String]) -> Result<u64> {
+        if self.tabs.is_empty() {
+            return self.new_tab(program, None, args, true);
+        }
         let cwd = self.focused_cwd().unwrap_or_else(|| self.root.clone());
         let id = self.spawn_pane(&cwd, program, args)?;
         let tab = self
@@ -690,10 +718,9 @@ impl Mux {
     }
 
     pub fn close_pane(&mut self, pane: u64) -> Result<()> {
-        let tab = self
-            .tabs
-            .get_mut(self.active)
-            .ok_or_else(|| eyre!("no tab"))?;
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return Ok(());
+        };
         if tab.panes.len() <= 1 {
             return self.close_tab(self.active);
         }
@@ -770,10 +797,6 @@ impl Mux {
             self.env.clear();
         }
         self.notes = crate::workspaces::notes_for(&self.root);
-        if self.tabs.is_empty() {
-            let root = self.root.clone();
-            self.new_tab(None, Some(&root), &[], true)?;
-        }
         self.apply_startup()?;
         session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
         self.persist();
@@ -968,10 +991,7 @@ impl Mux {
     }
 
     fn persist_machines(&self) {
-        let mut cfg = crate::config::load();
-        cfg.machines = self.machines.clone();
-        cfg.remote = self.remote.clone();
-        let _ = crate::config::save(&cfg);
+        let _ = self.write_config();
     }
 
     fn remember_ssh_user(&mut self, user: &str) {
@@ -1290,6 +1310,25 @@ impl Mux {
         }
     }
 
+    pub fn dock_tab(&mut self, from: usize, edge: NavDir) {
+        if self.tabs.len() < 2 || from >= self.tabs.len() || from == self.active {
+            return;
+        }
+        let incoming = self.tabs.remove(from);
+        if from < self.active {
+            self.active -= 1;
+        }
+        let focused = incoming.focused;
+        let Some(dest) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        dest.panes.extend(incoming.panes);
+        dest.layout.wrap(incoming.layout, edge);
+        dest.focused = focused;
+        dest.zoomed = None;
+        self.persist();
+    }
+
     pub fn restart_pane(&mut self, pane: u64) -> Result<()> {
         let (cwd, program, args) = {
             let tab = self.tabs.get(self.active).ok_or_else(|| eyre!("no tab"))?;
@@ -1342,7 +1381,7 @@ impl Mux {
         }
         match spec.id {
             "tab.new" => {
-                self.new_tab(None, None, &[], true)?;
+                self.spawn_preferred_tab()?;
             }
             "tab.close" => self.close_tab(self.active)?,
             "tab.duplicate" => self.duplicate_tab(self.active)?,
@@ -1415,7 +1454,7 @@ impl Mux {
             self.tabs.remove(index);
         }
         if self.tabs.is_empty() {
-            let _ = self.new_tab(None, None, &[], true);
+            self.active = 0;
         } else if self.active >= self.tabs.len() {
             self.active = self.tabs.len() - 1;
         }
@@ -1442,6 +1481,17 @@ fn wants_own_tab(program: &str) -> bool {
             | "gemini"
             | "cline"
     )
+}
+
+fn sanitize_new_tab(raw: &str) -> String {
+    let name = raw.trim().to_ascii_lowercase();
+    match name.as_str() {
+        "" | "shell" | "term" | "terminal" => "shell".into(),
+        "ts" => "tailscale".into(),
+        "ssh" | "tailscale" => name,
+        other if RUN_CLIS.contains(&other) => other.into(),
+        _ => "shell".into(),
+    }
 }
 
 fn shell_label() -> String {
@@ -1518,7 +1568,7 @@ fn startup_needed<'a>(open: impl IntoIterator<Item = Option<&'a str>>, program: 
 
 #[cfg(test)]
 mod tests {
-    use super::{startup_already_open, startup_needed};
+    use super::{sanitize_new_tab, startup_already_open, startup_needed};
 
     #[test]
     fn startup_skips_when_layout_already_has_program() {
@@ -1527,5 +1577,14 @@ mod tests {
         assert!(startup_needed(open, "btop"));
         assert!(!startup_needed(open, ""));
         assert!(startup_already_open(open, "lazygit"));
+    }
+
+    #[test]
+    fn new_tab_kind_accepts_catalog_and_rejects_paths() {
+        assert_eq!(sanitize_new_tab("Terminal"), "shell");
+        assert_eq!(sanitize_new_tab("nvim"), "nvim");
+        assert_eq!(sanitize_new_tab("ts"), "tailscale");
+        assert_eq!(sanitize_new_tab("/bin/bash"), "shell");
+        assert_eq!(sanitize_new_tab("rm"), "shell");
     }
 }

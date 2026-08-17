@@ -26,7 +26,9 @@ import {
   Settings,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
-import { applyXtermTheme, disposeTerm, retainPanes } from "./TerminalPane";
+import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes } from "./TerminalPane";
+import { Welcome } from "./Welcome";
+import { NewTabPicker } from "./NewTabPicker";
 import { THEMES, parseTheme, type ThemeId } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
@@ -92,6 +94,26 @@ function projectName(path: string) {
   return parts[parts.length - 1] || path;
 }
 
+type DockEdge = "left" | "right" | "up" | "down";
+
+function dockEdgeFromPoint(host: HTMLElement, clientX: number, clientY: number): DockEdge | null {
+  const rect = host.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return null;
+  const px = (clientX - rect.left) / rect.width;
+  const py = (clientY - rect.top) / rect.height;
+  const dist = { left: px, right: 1 - px, up: py, down: 1 - py };
+  let edge: DockEdge = "left";
+  let min = dist.left;
+  for (const key of ["right", "up", "down"] as const) {
+    if (dist[key] < min) {
+      min = dist[key];
+      edge = key;
+    }
+  }
+  if (min > 0.25) return null;
+  return edge;
+}
+
 function ThemePicker({
   current,
   onPick,
@@ -134,13 +156,16 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState("");
   const [renameWs, setRenameWs] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
+  const [newTabOpen, setNewTabOpen] = useState(false);
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
   const [wsNotes, setWsNotes] = useState("");
   const [sshDest, setSshDest] = useState("");
   const [tmuxSession, setTmuxSession] = useState("lolterm");
-  const dragTab = useRef<number | null>(null);
+  const [draggingTab, setDraggingTab] = useState<number | null>(null);
+  const [dockEdge, setDockEdge] = useState<DockEdge | null>(null);
   const gearRef = useRef<HTMLDivElement>(null);
+  const newTabRef = useRef<HTMLDivElement>(null);
 
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
@@ -157,9 +182,33 @@ export default function App() {
     [apply],
   );
 
+  const launchKind = useCallback(
+    async (kind: string) => {
+      setNewTabOpen(false);
+      if (kind === "shell") {
+        await call("newTab");
+        return;
+      }
+      if (kind === "ssh") {
+        setModal({ kind: "ssh", query: "" });
+        return;
+      }
+      if (kind === "tailscale") {
+        setModal({ kind: "ts", user: sshUser, selected: 0 });
+        return;
+      }
+      await call("newTab", { program: kind });
+    },
+    [call, sshUser],
+  );
+
   const runBound = useCallback(
     async (name: string) => {
       const key = name.trim().replace(/^\//, "");
+      if (key === "tab.new" || key === "tab-new") {
+        await launchKind(snap?.new_tab || "shell");
+        return;
+      }
       if (key === "ui.palette" || key === "palette") {
         setModal({ kind: "palette", query: "" });
         return;
@@ -196,7 +245,7 @@ export default function App() {
       }
       await call("dispatch", { id: key });
     },
-    [call, snap?.active_tab, snap?.tabs, sshUser],
+    [call, launchKind, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
   );
 
   useEffect(() => {
@@ -232,6 +281,11 @@ export default function App() {
   }, [snap]);
 
   useEffect(() => {
+    if (!snap) return;
+    refitAllTerminals();
+  }, [snap?.active_tab, snap?.root, snap?.tabs.length, snap?.tabs[snap.active_tab ?? 0]?.zoomed]);
+
+  useEffect(() => {
     setBindings(snap?.keybindings);
   }, [snap?.keybindings]);
 
@@ -251,12 +305,24 @@ export default function App() {
   }, [gearOpen]);
 
   useEffect(() => {
+    if (!newTabOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (newTabRef.current && !newTabRef.current.contains(event.target as Node)) {
+        setNewTabOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [newTabOpen]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setModal(null);
         setRenaming(null);
         setRenameWs(false);
         setGearOpen(false);
+        setNewTabOpen(false);
         return;
       }
       if (isChromeField(e.target)) return;
@@ -366,6 +432,7 @@ export default function App() {
     <div className="shell">
       <header className="titlebar">
         <button type="button" className="titlebar-wordmark" onClick={() => setActivity("home")}>
+          <img className="titlebar-icon" src={`${import.meta.env.BASE_URL}icon.png`} alt="" width={18} height={18} />
           <span className="lol">lol</span>
           <span className="mark">term</span>
           <span className="ver" title={`LoLTerm ${displayVersion(snap.version)} · ${eraLabel(snap.version)}`}>
@@ -883,6 +950,7 @@ export default function App() {
         )}
         <main className="editor">
           <div className="tabs">
+            <div className="tabs-scroll">
             {snap.tabs.map((item, index) => {
               const Icon = tabIcon(item);
               const on = index === snap.active_tab;
@@ -921,12 +989,18 @@ export default function App() {
                     setRenameDraft(item.name);
                   }}
                   onDragStart={() => {
-                    dragTab.current = index;
+                    setDraggingTab(index);
+                    setDockEdge(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingTab(null);
+                    setDockEdge(null);
                   }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => {
-                    const from = dragTab.current;
-                    dragTab.current = null;
+                    const from = draggingTab;
+                    setDraggingTab(null);
+                    setDockEdge(null);
                     if (from == null || from === index) return;
                     void call("moveTab", { from, to: index });
                   }}
@@ -945,9 +1019,24 @@ export default function App() {
                 </button>
               );
             })}
-            <button type="button" className="tab-add" title="Nueva terminal" onClick={() => void call("newTab")}>
-              <Plus size={14} />
-            </button>
+            </div>
+            <div className="new-tab-wrap" ref={newTabRef}>
+              <button
+                type="button"
+                className={newTabOpen ? "tab-add on" : "tab-add"}
+                title="Nueva tab"
+                onClick={() => setNewTabOpen((open) => !open)}
+              >
+                <Plus size={14} />
+              </button>
+              {newTabOpen ? (
+                <NewTabPicker
+                  snap={snap}
+                  onLaunch={(kind) => void launchKind(kind)}
+                  onSetDefault={(kind) => void call("setNewTab", { kind })}
+                />
+              ) : null}
+            </div>
             <button
               type="button"
               className="tab-add"
@@ -979,15 +1068,55 @@ export default function App() {
               </span>
             ))}
           </div>
-          <div className="panes">
-            {tab && (
-              <SplitView
-                node={tab.layout}
-                panes={tab.panes}
-                focused={tab.focused}
-                zoomed={tab.zoomed}
-                onFocus={(id) => void call("focus", { pane: id })}
+          <div
+            className="panes"
+            onDragOver={(e) => {
+              if (draggingTab == null || draggingTab === snap.active_tab) return;
+              e.preventDefault();
+              setDockEdge(dockEdgeFromPoint(e.currentTarget, e.clientX, e.clientY));
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDockEdge(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = draggingTab;
+              const edge = dockEdgeFromPoint(e.currentTarget, e.clientX, e.clientY);
+              setDraggingTab(null);
+              setDockEdge(null);
+              if (from == null || edge == null || from === snap.active_tab) return;
+              void call("dockTab", { from, edge }).then(() => refitAllTerminals());
+            }}
+          >
+            {snap.tabs.length === 0 ? (
+              <Welcome
+                snap={snap}
+                onNewTab={() => void launchKind(snap.new_tab || "shell")}
+                onOpenFolder={() => void window.lolterm.openFolder().then(apply)}
+                onPalette={() => setModal({ kind: "palette", query: "" })}
+                onOpenWorkspace={(path) => void call("openProject", { path })}
+                onRun={(program) => void call("run", { program, args: [] })}
+                onFiles={() => setModal({ kind: "files", query: "" })}
+                onSsh={() => setModal({ kind: "ssh", query: "" })}
+                onTs={() => setModal({ kind: "ts", user: sshUser, selected: 0 })}
+                onConnectMachine={(target) =>
+                  void call("connectMachine", { target, user: sshUser.trim() || undefined })
+                }
+                onPreset={(id) => void call("applyPreset", { id })}
               />
+            ) : (
+              tab && (
+                <SplitView
+                  node={tab.layout}
+                  panes={tab.panes}
+                  focused={tab.focused}
+                  zoomed={tab.zoomed}
+                  onFocus={(id) => void call("focus", { pane: id })}
+                />
+              )
+            )}
+            {dockEdge && draggingTab != null && draggingTab !== snap.active_tab && (
+              <div className={`dock-overlay ${dockEdge}`} />
             )}
           </div>
         </main>

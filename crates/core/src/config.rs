@@ -137,6 +137,8 @@ pub struct AppConfig {
     pub theme: Theme,
     pub remote: RemoteConfig,
     pub machines: Vec<Machine>,
+    /// Qué abre `tab.new` / Ctrl-Alt-N: `shell`, `ssh`, `tailscale` o una CLI del catálogo.
+    pub new_tab: String,
 }
 
 impl Default for AppConfig {
@@ -145,6 +147,7 @@ impl Default for AppConfig {
             theme: Theme::Sage,
             remote: RemoteConfig::default(),
             machines: Vec::new(),
+            new_tab: "shell".into(),
         }
     }
 }
@@ -170,6 +173,7 @@ pub fn load() -> AppConfig {
                 Some(name) => name,
             },
         },
+        new_tab: parsed.ui.new_tab.unwrap_or_else(|| "shell".into()),
         machines: parsed
             .machines
             .into_iter()
@@ -207,6 +211,7 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
     let file = FileConfig {
         ui: FileUi {
             theme: Some(config.theme.as_str().to_string()),
+            new_tab: Some(config.new_tab.clone()),
         },
         remote: FileRemote {
             user: config.remote.user.clone(),
@@ -286,6 +291,8 @@ struct FileConfig {
 struct FileUi {
     #[serde(default)]
     theme: Option<String>,
+    #[serde(default)]
+    new_tab: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

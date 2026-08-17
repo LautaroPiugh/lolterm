@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use color_eyre::Result;
-use lolterm_core::layout::SplitDir;
+use lolterm_core::layout::{NavDir, SplitDir};
 use lolterm_core::mux::Mux;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -108,7 +108,19 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             serde_json::to_value(mux.snapshot())?
         }
         "newTab" => {
-            mux.new_tab(None, None, &[], true)?;
+            let program = params["program"]
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty());
+            match program {
+                None | Some("shell") => {
+                    mux.new_tab(None, None, &[], true)?;
+                }
+                Some("ssh") | Some("tailscale") => {}
+                Some(name) => {
+                    mux.new_tab(Some(name), None, &[], false)?;
+                }
+            }
             serde_json::to_value(mux.snapshot())?
         }
         "duplicateTab" => {
@@ -267,6 +279,10 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.set_theme(params["theme"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "setNewTab" => {
+            mux.set_new_tab(params["kind"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "dispatch" => {
             mux.dispatch(params["id"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
@@ -303,6 +319,13 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
                 params["from"].as_u64().unwrap_or(0) as usize,
                 params["to"].as_u64().unwrap_or(0) as usize,
             );
+            serde_json::to_value(mux.snapshot())?
+        }
+        "dockTab" => {
+            let from = params["from"].as_u64().unwrap_or(0) as usize;
+            let edge =
+                NavDir::parse(params["edge"].as_str().unwrap_or("")).unwrap_or(NavDir::Right);
+            mux.dock_tab(from, edge);
             serde_json::to_value(mux.snapshot())?
         }
         "restartPane" => {

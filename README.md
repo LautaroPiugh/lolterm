@@ -85,7 +85,8 @@ Brief de diseño (Figma Make / designer): `apps/desktop/figma-prompt.txt`.
 
 El chrome es mint (activity rail `⌂ F ± > ☁`, explorer, tabs, status). El trabajo vive en xterm.js conectado a PTYs reales.
 
-- `+` nueva tab · `‖` split horizontal · `☰` split vertical
+- `+` nueva tab · cerrar todas las pestañas muestra Inicio (como VS Code)
+- arrastrá una pestaña al borde del terminal para partir el layout
 - clic en el nombre del titlebar abre Inicio; de nuevo cicla; `Ctrl-Alt-[` `]` también
 - `/run` (paleta) abre nvim, lazygit, btop, claude, …
 - `/files` busca y abre en `$EDITOR`

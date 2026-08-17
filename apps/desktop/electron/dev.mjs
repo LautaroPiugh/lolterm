@@ -48,7 +48,7 @@ cargo.on("exit", async (code) => {
   const target = process.env.CARGO_TARGET_DIR || path.join(repoRoot, "target");
   const electron = spawn(
     path.join(appRoot, "node_modules", ".bin", "electron"),
-    [".", "--no-sandbox", "--disable-gpu-sandbox", "--log-level=3"],
+    [".", "--no-sandbox", "--disable-gpu-sandbox", "--log-level=3", "--class=LoLTerm"],
     {
       cwd: appRoot,
       stdio: ["inherit", "inherit", "pipe"],
