@@ -58,20 +58,20 @@ Quedan archivos en `apps/desktop/release/`. El sidecar Rust va en `resources/`, 
 **AppImage** — no se instala. Es un archivo ejecutable (útil para probar o copiar a otra máquina):
 
 ```bash
-chmod +x apps/desktop/release/LoLTerm-0.5.1-linux-x86_64.AppImage
-./apps/desktop/release/LoLTerm-0.5.1-linux-x86_64.AppImage
+chmod +x apps/desktop/release/LoLTerm-0.5.2-linux-x86_64.AppImage
+./apps/desktop/release/LoLTerm-0.5.2-linux-x86_64.AppImage
 ```
 
 **.deb** — es el formato de Ubuntu/Debian. Instala LoLTerm en el menú de aplicaciones y un `lolterm` en `/usr/bin`:
 
 ```bash
-sudo apt install ./apps/desktop/release/LoLTerm-0.5.1-linux-amd64.deb
+sudo apt install ./apps/desktop/release/LoLTerm-0.5.2-linux-amd64.deb
 ```
 
 Si `apt` se queja de dependencias:
 
 ```bash
-sudo dpkg -i apps/desktop/release/LoLTerm-0.5.1-linux-amd64.deb
+sudo dpkg -i apps/desktop/release/LoLTerm-0.5.2-linux-amd64.deb
 sudo apt-get install -f
 ```
 

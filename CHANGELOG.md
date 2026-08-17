@@ -1,6 +1,22 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.5.1 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.5.2 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.5.2](https://github.com/LautaroPiugh/lolterm/compare/v0.5.1...v0.5.2) (2026-08-17)
+
+Uso diario: `npm run dev`. El icono de escritorio queda en el `.deb`/AppImage; en dev GNOME/Wayland puede seguir mostrando el de Electron.
+
+### Features
+
+* Inicio al cerrar todas las pestañas (workspace, CLIs, máquinas, layouts)
+* el `+` de tabs pregunta qué abrir (shell, SSH, agentes) y recuerda el default de `Ctrl-Alt-N`
+* arrastrar una pestaña al borde parte el layout
+* icono LoLTerm (panes + prompt mint) para ventana, `.desktop` y titlebar
+
+### Bug Fixes
+
+* el área de panes volvía a medir la mitad de la ventana después de Inicio
+* el menú de `+` se recortaba al borde derecho
 
 ## [0.5.1](https://github.com/LautaroPiugh/lolterm/compare/v0.5.0...v0.5.1) (2026-08-17)
 

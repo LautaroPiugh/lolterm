@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn format_context_omits_secrets_and_env_values() {
         let text = format_context(&ContextView {
-            version: "0.5.1".into(),
+            version: "0.5.2".into(),
             workspace: "lolterm".into(),
             cwd: "~/Projects/lolterm".into(),
             machine: "local".into(),
