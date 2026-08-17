@@ -9,6 +9,7 @@
     "email": "lolterm@users.noreply.github.com"
   },
   "homepage": "https://github.com/LautaroPiugh/lolterm",
+  "desktopName": "LoLTerm.desktop",
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "node electron/dev.mjs",
@@ -46,11 +47,14 @@
       "icon": "build/icons",
       "category": "Development",
       "executableName": "lolterm",
+      "syncDesktopName": true,
       "desktop": {
-        "Name": "LoLTerm",
-        "Comment": "Multiplexor gráfico de terminales",
-        "StartupWMClass": "LoLTerm",
-        "Icon": "lolterm"
+        "entry": {
+          "Name": "LoLTerm",
+          "Comment": "Multiplexor gráfico de terminales",
+          "StartupWMClass": "LoLTerm",
+          "Icon": "lolterm"
+        }
       },
       "maintainer": "LoLTerm <lolterm@users.noreply.github.com>",
       "artifactName": "LoLTerm-${version}-linux-${arch}.${ext}"
