@@ -1,6 +1,20 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.5.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.5.1 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.5.1](https://github.com/LautaroPiugh/lolterm/compare/v0.5.0...v0.5.1) (2026-08-17)
+
+Uso diario: `npm run dev`. `v0.5.0` quedó en el árbol pero no se etiquetó en GitHub.
+
+### Features
+
+* `Ctrl-Tab` / `Ctrl-Shift-Tab` cicla tabs (Electron intercepta el atajo de Chromium)
+* clic en el nombre del titlebar abre Inicio; de nuevo cicla workspaces (`Ctrl-Alt-[` `]`)
+* Inicio muestra los comandos “al abrir”
+
+### Bug Fixes
+
+* restaurar un layout ya no degrada nvim/lazygit a shell y duplica el startup
 
 ## [0.5.0](https://github.com/LautaroPiugh/lolterm/compare/v0.4.1...v0.5.0) (2026-08-16)
 

@@ -892,9 +892,9 @@ El repositorio actual ya contiene una base funcional:
 Versión global al alinear este documento con el código (era CLI, `v0.5.x`):
 
 ```text
-Cargo workspace:          0.5.0
-apps/desktop/package.json 0.5.0
-lolterm / lolterm-core    0.5.0
+Cargo workspace:          0.5.1
+apps/desktop/package.json 0.5.1
+lolterm / lolterm-core    0.5.1
 ```
 
 Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
@@ -974,10 +974,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.5.0
-├── Cargo workspace   0.5.0
-├── lolterm-core      0.5.0
-└── desktop package   0.5.0
+LoLTerm 0.5.1
+├── Cargo workspace   0.5.1
+├── lolterm-core      0.5.1
+└── desktop package   0.5.1
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
