@@ -130,6 +130,36 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "run.codex",
+        slash: "codex",
+        hint: "abrir Codex (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.claude",
+        slash: "claude",
+        hint: "abrir Claude Code (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.opencode",
+        slash: "opencode",
+        hint: "abrir OpenCode (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.gemini",
+        slash: "gemini",
+        hint: "abrir Gemini CLI (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.cline",
+        slash: "cline",
+        hint: "abrir Cline (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "workspace.next",
         slash: "ws-next",
         hint: "siguiente workspace del catálogo",
@@ -236,6 +266,7 @@ mod tests {
         assert_eq!(lookup("tab-next").map(|s| s.id), Some("tab.next"));
         assert_eq!(lookup("tab-prev").map(|s| s.id), Some("tab.prev"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
+        assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert!(lookup("nope").is_none());
     }

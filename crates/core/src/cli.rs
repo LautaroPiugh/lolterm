@@ -280,8 +280,9 @@ Uso:
 
 Sin argumentos abre o enfoca el Desktop en el workspace activo. `context`
 imprime JSON en vivo si el Desktop está abierto (si no, la última sesión
-guardada). Sin secretos ni valores de env. `.`, `workspace open`, `ssh` y
-`run` abren el Desktop.
+guardada). Los panes reciben `LOLTERM_CONTEXT`. Un agente abre en un
+git worktree (`LOLTERM_WORKTREE`) para no pisar nvim. Sin secretos ni
+valores de env. `.`, `workspace open`, `ssh` y `run` abren el Desktop.
 "
     )
 }
@@ -732,6 +733,10 @@ fn saved_context() -> ContextView {
         },
         tmux: status.tmux_session,
         processes,
+        focused_process: panes
+            .iter()
+            .find(|pane| pane.focused)
+            .and_then(|pane| (pane.program != "shell").then(|| pane.program.clone())),
         panes,
         env,
         machines: cfg
@@ -739,6 +744,7 @@ fn saved_context() -> ContextView {
             .iter()
             .map(|machine| machine.name.clone())
             .collect(),
+        worktrees: Vec::new(),
     }
 }
 
@@ -779,6 +785,7 @@ fn saved_panes(ws: &SavedWorkspace) -> Vec<ContextPane> {
                 cwd,
                 remote: None,
                 focused,
+                worktree: None,
             });
         }
     }

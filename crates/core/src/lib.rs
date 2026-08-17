@@ -2,6 +2,7 @@
 /// el crate; Release Please la sube junto con `apps/desktop/package.json`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod agents;
 pub mod cli;
 pub mod commands;
 pub mod config;

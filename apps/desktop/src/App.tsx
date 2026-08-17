@@ -1142,6 +1142,15 @@ export default function App() {
             </span>
           </>
         )}
+        {(snap.agents ?? []).length > 0 && (
+          <>
+            <span className="status-sep">·</span>
+            <span className="status-item" title={(snap.agents ?? []).map((a) => a.worktree ?? a.program).join(" · ")}>
+              <Sparkles size={11} color="rgba(255,255,255,0.85)" />
+              {(snap.agents ?? []).map((a) => a.program).join(" · ")}
+            </span>
+          </>
+        )}
         <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>

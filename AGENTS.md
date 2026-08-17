@@ -589,14 +589,11 @@ Pane
 
 Futuras comodidades válidas:
 
-* templates para abrir agentes;
-* contexto del workspace;
-* variables de entorno;
-* worktrees por agente;
-* indicadores de estado;
-* notificaciones;
-* historial de sesiones;
-* comandos registrados.
+* templates para abrir agentes (paleta `/codex`, picker `+`);
+* contexto del workspace (`LOLTERM_CONTEXT`, `LOLTERM_ROOT`, `LOLTERM_WORKSPACE`);
+* worktrees por agente (`LOLTERM_WORKTREE`, `~/.local/share/lolterm/worktrees/`);
+* indicadores de estado y aviso al cerrar;
+* historial corto de lanzamientos;
 
 Evitar construir prematuramente:
 
@@ -886,15 +883,17 @@ El repositorio actual ya contiene una base funcional:
 * overlay Git básico;
 * sesión básica;
 * contexto en vivo vía Unix socket (`lolterm context`);
+* cada PTY recibe `LOLTERM_CONTEXT` (JSON en el runtime dir);
+* agentes en git worktree + status/historial;
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
-Versión global al alinear este documento con el código (era Context, `v0.6.x`):
+Versión global al alinear este documento con el código (era AI host, `v0.7.x`):
 
 ```text
-Cargo workspace:          0.6.0
-apps/desktop/package.json 0.6.0
-lolterm / lolterm-core    0.6.0
+Cargo workspace:          0.7.0
+apps/desktop/package.json 0.7.0
+lolterm / lolterm-core    0.7.0
 ```
 
 Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
@@ -974,10 +973,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.6.0
-├── Cargo workspace   0.6.0
-├── lolterm-core      0.6.0
-└── desktop package   0.6.0
+LoLTerm 0.7.0
+├── Cargo workspace   0.7.0
+├── lolterm-core      0.7.0
+└── desktop package   0.7.0
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
@@ -1230,6 +1229,8 @@ Separar conceptualmente:
 
 * PID/process state;
 * `$XDG_RUNTIME_DIR/lolterm/mux.sock` (consulta de contexto; no es config portable);
+* `$XDG_RUNTIME_DIR/lolterm/context.json` (misma foto; los PTYs la ven en `LOLTERM_CONTEXT`);
+* `$XDG_DATA_HOME/lolterm/worktrees/` e `agent-sessions.jsonl` (agentes; no portable);
 * paths específicos cuando no sean portables;
 * geometría de ventanas;
 * cache;
@@ -1595,15 +1596,13 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-LoLTerm está en **`v0.6.x` (Context)**. No agrandar el catálogo de la CLI ni empezar v0.7 (orquestación de IA) salvo instrucción explícita.
+LoLTerm está en **`v0.7.x` (AI host)**. No construir chat, ACP ni orquestación de un proveedor. No agrandar el catálogo de la CLI.
 
 Orden recomendado:
 
-### A. Contexto en vivo (huecos de v0.6)
+### A. Usar el host (huecos de v0.7)
 
-1. `lolterm context` con Desktop abierto debe mostrar `"live": true` y el cwd del pane enfocado;
-2. no filtrar secretos (solo keys de env públicas);
-3. no agregar subcomandos nuevos: el JSON de `context` es la API.
+Probar abrir OpenCode/Codex: worktree nuevo, `$LOLTERM_CONTEXT`, aviso al cerrar. `[ai] worktrees = false` si molesta.
 
 ### B. Multiplexer cómodo (huecos de v0.2)
 

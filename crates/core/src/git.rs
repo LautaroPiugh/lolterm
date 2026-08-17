@@ -202,7 +202,34 @@ fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Etiqueta corta del remote `origin`, sin credenciales ni esquema.
+/// Nuevo worktree en `path` con rama `branch` desde HEAD. No borra worktrees.
+pub fn worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), String> {
+    let branch = branch.trim();
+    if branch.is_empty() || path.as_os_str().is_empty() {
+        return Err("worktree inválido".into());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let output = Command::new("git")
+        .args(["-C", &repo.to_string_lossy()])
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            &path.to_string_lossy(),
+            "HEAD",
+        ])
+        .output()
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&output.stderr);
+    Err(err.trim().to_string())
+}
+
 pub fn origin_label(dir: &Path) -> Option<String> {
     let url = git_output(dir, &["remote", "get-url", "origin"])?;
     let label = sanitize_remote(&url);
@@ -315,5 +342,31 @@ mod tests {
             sanitize_remote("git@github.com:foo/bar.git"),
             "github.com/foo/bar"
         );
+    }
+
+    #[test]
+    fn worktree_add_checks_out_head() {
+        let root = std::env::temp_dir().join(format!("lolterm-wt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("tmpdir");
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(["-C", &root.to_string_lossy()])
+                .args(args)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        assert!(git(&["init"]));
+        assert!(git(&["config", "user.email", "lolterm@test"]));
+        assert!(git(&["config", "user.name", "lolterm"]));
+        std::fs::write(root.join("README"), "x").expect("readme");
+        assert!(git(&["add", "README"]));
+        assert!(git(&["commit", "-m", "init"]));
+        let wt = root.join("agent-wt");
+        worktree_add(&root, &wt, "lolterm/test/1").expect("worktree add");
+        assert!(wt.join("README").is_file());
+        let _ = git(&["worktree", "remove", "--force", &wt.to_string_lossy()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

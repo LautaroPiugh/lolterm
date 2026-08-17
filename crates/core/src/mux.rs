@@ -47,6 +47,18 @@ pub struct Snapshot {
     pub meta: ProjectMeta,
     pub machines: Vec<Machine>,
     pub new_tab: String,
+    pub agents: Vec<AgentSnap>,
+    pub agent_log: Vec<crate::agents::SessionRecord>,
+}
+
+#[derive(Serialize)]
+pub struct AgentSnap {
+    pub program: String,
+    pub tab: usize,
+    pub tab_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
+    pub focused: bool,
 }
 
 #[derive(Serialize)]
@@ -92,6 +104,7 @@ struct LivePane {
     program: Option<String>,
     args: Vec<String>,
     pty: BytePty,
+    worktree: Option<PathBuf>,
 }
 
 struct Tab {
@@ -122,6 +135,7 @@ pub struct Mux {
     notice: Option<String>,
     theme: Theme,
     new_tab: String,
+    agent_worktrees: bool,
 }
 
 impl Mux {
@@ -151,6 +165,7 @@ impl Mux {
             notice: None,
             theme: cfg.theme,
             new_tab: sanitize_new_tab(&cfg.new_tab),
+            agent_worktrees: cfg.agent_worktrees,
         };
         let mut session = session::load().unwrap_or_default();
         crate::workspaces::merge_into_session(&mut session, &crate::workspaces::load());
@@ -223,9 +238,35 @@ impl Mux {
     }
 
     fn spawn_pane(&mut self, cwd: &Path, program: Option<&str>, args: &[String]) -> Result<u64> {
+        let (id, live) = self.spawn_live(cwd, program, args)?;
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.panes.insert(id, live);
+            return Ok(id);
+        }
+        let mut panes = HashMap::new();
+        panes.insert(id, live);
+        self.tabs.push(Tab {
+            name: program.map(ToString::to_string),
+            focused: id,
+            zoomed: None,
+            layout: LayoutNode::leaf(id),
+            panes,
+        });
+        self.active = self.tabs.len() - 1;
+        Ok(id)
+    }
+
+    fn spawn_live(
+        &mut self,
+        cwd: &Path,
+        program: Option<&str>,
+        args: &[String],
+    ) -> Result<(u64, LivePane)> {
+        let stamp = self.next_id;
         let id = self.next_id;
         self.next_id += 1;
-        let env = self.context_env();
+        let (cwd, worktree) = self.prepare_agent_cwd(cwd, program, stamp);
+        let env = self.context_env(worktree.as_deref());
         let (bin, spawn_args) = files::spawn_argv(program, args);
         let pty = BytePty::spawn(
             id,
@@ -235,58 +276,100 @@ impl Mux {
                 pixel_width: 0,
                 pixel_height: 0,
             },
-            cwd,
+            &cwd,
             bin.as_deref(),
             &spawn_args,
             &env,
             self.tx.clone(),
         )?;
-        let title = program
-            .map(|name| name.to_string())
-            .unwrap_or_else(shell_label);
-        if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.panes.insert(
-                id,
-                LivePane {
-                    title,
-                    program: program.map(ToString::to_string),
-                    args: args.to_vec(),
-                    pty,
-                },
-            );
-        } else {
-            let mut panes = HashMap::new();
-            panes.insert(
-                id,
-                LivePane {
-                    title,
-                    program: program.map(ToString::to_string),
-                    args: args.to_vec(),
-                    pty,
-                },
-            );
-            self.tabs.push(Tab {
-                name: program.map(ToString::to_string),
-                focused: id,
-                zoomed: None,
-                layout: LayoutNode::leaf(id),
-                panes,
+        if crate::agents::is_agent(program) {
+            crate::agents::append_session(&crate::agents::SessionRecord {
+                ts: stamp,
+                workspace: self.name.clone(),
+                program: program.unwrap_or("").to_string(),
+                worktree: worktree
+                    .as_ref()
+                    .map(|path| crate::workspaces::compact_root(path)),
             });
-            self.active = self.tabs.len() - 1;
-            return Ok(id);
         }
-        Ok(id)
+        Ok((
+            id,
+            LivePane {
+                title: program
+                    .map(|name| name.to_string())
+                    .unwrap_or_else(shell_label),
+                program: program.map(ToString::to_string),
+                args: args.to_vec(),
+                pty,
+                worktree,
+            },
+        ))
     }
 
-    fn context_env(&self) -> Vec<(String, String)> {
+    fn prepare_agent_cwd(
+        &mut self,
+        cwd: &Path,
+        program: Option<&str>,
+        stamp: u64,
+    ) -> (PathBuf, Option<PathBuf>) {
+        if crate::agents::is_our_worktree(cwd) {
+            return (cwd.to_path_buf(), Some(cwd.to_path_buf()));
+        }
+        let Some(name) = program else {
+            return (cwd.to_path_buf(), None);
+        };
+        if !self.agent_worktrees || !crate::agents::is_agent(Some(name)) {
+            return (cwd.to_path_buf(), None);
+        }
+        let Some(repo) = git::toplevel(&self.root) else {
+            return (cwd.to_path_buf(), None);
+        };
+        match crate::agents::open_worktree(&repo, &self.name, name, stamp) {
+            Ok(path) => {
+                self.notice = Some(format!("{name} en worktree (no pisa nvim)"));
+                (path.clone(), Some(path))
+            }
+            Err(err) => {
+                let short = err.lines().next().unwrap_or("error");
+                self.notice = Some(format!("{name} sin worktree: {short}"));
+                (cwd.to_path_buf(), None)
+            }
+        }
+    }
+
+    fn context_env(&self, worktree: Option<&Path>) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self
             .env
             .iter()
             .filter(|item| session::env_key_ok(&item.key))
             .map(|item| (item.key.clone(), item.value.clone()))
             .collect();
-        out.retain(|(key, _)| key != "LOLTERM_ROOT");
+        out.retain(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "LOLTERM_ROOT"
+                    | "LOLTERM_CONTEXT"
+                    | "LOLTERM_WORKSPACE"
+                    | "LOLTERM_MACHINE"
+                    | "LOLTERM_WORKTREE"
+            )
+        });
         out.push(("LOLTERM_ROOT".into(), self.root.display().to_string()));
+        out.push(("LOLTERM_WORKSPACE".into(), self.name.clone()));
+        out.push(("LOLTERM_MACHINE".into(), "local".into()));
+        let _ = self.context();
+        out.push((
+            "LOLTERM_CONTEXT".into(),
+            crate::context::live_file_path()
+                .to_string_lossy()
+                .into_owned(),
+        ));
+        if let Some(path) = worktree {
+            out.push((
+                "LOLTERM_WORKTREE".into(),
+                path.to_string_lossy().into_owned(),
+            ));
+        }
         if !out.iter().any(|(key, _)| key == "PATH")
             && let Some(path) = files::effective_path()
         {
@@ -311,13 +394,17 @@ impl Mux {
                     zoomed: tab.zoomed,
                     layout: tab.layout.clone(),
                     panes: tab
-                        .panes
-                        .iter()
-                        .map(|(id, pane)| PaneSnap {
-                            id: *id,
-                            title: pane.title.clone(),
-                            program: pane.program.clone(),
-                            remote: pane_remote(pane.program.as_deref(), &pane.args),
+                        .layout
+                        .ids()
+                        .into_iter()
+                        .filter_map(|id| {
+                            let pane = tab.panes.get(&id)?;
+                            Some(PaneSnap {
+                                id,
+                                title: pane.title.clone(),
+                                program: pane.program.clone(),
+                                remote: pane_remote(pane.program.as_deref(), &pane.args),
+                            })
                         })
                         .collect(),
                 })
@@ -351,6 +438,8 @@ impl Mux {
             },
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
+            agents: self.agent_snaps(),
+            agent_log: crate::agents::recent_sessions(8),
         }
     }
 
@@ -363,7 +452,7 @@ impl Mux {
         let machine = focused
             .and_then(|pane| pane.remote.clone())
             .unwrap_or_else(|| "local".into());
-        crate::context::ContextView {
+        let view = crate::context::ContextView {
             version: crate::VERSION.to_string(),
             live: true,
             workspace: self.name.clone(),
@@ -375,19 +464,25 @@ impl Mux {
             },
             tmux: self.active_tmux_session(),
             processes: self.process_names(),
+            focused_process: focused
+                .and_then(|pane| (pane.program != "shell").then(|| pane.program.clone())),
             panes,
             env: crate::context::env_keys_public(self.env.iter().map(|item| item.key.as_str())),
             machines: self.machines.iter().map(|item| item.name.clone()).collect(),
-        }
+            worktrees: self.agent_worktree_labels(),
+        };
+        let _ = crate::context::write_live_file(&view);
+        view
     }
 
     pub fn pane_rows(&self) -> Vec<crate::context::ContextPane> {
         let mut rows = Vec::new();
         for (tab_idx, tab) in self.tabs.iter().enumerate() {
             let tab_name = tab.name.clone().unwrap_or_else(|| tab_label(tab));
-            let mut panes: Vec<_> = tab.panes.iter().collect();
-            panes.sort_by_key(|(id, _)| *id);
-            for (id, pane) in panes {
+            for id in tab.layout.ids() {
+                let Some(pane) = tab.panes.get(&id) else {
+                    continue;
+                };
                 let program = pane
                     .program
                     .clone()
@@ -404,7 +499,11 @@ impl Mux {
                     program,
                     cwd,
                     remote: pane_remote(pane.program.as_deref(), &pane.args),
-                    focused: tab_idx == self.active && *id == tab.focused,
+                    focused: tab_idx == self.active && id == tab.focused,
+                    worktree: pane
+                        .worktree
+                        .as_ref()
+                        .map(|path| crate::workspaces::compact_root(path)),
                 });
             }
         }
@@ -414,8 +513,13 @@ impl Mux {
     pub fn process_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         for tab in &self.tabs {
-            for pane in tab.panes.values() {
-                let Some(program) = pane.program.as_deref().filter(|name| !name.is_empty()) else {
+            for id in tab.layout.ids() {
+                let Some(program) = tab
+                    .panes
+                    .get(&id)
+                    .and_then(|pane| pane.program.as_deref())
+                    .filter(|name| !name.is_empty())
+                else {
                     continue;
                 };
                 if !names.iter().any(|seen| seen == program) {
@@ -424,6 +528,48 @@ impl Mux {
             }
         }
         names
+    }
+
+    fn agent_snaps(&self) -> Vec<AgentSnap> {
+        let mut rows = Vec::new();
+        for (tab_idx, tab) in self.tabs.iter().enumerate() {
+            let tab_name = tab.name.clone().unwrap_or_else(|| tab_label(tab));
+            for id in tab.layout.ids() {
+                let Some(pane) = tab.panes.get(&id) else {
+                    continue;
+                };
+                if !crate::agents::is_agent(pane.program.as_deref()) {
+                    continue;
+                }
+                rows.push(AgentSnap {
+                    program: pane.program.clone().unwrap_or_default(),
+                    tab: tab_idx,
+                    tab_name: tab_name.clone(),
+                    worktree: pane
+                        .worktree
+                        .as_ref()
+                        .map(|path| crate::workspaces::compact_root(path)),
+                    focused: tab_idx == self.active && id == tab.focused,
+                });
+            }
+        }
+        rows
+    }
+
+    fn agent_worktree_labels(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for tab in &self.tabs {
+            for pane in tab.panes.values() {
+                let Some(path) = pane.worktree.as_ref() else {
+                    continue;
+                };
+                let label = crate::workspaces::compact_root(path);
+                if !out.iter().any(|seen| seen == &label) {
+                    out.push(label);
+                }
+            }
+        }
+        out
     }
 
     fn workspace_snaps(&self) -> Vec<WorkspaceSnap> {
@@ -519,6 +665,7 @@ impl Mux {
             remote: self.remote.clone(),
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
+            agent_worktrees: self.agent_worktrees,
         };
         crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))
     }
@@ -632,12 +779,14 @@ impl Mux {
         {
             tab.focused = pane;
         }
+        self.refresh_live_context();
     }
 
     pub fn select_tab(&mut self, index: usize) {
         if index < self.tabs.len() {
             self.active = index;
         }
+        self.refresh_live_context();
     }
 
     pub fn cycle_tab(&mut self, delta: i32) {
@@ -646,6 +795,7 @@ impl Mux {
             return;
         }
         self.active = (self.active as i32 + delta).rem_euclid(len) as usize;
+        self.refresh_live_context();
     }
 
     pub fn active_index(&self) -> usize {
@@ -659,36 +809,10 @@ impl Mux {
         args: &[String],
         _shell_ok: bool,
     ) -> Result<u64> {
-        let cwd = cwd.unwrap_or(&self.root);
-        let id = self.next_id;
-        self.next_id += 1;
-        let env = self.context_env();
-        let (bin, spawn_args) = files::spawn_argv(program, args);
-        let pty = BytePty::spawn(
-            id,
-            PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
-            cwd,
-            bin.as_deref(),
-            &spawn_args,
-            &env,
-            self.tx.clone(),
-        )?;
-        let title = program.map(ToString::to_string).unwrap_or_else(shell_label);
+        let cwd = cwd.unwrap_or(&self.root).to_path_buf();
+        let (id, live) = self.spawn_live(&cwd, program, args)?;
         let mut panes = HashMap::new();
-        panes.insert(
-            id,
-            LivePane {
-                title,
-                program: program.map(ToString::to_string),
-                args: args.to_vec(),
-                pty,
-            },
-        );
+        panes.insert(id, live);
         self.tabs.push(Tab {
             name: program.map(ToString::to_string),
             focused: id,
@@ -796,11 +920,20 @@ impl Mux {
         if tab.panes.len() <= 1 {
             return self.close_tab(self.active);
         }
+        let ended = tab
+            .panes
+            .get(&pane)
+            .and_then(|live| live.program.clone())
+            .filter(|name| crate::agents::is_agent(Some(name)));
         tab.panes.remove(&pane);
         tab.layout.remove_pane(pane);
         tab.focused = tab.layout.first_leaf().unwrap_or(pane);
         if tab.zoomed == Some(pane) {
             tab.zoomed = None;
+        }
+        if let Some(name) = ended {
+            self.notice = Some(format!("{name} cerró"));
+            self.refresh_live_context();
         }
         Ok(())
     }
@@ -1355,6 +1488,7 @@ impl Mux {
         if tab.zoomed.is_some() {
             tab.zoomed = Some(next);
         }
+        self.refresh_live_context();
     }
 
     pub fn rename_tab(&mut self, index: usize, name: &str) {
@@ -1490,8 +1624,8 @@ impl Mux {
                     .unwrap_or(0);
                 self.restart_pane(pane)?;
             }
-            "run.lazygit" => {
-                self.run("lazygit", &[])?;
+            id if let Some(program) = id.strip_prefix("run.") => {
+                self.run(program, &[])?;
             }
             "workspace.next" => self.cycle_workspace(1)?,
             "workspace.prev" => self.cycle_workspace(-1)?,
@@ -1502,11 +1636,18 @@ impl Mux {
 
     pub fn reap(&mut self) {
         let mut empty_tabs = Vec::new();
+        let mut ended = Vec::new();
         for (index, tab) in self.tabs.iter_mut().enumerate() {
+            drop_panes_not_in_layout(tab);
             let mut dead = Vec::new();
             for (id, pane) in &mut tab.panes {
                 let _ = pane.pty.poll_exit();
                 if pane.pty.child_exited() {
+                    if crate::agents::is_agent(pane.program.as_deref())
+                        && let Some(name) = pane.program.clone()
+                    {
+                        ended.push(name);
+                    }
                     dead.push(*id);
                 }
             }
@@ -1530,11 +1671,31 @@ impl Mux {
         } else if self.active >= self.tabs.len() {
             self.active = self.tabs.len() - 1;
         }
+        if !ended.is_empty() {
+            ended.sort();
+            ended.dedup();
+            self.notice = Some(format!("{} cerró", ended.join(", ")));
+        }
+    }
+
+    fn refresh_live_context(&self) {
+        let _ = self.context();
     }
 
     fn focused_cwd(&self) -> Option<PathBuf> {
         let tab = self.tabs.get(self.active)?;
         tab.panes.get(&tab.focused).and_then(|pane| pane.pty.cwd())
+    }
+}
+
+fn drop_panes_not_in_layout(tab: &mut Tab) {
+    let keep: HashSet<u64> = tab.layout.ids().into_iter().collect();
+    tab.panes.retain(|id, _| keep.contains(id));
+    if !keep.contains(&tab.focused) {
+        tab.focused = tab.layout.first_leaf().unwrap_or(0);
+    }
+    if tab.zoomed.is_some_and(|id| !keep.contains(&id)) {
+        tab.zoomed = None;
     }
 }
 

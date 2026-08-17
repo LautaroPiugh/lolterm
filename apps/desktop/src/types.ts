@@ -69,6 +69,8 @@ export type Snapshot = {
   meta: { stack: string[]; git_remote: string | null; notes: string };
   machines: { name: string; target: string; user: string | null; kind: string }[];
   new_tab: string;
+  agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean }[];
+  agent_log?: { ts: number; workspace: string; program: string; worktree?: string | null }[];
 };
 
 export type CommandHit = { id: string; slash: string; hint: string };

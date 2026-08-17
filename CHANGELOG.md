@@ -1,6 +1,18 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.6.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.7.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.7.0](https://github.com/LautaroPiugh/lolterm/compare/v0.6.0...v0.7.0) (2026-08-17)
+
+Era **AI Environment** (`AGENTS.md` v0.7.x). LoLTerm organiza agentes CLI; no implementa chat ni runtime.
+
+### Features
+
+* cada PTY recibe `LOLTERM_CONTEXT` / `LOLTERM_ROOT` / `LOLTERM_WORKSPACE`
+* agentes (codex, claude, opencode, gemini, cline) abren en `git worktree` bajo `~/.local/share/lolterm/worktrees/` (`LOLTERM_WORKTREE`)
+* status de agentes en la barra, historial en Inicio, aviso al cerrar
+* paleta: `/codex`, `/claude`, `/opencode`, …
+* `[ai] worktrees = false` en `config.toml` si se quiere el working tree principal
 
 ## [0.6.0](https://github.com/LautaroPiugh/lolterm/compare/v0.5.2...v0.6.0) (2026-08-17)
 

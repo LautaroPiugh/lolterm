@@ -11,11 +11,11 @@ const HINT: Record<string, string> = {
   lazygit: "git",
   btop: "monitor",
   yazi: "archivos",
-  codex: "agente",
-  claude: "agente",
-  opencode: "agente",
-  gemini: "agente",
-  cline: "agente",
+  codex: "worktree + contexto",
+  claude: "worktree + contexto",
+  opencode: "worktree + contexto",
+  gemini: "worktree + contexto",
+  cline: "worktree + contexto",
 };
 
 type Row = { kind: string; label: string; available: boolean };
@@ -50,7 +50,7 @@ export function NewTabPicker({
         if (e.key === "Escape") e.currentTarget.parentElement?.querySelector("button")?.blur();
       }}
     >
-      <p className="new-tab-hint">la estrella es lo que abre Ctrl-Alt-N</p>
+      <p className="new-tab-hint">la estrella es Ctrl-Alt-N. Un agente abre en git worktree y ve $LOLTERM_CONTEXT.</p>
       <Section title="Sesión" rows={core} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />
       <Section title="Herramientas" rows={tools} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />
       <Section title="Agentes" rows={agents} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />

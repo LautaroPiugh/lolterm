@@ -28,7 +28,7 @@ cargo run -p lolterm-core --bin lolterm -- ssh chae
 cargo run -p lolterm-core --bin lolterm -- run nvim
 ```
 
-Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. Con el Desktop abierto, `context`, `panes` y `processes` preguntan al mux por un Unix socket en el runtime dir (no en config sincronizable). Si no hay instancia, caen a `session.toml` y `context` lleva `"live": false`. No imprime valores de env, secretos ni args de panes.
+Lee y escribe `~/.config/lolterm/` (`pending.toml` para hablar con una instancia ya abierta). Sin argumentos, `.`, `workspace open`, `ssh` y `run` abren o enfocan el Desktop. Con el Desktop abierto, `context`, `panes` y `processes` preguntan al mux por un Unix socket en el runtime dir (no en config sincronizable). Si no hay instancia, caen a `session.toml` y `context` lleva `"live": false`. Cada PTY recibe `LOLTERM_ROOT` y `LOLTERM_CONTEXT`. Un agente (codex/claude/opencode/…) abre en un `git worktree` bajo `~/.local/share/lolterm/worktrees/` y ve `LOLTERM_WORKTREE`. Desactivar: `[ai] worktrees = false` en `config.toml`.
 
 Para tener `lolterm` en PATH (este repo, `~/.local/bin`):
 
@@ -58,20 +58,20 @@ Quedan archivos en `apps/desktop/release/`. El sidecar Rust va en `resources/`, 
 **AppImage** — no se instala. Es un archivo ejecutable (útil para probar o copiar a otra máquina):
 
 ```bash
-chmod +x apps/desktop/release/LoLTerm-0.6.0-linux-x86_64.AppImage
-./apps/desktop/release/LoLTerm-0.6.0-linux-x86_64.AppImage
+chmod +x apps/desktop/release/LoLTerm-0.7.0-linux-x86_64.AppImage
+./apps/desktop/release/LoLTerm-0.7.0-linux-x86_64.AppImage
 ```
 
 **.deb** — es el formato de Ubuntu/Debian. Instala LoLTerm en el menú de aplicaciones y un `lolterm` en `/usr/bin`:
 
 ```bash
-sudo apt install ./apps/desktop/release/LoLTerm-0.6.0-linux-amd64.deb
+sudo apt install ./apps/desktop/release/LoLTerm-0.7.0-linux-amd64.deb
 ```
 
 Si `apt` se queja de dependencias:
 
 ```bash
-sudo dpkg -i apps/desktop/release/LoLTerm-0.6.0-linux-amd64.deb
+sudo dpkg -i apps/desktop/release/LoLTerm-0.7.0-linux-amd64.deb
 sudo apt-get install -f
 ```
 

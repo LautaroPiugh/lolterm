@@ -139,6 +139,8 @@ pub struct AppConfig {
     pub machines: Vec<Machine>,
     /// Qué abre `tab.new` / Ctrl-Alt-N: `shell`, `ssh`, `tailscale` o una CLI del catálogo.
     pub new_tab: String,
+    /// Si un agente abre en `git worktree` (no pisa el working tree de nvim).
+    pub agent_worktrees: bool,
 }
 
 impl Default for AppConfig {
@@ -148,6 +150,7 @@ impl Default for AppConfig {
             remote: RemoteConfig::default(),
             machines: Vec::new(),
             new_tab: "shell".into(),
+            agent_worktrees: true,
         }
     }
 }
@@ -174,6 +177,7 @@ pub fn load() -> AppConfig {
             },
         },
         new_tab: parsed.ui.new_tab.unwrap_or_else(|| "shell".into()),
+        agent_worktrees: parsed.ai.worktrees.unwrap_or(true),
         machines: parsed
             .machines
             .into_iter()
@@ -213,6 +217,9 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
             theme: Some(config.theme.as_str().to_string()),
             new_tab: Some(config.new_tab.clone()),
         },
+        ai: FileAi {
+            worktrees: Some(config.agent_worktrees),
+        },
         remote: FileRemote {
             user: config.remote.user.clone(),
             tmux: Some(config.remote.tmux.clone()),
@@ -249,6 +256,16 @@ pub fn runtime_dir() -> std::path::PathBuf {
     }
     let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
     std::env::temp_dir().join(format!("lolterm-{user}"))
+}
+
+/// Datos de esta máquina (worktrees, historial). No es config portable.
+pub fn data_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_DATA_HOME") {
+        return std::path::PathBuf::from(dir).join("lolterm");
+    }
+    std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".local/share/lolterm"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".").join("lolterm-data"))
 }
 
 pub fn config_path() -> std::path::PathBuf {
@@ -291,6 +308,8 @@ struct FileConfig {
     #[serde(default)]
     ui: FileUi,
     #[serde(default)]
+    ai: FileAi,
+    #[serde(default)]
     remote: FileRemote,
     #[serde(default)]
     machines: Vec<FileMachine>,
@@ -302,6 +321,12 @@ struct FileUi {
     theme: Option<String>,
     #[serde(default)]
     new_tab: Option<String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct FileAi {
+    #[serde(default)]
+    worktrees: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

@@ -1,5 +1,8 @@
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
+use crate::config;
 use crate::session;
 use crate::workspaces;
 
@@ -20,6 +23,8 @@ pub struct ContextPane {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
     pub focused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -32,16 +37,45 @@ pub struct ContextView {
     pub git: ContextGit,
     pub tmux: String,
     pub processes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_process: Option<String>,
     pub panes: Vec<ContextPane>,
     /// Solo nombres. Nunca valores (tokens, passwords, PATH completo).
     pub env: Vec<String>,
     pub machines: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<String>,
 }
 
 pub fn format_context(view: &ContextView) -> String {
     let mut text = serde_json::to_string_pretty(view).unwrap_or_else(|_| "{}".into());
     text.push('\n');
     text
+}
+
+/// Foto local para procesos dentro de un PTY (`LOLTERM_CONTEXT`).
+/// Mismo JSON que `lolterm context`; no va en config sincronizable.
+pub fn live_file_path() -> PathBuf {
+    config::runtime_dir().join("context.json")
+}
+
+pub fn write_live_file(view: &ContextView) -> std::io::Result<PathBuf> {
+    write_live_file_at(&live_file_path(), view)
+}
+
+fn write_live_file_at(path: &Path, view: &ContextView) -> std::io::Result<PathBuf> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, format_context(view))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, path)?;
+    Ok(path.to_path_buf())
 }
 
 pub fn env_keys_public<'a>(keys: impl IntoIterator<Item = &'a str>) -> Vec<String> {
@@ -102,6 +136,7 @@ mod tests {
             },
             tmux: "lolterm-lolterm".into(),
             processes: vec!["nvim".into()],
+            focused_process: Some("nvim".into()),
             panes: vec![ContextPane {
                 tab: 0,
                 tab_name: "nvim".into(),
@@ -109,9 +144,11 @@ mod tests {
                 cwd: "~/Projects/lolterm".into(),
                 remote: None,
                 focused: true,
+                worktree: None,
             }],
             env: vec!["FOO".into()],
             machines: vec!["chae".into()],
+            worktrees: Vec::new(),
         });
         assert!(text.contains("\"live\": true"));
         assert!(text.contains("nvim"));
@@ -119,5 +156,53 @@ mod tests {
         assert!(!text.contains("TOKEN"));
         assert!(!text.contains("password"));
         assert!(!text.contains("sk-"));
+    }
+
+    #[test]
+    fn live_file_is_outside_portable_config() {
+        let path = live_file_path();
+        let config = crate::config::config_dir();
+        assert!(
+            !path.starts_with(&config),
+            "context.json no debe ir en config sincronizable: {}",
+            path.display()
+        );
+        assert!(path.ends_with("context.json"));
+    }
+
+    #[test]
+    fn write_live_file_roundtrip_and_mode() {
+        let dir = std::env::temp_dir().join(format!("lolterm-context-{}", std::process::id()));
+        let path = dir.join("context.json");
+        let view = ContextView {
+            version: "0.6.0".into(),
+            live: true,
+            workspace: "lolterm".into(),
+            cwd: "~/Projects/lolterm".into(),
+            machine: "local".into(),
+            git: ContextGit {
+                branch: Some("master".into()),
+                remote: None,
+            },
+            tmux: String::new(),
+            processes: vec!["codex".into()],
+            focused_process: Some("codex".into()),
+            panes: Vec::new(),
+            env: vec!["TERM".into()],
+            machines: Vec::new(),
+            worktrees: Vec::new(),
+        };
+        write_live_file_at(&path, &view).expect("write context.json");
+        let text = std::fs::read_to_string(&path).expect("read context.json");
+        assert!(text.contains("\"live\": true"));
+        assert!(text.contains("codex"));
+        assert!(!text.contains("sk-"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).expect("meta").permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

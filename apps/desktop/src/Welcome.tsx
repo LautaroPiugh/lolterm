@@ -19,17 +19,17 @@ const CLI_HINT: Record<string, string> = {
   lazygit: "git",
   btop: "monitor",
   yazi: "archivos",
-  codex: "agente",
-  claude: "agente",
-  opencode: "agente",
-  gemini: "agente",
-  cline: "agente",
+  codex: "worktree + contexto",
+  claude: "worktree + contexto",
+  opencode: "worktree + contexto",
+  gemini: "worktree + contexto",
+  cline: "worktree + contexto",
 };
 
 function CliIcon({ name }: { name: string }) {
   if (name === "lazygit") return <GitBranch size={14} />;
   if (name === "yazi") return <FileCode size={14} />;
-  if (CLI_HINT[name] === "agente") return <Sparkles size={14} />;
+  if (["codex", "claude", "opencode", "gemini", "cline"].includes(name)) return <Sparkles size={14} />;
   return <Terminal size={14} />;
 }
 
@@ -159,6 +159,23 @@ export function Welcome({
                   <Columns size={14} />
                   <span className="welcome-ws">{preset.name}</span>
                   <span className="welcome-ws-path">{preset.hint}</span>
+                </button>
+              ))}
+            </>
+          ) : null}
+          {(snap.agent_log ?? []).length > 0 ? (
+            <>
+              <h2 className="welcome-subhead">Agentes recientes</h2>
+              {(snap.agent_log ?? []).slice(0, 5).map((row) => (
+                <button
+                  key={`${row.ts}-${row.program}-${row.worktree ?? ""}`}
+                  type="button"
+                  className="welcome-action"
+                  onClick={() => onRun(row.program)}
+                >
+                  <Sparkles size={14} />
+                  <span className="welcome-ws">{row.program}</span>
+                  <span className="welcome-ws-path">{row.worktree ?? row.workspace}</span>
                 </button>
               ))}
             </>
