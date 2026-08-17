@@ -9,7 +9,7 @@ use lolterm_core::mux::Mux;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Request {
     id: u64,
     method: String,
@@ -58,10 +58,13 @@ fn main() -> Result<()> {
         if line.trim().is_empty() {
             continue;
         }
-        let req: Request = match serde_json::from_str(&line) {
+        let req: Request = match parse_request(&line) {
             Ok(req) => req,
             Err(err) => {
-                emit(&out, json!({ "id": 0, "error": err.to_string() }));
+                emit(
+                    &out,
+                    json!({ "event": "core-error", "params": { "error": err } }),
+                );
                 continue;
             }
         };
@@ -359,9 +362,13 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.restart_pane(params["pane"].as_u64().unwrap_or(0))?;
             serde_json::to_value(mux.snapshot())?
         }
-        other => json!({ "error": format!("unknown method {other}") }),
+        other => return Err(color_eyre::eyre::eyre!("unknown method {other}")),
     };
     Ok(value)
+}
+
+fn parse_request(line: &str) -> std::result::Result<Request, String> {
+    serde_json::from_str(line).map_err(|err| err.to_string())
 }
 
 fn b64(text: &str) -> Vec<u8> {
@@ -423,4 +430,22 @@ fn decode_b64(text: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_request_reads_id_and_method() {
+        let req = parse_request(r#"{"id":7,"method":"snapshot"}"#).expect("json");
+        assert_eq!(req.id, 7);
+        assert_eq!(req.method, "snapshot");
+    }
+
+    #[test]
+    fn parse_request_rejects_garbage_without_fake_id() {
+        let err = parse_request("not-json").expect_err("garbage");
+        assert!(!err.is_empty());
+    }
 }

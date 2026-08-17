@@ -884,15 +884,17 @@ El repositorio actual ya contiene una base funcional:
 * cada PTY recibe `LOLTERM_CONTEXT` (JSON en el runtime dir);
 * agentes en git worktree + status/historial;
 * extensiones TOML (comandos, hooks, temas, status, context.extra);
+* editor de comandos/atajos en Desktop;
+* sidecar con timeout/restart; pack Linux en CI al tagear;
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
-Versión global al alinear este documento con el código (era Extensibility, `v0.8.x`):
+Versión global al alinear este documento con el código (era Stabilization, `v0.9.x`):
 
 ```text
-Cargo workspace:          0.8.0
-apps/desktop/package.json 0.8.0
-lolterm / lolterm-core    0.8.0
+Cargo workspace:          0.9.0
+apps/desktop/package.json 0.9.0
+lolterm / lolterm-core    0.9.0
 ```
 
 Una sola versión de producto. No volver a divergir a mano salvo un release explícito.
@@ -972,10 +974,10 @@ No manejar manualmente versiones independientes para cada componente del product
 Objetivo:
 
 ```text
-LoLTerm 0.8.0
-├── Cargo workspace   0.8.0
-├── lolterm-core      0.8.0
-└── desktop package   0.8.0
+LoLTerm 0.9.0
+├── Cargo workspace   0.9.0
+├── lolterm-core      0.9.0
+└── desktop package   0.9.0
 ```
 
 La automatización de release debe mantener sincronizados los archivos pertinentes, incluyendo al menos:
@@ -1602,21 +1604,21 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-LoLTerm está en **`v0.8.x` (Extensibility)**. No construir un runtime de plugins JS. No agrandar el catálogo de la CLI. No empezar v0.9 (empaquetado/auto-update) salvo instrucción explícita.
+LoLTerm está en **`v0.9.x` (Stabilization & Distribution)**. No implementar auto-update ni firmas todavía. No agrandar el catálogo de la CLI. No construir un runtime de plugins JS.
 
 Orden recomendado:
 
-### A. Extensiones TOML (huecos de v0.8)
+### A. Huecos de 0.9.0 (esta entrega)
 
-Probar `commands.toml`, un tema custom, un hook `workspace.open` y un `status.toml`. Los ids de comando deben ser `ext.<slug>`. En Desktop, `/commands` (o el engranaje) edita `commands.toml` y `keybindings.toml`; el archivo sigue siendo la fuente de verdad.
+Probar que un método IPC inválido no cuelga la UI; matar el sidecar y ver el aviso + restart; en un tag `v*` revisar que CI suba AppImage/`.deb` y `SHA256SUMS.txt`.
 
-### B. Multiplexer cómodo (huecos de v0.2)
+### B. 0.9.x posterior
 
-Pruebas diarias con nvim/lazygit/btop/fzf/yazi/ssh/tmux; resize/focus si fallan.
+Checksums en uso diario, sandbox de Electron empaquetado, SSH más fiable, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
 
-### C. Workspaces (v0.3, ya hay base)
+### C. Multiplexer / workspaces (deuda anterior)
 
-Restauración fiel, startup, navegación entre workspaces. No reimplementar el explorer.
+Pruebas diarias con nvim/lazygit/btop/fzf/yazi/ssh/tmux; resize/focus si fallan. No reimplementar el explorer.
 
 ---
 

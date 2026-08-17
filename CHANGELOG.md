@@ -1,6 +1,17 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.8.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.9.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+
+## [0.9.0](https://github.com/LautaroPiugh/lolterm/compare/v0.8.0...v0.9.0) (2026-08-17)
+
+Era **Stabilization & Distribution** (`AGENTS.md` v0.9.x). Primera entrega: sidecar estable y artefactos Linux. Sin auto-update, firmas ni macOS/Windows.
+
+### Features
+
+* IPC: método desconocido y JSON inválido no cuelgan el `invoke` (error con `id` real, o evento `core-error`)
+* si `lolterm-core` se cae, Electron reintenta (timeout 8s, flush de pending, aviso en la barra)
+* al cerrar un pane en Linux se manda `SIGHUP` al process group del PTY
+* tag `v*` empaqueta AppImage + `.deb` y los adjunta a la GitHub Release con `SHA256SUMS.txt`
 
 ## [0.8.0](https://github.com/LautaroPiugh/lolterm/compare/v0.7.0...v0.8.0) (2026-08-17)
 

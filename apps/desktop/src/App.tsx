@@ -258,7 +258,17 @@ export default function App() {
 
   useEffect(() => {
     const off = window.lolterm.onEvent((msg) => {
-      if (msg.event === "ready") apply(msg.params);
+      if (msg.event === "ready") {
+        apply(msg.params);
+        setBootErr(null);
+        setBanner(null);
+      }
+      if (msg.event === "core-down") {
+        setBanner(msg.params?.error ?? "lolterm-core se cayó");
+      }
+      if (msg.event === "core-error") {
+        setBanner(msg.params?.error ?? "error del core");
+      }
       if (msg.event === "exit" && msg.params?.pane != null) {
         disposeTerm(msg.params.pane);
         void call("snapshot");

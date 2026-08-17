@@ -7,12 +7,18 @@ import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage } fro
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
 const repoRoot = path.join(appRoot, "..", "..");
+const INVOKE_MS = 8000;
+const MAX_RESTARTS = 2;
 
 let child = null;
 let seq = 1;
 const pending = new Map();
 let win = null;
 const queued = [];
+let quitting = false;
+let restarting = false;
+let restarts = 0;
+let lastOpen;
 
 function isFile(file) {
   try {
@@ -55,7 +61,24 @@ function openDirArg() {
   return undefined;
 }
 
+function sendEvent(msg) {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send("core-event", msg);
+  } else {
+    queued.push(msg);
+  }
+}
+
+function flushPending(err) {
+  for (const item of pending.values()) {
+    clearTimeout(item.timer);
+    item.reject(err);
+  }
+  pending.clear();
+}
+
 function startCore(openPath) {
+  lastOpen = openPath;
   const bin = coreBin();
   const args = openPath ? [openPath] : [];
   const cwd = app.isPackaged ? app.getPath("home") : undefined;
@@ -78,20 +101,35 @@ function startCore(openPath) {
       } catch {
         continue;
       }
+      if (msg.event === "ready") {
+        restarts = 0;
+      }
       if (msg.id != null && pending.has(msg.id)) {
-        const { resolve, reject } = pending.get(msg.id);
+        const { resolve, reject, timer } = pending.get(msg.id);
         pending.delete(msg.id);
+        clearTimeout(timer);
         if (msg.error) reject(new Error(msg.error));
         else resolve(msg.result);
-      } else if (win) {
-        win.webContents.send("core-event", msg);
       } else {
-        queued.push(msg);
+        sendEvent(msg);
       }
     }
   });
   child.on("exit", () => {
     child = null;
+    flushPending(new Error("core exited"));
+    if (quitting || restarting) return;
+    if (restarts >= MAX_RESTARTS) {
+      sendEvent({ event: "core-down", params: { error: "lolterm-core se cayó" } });
+      return;
+    }
+    restarting = true;
+    restarts += 1;
+    sendEvent({ event: "core-down", params: { error: "reconectando…" } });
+    setTimeout(() => {
+      restarting = false;
+      startCore(lastOpen);
+    }, 400 * restarts);
   });
 }
 
@@ -102,7 +140,12 @@ function invoke(method, params) {
       return;
     }
     const id = seq++;
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      reject(new Error("core timeout"));
+    }, INVOKE_MS);
+    pending.set(id, { resolve, reject, timer });
     child.stdin.write(`${JSON.stringify({ id, method, params: params ?? {} })}\n`);
   });
 }
@@ -220,8 +263,12 @@ if (!gotLock) {
   });
 
   app.on("window-all-closed", () => {
-    invoke("persist", {}).catch(() => {});
-    child?.kill();
-    app.quit();
+    quitting = true;
+    invoke("persist", {})
+      .catch(() => {})
+      .finally(() => {
+        child?.kill();
+        app.quit();
+      });
   });
 }

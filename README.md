@@ -48,36 +48,42 @@ Eso compila `lolterm-core`, levanta Vite y abre Electron (tema Sage). Paleta: `C
 
 ## Empaquetar (Linux)
 
+Los tags `v*` disparan CI (`.github/workflows/pack.yml`): AppImage, `.deb` y `SHA256SUMS.txt` van a la [GitHub Release](https://github.com/LautaroPiugh/lolterm/releases).
+
 ```bash
+# local
 cd apps/desktop
 npm run pack
+sha256sum release/LoLTerm-*-linux-*.AppImage release/LoLTerm-*-linux-*.deb
 ```
 
-Quedan archivos en `apps/desktop/release/`. El sidecar Rust va en `resources/`, no dentro del asar.
+El sidecar Rust va en `resources/`, no dentro del asar.
 
-**AppImage** — no se instala. Es un archivo ejecutable (útil para probar o copiar a otra máquina):
+**AppImage** — no se instala. Es un archivo ejecutable:
 
 ```bash
-chmod +x apps/desktop/release/LoLTerm-0.8.0-linux-x86_64.AppImage
-./apps/desktop/release/LoLTerm-0.8.0-linux-x86_64.AppImage
+chmod +x apps/desktop/release/LoLTerm-0.9.0-linux-x86_64.AppImage
+./apps/desktop/release/LoLTerm-0.9.0-linux-x86_64.AppImage
 ```
 
-**.deb** — es el formato de Ubuntu/Debian. Instala LoLTerm en el menú de aplicaciones y un `lolterm` en `/usr/bin`:
+**.deb** — Ubuntu/Debian. Instala LoLTerm en el menú y un `lolterm` en `/usr/bin`:
 
 ```bash
-sudo apt install ./apps/desktop/release/LoLTerm-0.8.0-linux-amd64.deb
+sudo apt install ./apps/desktop/release/LoLTerm-0.9.0-linux-amd64.deb
 ```
 
 Si `apt` se queja de dependencias:
 
 ```bash
-sudo dpkg -i apps/desktop/release/LoLTerm-0.8.0-linux-amd64.deb
+sudo dpkg -i apps/desktop/release/LoLTerm-0.9.0-linux-amd64.deb
 sudo apt-get install -f
 ```
 
-En desarrollo, Electron sigue usando `target/debug/lolterm-core`. El `lolterm` de `cargo install` en `~/.local/bin` gana a `/usr/bin` si `~/.local/bin` está primero en PATH.
+En desarrollo, Electron usa `target/debug/lolterm-core`. El `lolterm` de `cargo install` en `~/.local/bin` gana a `/usr/bin` si `~/.local/bin` está primero en PATH.
 
-El `.deb` es una foto fija: no se actualiza solo cuando cambiás el código. Para el día a día usá `npm run dev`. Para refrescar la app instalada, volvé a empaquetar e instalá el `.deb` nuevo. El auto-update (descargar la última release de GitHub) viene después, cuando haya tags/releases publicados.
+El `.deb`/AppImage es una foto fija: no hay auto-update. Si `lolterm-core` se cae, Desktop reintenta un par de veces y avisa en la barra. La sesión restaurada **respawnea** procesos (no revive nvim/TUI con el buffer anterior).
+
+Electron en Linux puede ir con `--no-sandbox` porque el helper SUID `chrome-sandbox` a menudo no conserva 4755 en una instalación de usuario. Es una particularidad de empaquetado, no el modelo de seguridad final.
 
 Brief de diseño (Figma Make / designer): `apps/desktop/figma-prompt.txt`.
 

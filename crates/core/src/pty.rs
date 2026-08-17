@@ -161,8 +161,37 @@ fn process_cwd(pid: u32) -> Option<PathBuf> {
     }
 }
 
+/// portable-pty ya hace `setsid` en Unix. Si hay líder de grupo, hay que
+/// avisar a todo el session (nvim, ssh, …), no sólo al pid del hijo.
+pub fn should_signal_group(pgid: Option<i32>) -> bool {
+    pgid.is_some_and(|pid| pid > 1)
+}
+
 impl Drop for BytePty {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            if should_signal_group(self.master.process_group_leader())
+                && let Some(pgid) = self.master.process_group_leader()
+            {
+                unsafe {
+                    libc::killpg(pgid, libc::SIGHUP);
+                }
+            }
+        }
         let _ = self.child.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_signal_skips_init_and_none() {
+        assert!(!should_signal_group(None));
+        assert!(!should_signal_group(Some(0)));
+        assert!(!should_signal_group(Some(1)));
+        assert!(should_signal_group(Some(42)));
     }
 }
