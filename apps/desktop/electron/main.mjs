@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -168,11 +168,52 @@ function appIconImage() {
   return image.isEmpty() ? undefined : image;
 }
 
+function windowStatePath() {
+  return path.join(app.getPath("userData"), "window.json");
+}
+
+function loadWindowState() {
+  try {
+    const raw = JSON.parse(readFileSync(windowStatePath(), "utf8"));
+    const width = Math.max(800, Number(raw.width) || 1280);
+    const height = Math.max(500, Number(raw.height) || 820);
+    return {
+      x: Number.isFinite(raw.x) ? raw.x : undefined,
+      y: Number.isFinite(raw.y) ? raw.y : undefined,
+      width,
+      height,
+      maximized: Boolean(raw.maximized),
+    };
+  } catch {
+    return { width: 1280, height: 820, maximized: false };
+  }
+}
+
+function saveWindowState() {
+  if (!win || win.isDestroyed()) return;
+  const bounds = typeof win.getNormalBounds === "function" ? win.getNormalBounds() : win.getBounds();
+  const body = JSON.stringify({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    maximized: win.isMaximized(),
+  });
+  try {
+    writeFileSync(windowStatePath(), body);
+  } catch {
+    // estado local; no bloquear el cierre
+  }
+}
+
 function createWindow() {
   const icon = appIconImage();
+  const state = loadWindowState();
   win = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
     backgroundColor: "#ECF2EC",
     title: `LoLTerm v${app.getVersion()}`,
     icon,
@@ -184,6 +225,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  if (state.maximized) win.maximize();
   if (icon) win.setIcon(icon);
   if (process.env.LOLTERM_DEV) {
     win.loadURL(process.env.LOLTERM_URL || "http://127.0.0.1:5173");
@@ -194,6 +236,16 @@ function createWindow() {
     for (const msg of queued) win.webContents.send("core-event", msg);
     queued.length = 0;
   });
+  let saveTimer;
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveWindowState, 400);
+  };
+  win.on("resize", scheduleSave);
+  win.on("move", scheduleSave);
+  win.on("maximize", scheduleSave);
+  win.on("unmaximize", scheduleSave);
+  win.on("close", saveWindowState);
   // Chromium se queda con Ctrl-Tab; hay que interceptarlo aquí o no llega al renderer.
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown" || input.key !== "Tab" || !input.control) return;

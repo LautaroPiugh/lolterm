@@ -142,6 +142,7 @@ pub struct Mux {
     theme: String,
     new_tab: String,
     agent_worktrees: bool,
+    ssh_fail: HashMap<String, u8>,
 }
 
 impl Mux {
@@ -176,6 +177,7 @@ impl Mux {
             },
             new_tab: sanitize_new_tab(&cfg.new_tab),
             agent_worktrees: cfg.agent_worktrees,
+            ssh_fail: HashMap::new(),
         };
         let mut session = session::load().unwrap_or_default();
         crate::workspaces::merge_into_session(&mut session, &crate::workspaces::load());
@@ -279,6 +281,16 @@ impl Mux {
         let (cwd, worktree) = self.prepare_agent_cwd(cwd, program, stamp);
         let env = self.context_env(worktree.as_deref());
         let (bin, spawn_args) = files::spawn_argv(program, args);
+        let spawn_args = if program == Some("ssh") {
+            ssh::ensure_alive_opts(&spawn_args)
+        } else {
+            spawn_args
+        };
+        let stored_args = if program == Some("ssh") {
+            ssh::ensure_alive_opts(args)
+        } else {
+            args.to_vec()
+        };
         let pty = BytePty::spawn(
             id,
             PtySize {
@@ -310,7 +322,7 @@ impl Mux {
                     .map(|name| name.to_string())
                     .unwrap_or_else(shell_label),
                 program: program.map(ToString::to_string),
-                args: args.to_vec(),
+                args: stored_args,
                 pty,
                 worktree,
             },
@@ -1749,23 +1761,51 @@ impl Mux {
     }
 
     pub fn reap(&mut self) {
-        let mut empty_tabs = Vec::new();
-        let mut ended = Vec::new();
+        let mut poll = Vec::new();
         for (index, tab) in self.tabs.iter_mut().enumerate() {
             drop_panes_not_in_layout(tab);
-            let mut dead = Vec::new();
             for (id, pane) in &mut tab.panes {
                 let _ = pane.pty.poll_exit();
-                if pane.pty.child_exited() {
-                    if crate::agents::is_agent(pane.program.as_deref())
-                        && let Some(name) = pane.program.clone()
-                    {
-                        ended.push(name);
-                    }
-                    dead.push(*id);
-                }
+                poll.push((
+                    index,
+                    *id,
+                    pane.pty.child_exited(),
+                    pane.program.clone(),
+                    pane.args.clone(),
+                ));
             }
-            for id in dead {
+        }
+        let mut empty_tabs = Vec::new();
+        let mut ended = Vec::new();
+        let mut restart_ssh = Vec::new();
+        let mut dead = Vec::new();
+        for (index, id, exited, program, args) in poll {
+            if !exited {
+                if program.as_deref() == Some("ssh")
+                    && let Some(dest) = ssh::ssh_dest_from_args(&args)
+                {
+                    self.ssh_fail.remove(&dest);
+                }
+                continue;
+            }
+            if program.as_deref() == Some("ssh") {
+                let dest = ssh::ssh_dest_from_args(&args).unwrap_or_else(|| "ssh".into());
+                let fails = self.ssh_fail.entry(dest.clone()).or_insert(0);
+                *fails = fails.saturating_add(1);
+                if *fails <= 1 {
+                    restart_ssh.push((index, id));
+                    continue;
+                }
+                ended.push(format!("ssh {dest}"));
+            } else if crate::agents::is_agent(program.as_deref())
+                && let Some(name) = program
+            {
+                ended.push(name);
+            }
+            dead.push((index, id));
+        }
+        for (index, id) in dead {
+            if let Some(tab) = self.tabs.get_mut(index) {
                 tab.panes.remove(&id);
                 tab.layout.remove_pane(id);
                 tab.focused = tab.layout.first_leaf().unwrap_or(id);
@@ -1773,6 +1813,24 @@ impl Mux {
                     tab.zoomed = None;
                 }
             }
+        }
+        for (tab, pane) in restart_ssh {
+            let prev = self.active;
+            if tab < self.tabs.len() {
+                self.active = tab;
+                self.notice = Some("ssh se cortó · reconectando".into());
+                if self.restart_pane(pane).is_err()
+                    && let Some(item) = self.tabs.get_mut(tab)
+                {
+                    item.panes.remove(&pane);
+                    item.layout.remove_pane(pane);
+                }
+            }
+            if !self.tabs.is_empty() {
+                self.active = prev.min(self.tabs.len() - 1);
+            }
+        }
+        for (index, tab) in self.tabs.iter().enumerate() {
             if tab.panes.is_empty() {
                 empty_tabs.push(index);
             }
@@ -1788,7 +1846,7 @@ impl Mux {
         if !ended.is_empty() {
             ended.sort();
             ended.dedup();
-            self.notice = Some(format!("{} cerró", ended.join(", ")));
+            self.notice = Some(format!("{} se cortó", ended.join(", ")));
         }
     }
 

@@ -1239,6 +1239,7 @@ Separar conceptualmente:
 * `$XDG_RUNTIME_DIR/lolterm/mux.sock` (consulta de contexto; no es config portable);
 * `$XDG_RUNTIME_DIR/lolterm/context.json` (misma foto; los PTYs la ven en `LOLTERM_CONTEXT`);
 * `$XDG_DATA_HOME/lolterm/worktrees/` e `agent-sessions.jsonl` (agentes; no portable);
+* geometría de ventana (`Electron userData/window.json`);
 * paths específicos cuando no sean portables;
 * geometría de ventanas;
 * cache;
@@ -1614,7 +1615,7 @@ Probar que un método IPC inválido no cuelga la UI; matar el sidecar y ver el a
 
 ### B. 0.9.x posterior
 
-SSH: keepalives + `Include` del config ya están. Sigue: reconnect explícito, sandbox de Electron empaquetado, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
+SSH: keepalives, `Include` del config y un reconect automático. Sigue: sandbox de Electron empaquetado, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
 
 ### C. Multiplexer / workspaces (deuda anterior)
 

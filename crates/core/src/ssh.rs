@@ -44,6 +44,37 @@ pub fn ts_ssh_args(target: &str, default_user: Option<&str>, tmux_session: &str)
     ssh_args(&ts_ssh_dest(target, default_user), tmux_session)
 }
 
+/// Sesiones viejas no tenían keepalive. Al restaurar/reconectar se inyecta.
+pub fn ensure_alive_opts(args: &[String]) -> Vec<String> {
+    if args.iter().any(|arg| arg.contains("ServerAliveInterval")) {
+        return args.to_vec();
+    }
+    let mut out = Vec::with_capacity(args.len() + 4);
+    let mut inserted = false;
+    for arg in args {
+        out.push(arg.clone());
+        if !inserted && arg == "-tt" {
+            out.push("-o".into());
+            out.push("ServerAliveInterval=30".into());
+            out.push("-o".into());
+            out.push("ServerAliveCountMax=4".into());
+            inserted = true;
+        }
+    }
+    if !inserted {
+        out.splice(
+            0..0,
+            [
+                "-o".into(),
+                "ServerAliveInterval=30".into(),
+                "-o".into(),
+                "ServerAliveCountMax=4".into(),
+            ],
+        );
+    }
+    out
+}
+
 pub fn tmux_session_name(prefix: &str, workspace: &str) -> String {
     let prefix = prefix.trim();
     if prefix.is_empty() {
@@ -250,6 +281,21 @@ mod tests {
     fn empty_user_is_not_ok() {
         assert!(!ssh_user_ok(""));
         assert!(ssh_user_ok("chae"));
+    }
+
+    #[test]
+    fn ensure_alive_opts_upgrades_old_argv() {
+        let upgraded = ensure_alive_opts(&["-tt".into(), "me@pi".into()]);
+        assert!(upgraded.iter().any(|arg| arg == "ServerAliveInterval=30"));
+        assert_eq!(ssh_dest_from_args(&upgraded).as_deref(), Some("me@pi"));
+        let again = ensure_alive_opts(&upgraded);
+        assert_eq!(
+            again
+                .iter()
+                .filter(|arg| *arg == "ServerAliveInterval=30")
+                .count(),
+            1
+        );
     }
 
     #[test]
