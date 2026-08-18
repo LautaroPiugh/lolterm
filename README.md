@@ -1,102 +1,102 @@
 # LoLTerm
 
-LoLTerm es un **workspace de terminales local-first**. La unidad de trabajo no es el archivo: es el proceso que corre dentro de un PTY (bash, nvim, lazygit, ssh, un agente CLI, lo que sea).
+LoLTerm es un **workspace de terminales**. La unidad de trabajo no es el archivo: es el proceso que corre en una terminal real (bash, nvim, lazygit, ssh, Codex, lo que uses).
 
 > LoLTerm es el entorno desde el que trabajo, no la herramienta con la que hago cada trabajo.
 
-No reemplaza nvim, Git, SSH, tmux ni Codex/Claude. Los **abre y organiza**.
+No nació para ser “otra terminal bonita”. La idea es instalarlo en una máquina y usarlo como sitio desde el que abrís proyectos, CLIs, editores, Git, agentes de IA y otras computadoras.
+
+Hoy el paquete oficial es un **`.deb` para Ubuntu**.
+
+## Qué hace (y qué no)
+
+LoLTerm **organiza** herramientas que ya existen. No las reemplaza.
+
+| LoLTerm no es… | Lo que hace en su lugar |
+| --- | --- |
+| un IDE ni un editor propio | abre nvim, Helix o `$EDITOR` en un panel |
+| un cliente Git | conoce la rama y puede abrir lazygit |
+| un chat o runtime de IA | abre Codex, Claude Code, OpenCode, … en una terminal |
+| un fork de tmux | usa tmux en remoto para no perder la sesión |
+| un cliente SSH distinto | usa el `ssh` del sistema (y Tailscale si lo tenés) |
+
+Adentro, cada panel es un **PTY**: el programa cree que está en una terminal de verdad (colores, nvim, fzf, resize). Varios paneles y pestañas conviven en la misma ventana.
 
 ```text
-LoLTerm (ventana Electron)
-    └── lolterm-core (sidecar Rust)
-            ├── PTY local  → shell / nvim / lazygit / …
-            └── PTY        → ssh → tmux en otra máquina
+                LoLTerm
+                   │
+       ┌───────────┼────────────┐
+       │           │            │
+    proyectos   máquinas     contexto
+       │           │            │
+       ↓           ↓            ↓
+    terminales   SSH/tmux    agentes CLI
+       │
+  nvim / lazygit / shell / …
 ```
 
-Versión actual: **0.9.x** (estabilización y distribución Linux). Empaquetado: **`.deb` para Ubuntu**.
+Todo corre **en tu máquina**. No hay cuenta, ni nube de LoLTerm, ni backend obligatorio. La config portable vive en `~/.config/lolterm/`.
 
-## Qué no es
+## Cómo está armado
 
-No es un IDE, un editor propio, un fork de tmux, un chat de IA ni un cliente Git. El runtime es siempre: proceso + PTY + emulador VT (xterm.js).
+Hay tres piezas que el usuario ve como “LoLTerm”:
 
-## Cómo funciona
+1. **La ventana** — pestañas, splits, paleta, explorer, temas.
+2. **El core** — crea las terminales, guarda el layout, habla con SSH y con la CLI.
+3. **El comando `lolterm`** — el mismo sistema, desde otra terminal: abrir un proyecto, listar workspaces, preguntar el contexto.
 
-1. Electron muestra la UI (tabs, splits, paleta, explorer).
-2. `lolterm-core` crea pseudoterminales reales (`portable-pty`) y multiplexa panes.
-3. Lo que escribís llega al proceso hijo; lo que el proceso imprime vuelve a xterm.js.
-4. La CLI `lolterm` habla con el mismo core: si el Desktop está abierto, pregunta por un Unix socket de **solo lectura**; si no, lee `session.toml`.
+Un **workspace** es un entorno recuperable: carpeta del proyecto, pestañas, paneles, a veces una máquina remota. Podés tener varios y ciclarlos. Si cerrás todas las pestañas, volvés a Inicio (proyectos, CLIs, máquinas).
 
-```text
-teclado  →  React / xterm.js  →  preload  →  Electron  →  JSON  →  lolterm-core  →  PTY
-```
+**Local:** panel → terminal en esta PC.  
+**Remoto:** panel → `ssh` → (opcional) tmux en la otra máquina, para que nvim no se muera si se corta la red.
+
+La CLI `lolterm context` (y variables como `LOLTERM_ROOT`) exponen carpeta, rama y procesos abiertos, para que un agente CLI sepa dónde está sin un protocolo propio de LoLTerm.
+
+Podés sumar comandos, atajos, temas y ganchos con archivos TOML locales. No hay plugins de JavaScript.
 
 ## Instalar (Ubuntu)
 
-Cuando el repo es público, cada tag `v*` publica un `.deb` y `SHA256SUMS.txt` en [Releases](https://github.com/LautaroPiugh/lolterm/releases).
+1. Bajá el `.deb` de la [última release](https://github.com/LautaroPiugh/lolterm/releases/latest).
+2. Instalálo:
 
 ```bash
 sudo apt install ./LoLTerm-*-linux-amd64.deb
 ```
 
-El menú de aplicaciones usa el icono del prompt `>` sobre panes mint. `/update` (o el banner) busca una release más nueva, verifica el SHA256 y recién ahí instala (`pkexec` o el instalador del sistema).
+Queda en el menú de aplicaciones (icono del prompt `>`) y `lolterm` en el PATH.
 
-## Desarrollo
-
-```bash
-# core
-cargo test -p lolterm-core
-cargo clippy -p lolterm-core --all-targets -- -D warnings
-
-# desktop
-cd apps/desktop
-npm install
-npm run dev
-```
-
-`npm run dev` compila `lolterm-core`, levanta Vite y abre Electron. Empaquetar:
-
-```bash
-cd apps/desktop && npm run pack
-# sale apps/desktop/release/LoLTerm-*-linux-*.deb
-```
+Para actualizar: paleta `/update`, o el aviso cuando hay versión nueva. Se descarga el `.deb` de **esa** release, se comprueba el SHA256 y recién ahí se instala. No hace falta un token de GitHub.
 
 ## Uso
 
-| Acción | Atajo |
+| Qué | Cómo |
 | --- | --- |
-| Paleta de comandos | `Ctrl-b` / `Ctrl-p` |
-| Siguiente / anterior tab | `Ctrl-Tab` / `Ctrl-Shift-Tab` |
-| Split derecha / abajo | `Ctrl-Alt-v` / `Ctrl-Alt-s` |
+| Paleta | `Ctrl-b` o `Ctrl-p` |
+| Cambiar de tab | `Ctrl-Tab` / `Ctrl-Shift-Tab` |
+| Partir el panel | `Ctrl-Alt-v` (derecha), `Ctrl-Alt-s` (abajo) |
 | Workspaces | clic en el nombre, o `Ctrl-Alt-[` `]` |
-| Restart del pane | `Ctrl-Alt-r` |
+| Reiniciar el panel | `Ctrl-Alt-r` |
 | Comandos y atajos | `Ctrl-Alt-,` o `/commands` |
-| Buscar update | `/update` |
 
-`+` abre el picker (shell, SSH, agentes). Cerrar todas las tabs muestra Inicio. Arrastrar una tab al borde parte el layout.
+El `+` pregunta qué abrir (shell, SSH, agentes). Arrastrá una pestaña al borde para partir el layout.
 
-## CLI
+Desde otra terminal, el mismo workspace:
 
 ```bash
-cargo install --path crates/core --bin lolterm --force --root "$HOME/.local"
-
-lolterm status
+lolterm .
+lolterm workspace list
+lolterm ssh home
+lolterm run nvim
 lolterm context
 lolterm panes
 lolterm processes
-lolterm machines
-lolterm workspace list
-lolterm .
-lolterm workspace open lolterm
-lolterm ssh home
-lolterm run nvim
 ```
 
-Config portable: `~/.config/lolterm/`. Estado de máquina: socket en `$XDG_RUNTIME_DIR/lolterm/` (no sincronizar). Cada PTY recibe `LOLTERM_ROOT` y `LOLTERM_CONTEXT`. Los agentes CLI pueden abrir en un `git worktree` bajo `~/.local/share/lolterm/worktrees/` (`[ai] worktrees = false` para desactivar).
+## Máquinas remotas
 
-## Remoto
+La contraseña la pide `ssh` en el panel. Ejemplo en `~/.config/lolterm/config.toml`:
 
 ```toml
-# ~/.config/lolterm/config.toml
 [remote]
 user = "dev"
 tmux = "lolterm"
@@ -108,33 +108,17 @@ user = "dev"
 kind = "tailscale"
 ```
 
-Flujo: `PTY → ssh -tt dest → tmux new-session -A -s lolterm-<workspace>`. LoLTerm agrega keepalives SSH; si el enlace se cae, reconecta **una vez**. La password la pide `ssh` en el pane, no LoLTerm.
+Si el enlace se corta, LoLTerm intenta reconectar **una vez** (tmux `-A` recupera la sesión remota).
 
-## Extensiones
+## Configuración
 
-No hay plugins JS. Solo TOML local (`commands.toml`, `hooks.toml`, `themes/*.toml`, `status.toml`, `context.toml`, packs `extensions/<nombre>/extension.toml`). `run` tiene que ser un binario del PATH, sin flags ni paths.
+| Dónde | Qué |
+| --- | --- |
+| `~/.config/lolterm/` | temas, atajos, comandos, workspaces, extensiones TOML |
+| `$XDG_RUNTIME_DIR/lolterm/` | estado vivo (socket de contexto); no hace falta sincronizarlo |
 
-## Repositorio
-
-```text
-lolterm/
-├── README.md
-├── LICENSE
-├── CHANGELOG.md
-├── Cargo.toml
-├── crates/core/       # PTY, mux, SSH, CLI, sesión
-└── apps/desktop/      # Electron + React + xterm.js
-```
-
-## Seguridad
-
-- App **local-first**: no hay backend ni cuenta.
-- El renderer no tiene Node (`contextIsolation`, preload chico).
-- El socket del mux es `0600` y solo admite `context` / `panes` / `processes`.
-- El auto-update solo descarga `.deb` de `LautaroPiugh/lolterm` por HTTPS y exige SHA256. Sin token en el paquete.
-- Electron en Linux puede ir con `--no-sandbox` por el helper `chrome-sandbox`; es una limitación de empaquetado, no el modelo final.
-- No guardes secretos en `config.toml` sincronizable. SSH usa el agent/claves del sistema.
+SSH usa las claves y el agent del sistema. No guardes secretos en archivos que copies entre PCs.
 
 ## Licencia
 
-MIT. Ver `LICENSE`.
+[MIT](LICENSE). Podés usar, copiar, modificar y redistribuir el software; el archivo `LICENSE` es el texto legal.
