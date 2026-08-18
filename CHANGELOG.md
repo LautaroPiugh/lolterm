@@ -1,6 +1,6 @@
 # Changelog
 
-Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.9.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
+Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
 ## [Unreleased]
 
@@ -10,10 +10,11 @@ Los cambios versionados los escribe [Release Please](https://github.com/googleap
 * el pack de tags `v*` genera sólo `.deb` (AppImage queda para más adelante)
 * el `.desktop` se llama `lolterm.desktop` para que GNOME use el icono del prompt `>` / panes mint
 * README de producto, licencia MIT, `.gitignore` de carpetas de IA y el updater ya no lee `gh auth token`
+* el árbol público ya no incluye `AGENTS.md`, el brief de Figma ni copias extra del icono
 
 ## [0.9.0](https://github.com/LautaroPiugh/lolterm/compare/v0.8.0...v0.9.0) (2026-08-17)
 
-Era **Stabilization & Distribution** (`AGENTS.md` v0.9.x). Primera entrega: sidecar estable y artefactos Linux. Sin auto-update, firmas ni macOS/Windows.
+Era **Stabilization & Distribution**. Primera entrega: sidecar estable y artefactos Linux. Sin auto-update, firmas ni macOS/Windows.
 
 ### Features
 
@@ -24,7 +25,7 @@ Era **Stabilization & Distribution** (`AGENTS.md` v0.9.x). Primera entrega: side
 
 ## [0.8.0](https://github.com/LautaroPiugh/lolterm/compare/v0.7.0...v0.8.0) (2026-08-17)
 
-Era **Extensibility** (`AGENTS.md` v0.8.x). Superficie estable en TOML local; no hay VM de plugins ni paneles React custom.
+Era **Extensibility**. Superficie estable en TOML local; no hay VM de plugins ni paneles React custom.
 
 ### Features
 
@@ -40,7 +41,7 @@ Era **Extensibility** (`AGENTS.md` v0.8.x). Superficie estable en TOML local; no
 
 ## [0.7.0](https://github.com/LautaroPiugh/lolterm/compare/v0.6.0...v0.7.0) (2026-08-17)
 
-Era **AI Environment** (`AGENTS.md` v0.7.x). LoLTerm organiza agentes CLI; no implementa chat ni runtime.
+Era **AI Environment**. LoLTerm organiza agentes CLI; no implementa chat ni runtime.
 
 ### Features
 
@@ -52,7 +53,7 @@ Era **AI Environment** (`AGENTS.md` v0.7.x). LoLTerm organiza agentes CLI; no im
 
 ## [0.6.0](https://github.com/LautaroPiugh/lolterm/compare/v0.5.2...v0.6.0) (2026-08-17)
 
-Era **Context Layer** (`AGENTS.md` v0.6.x). `lolterm context` / `panes` / `processes` leen el mux en vivo si el Desktop está abierto.
+Era **Context Layer**. `lolterm context` / `panes` / `processes` leen el mux en vivo si el Desktop está abierto.
 
 ### Features
 
@@ -92,7 +93,7 @@ Uso diario: `npm run dev`. `v0.5.0` quedó en el árbol pero no se etiquetó en 
 
 ## [0.5.0](https://github.com/LautaroPiugh/lolterm/compare/v0.4.1...v0.5.0) (2026-08-16)
 
-Era **LoLTerm CLI** (`AGENTS.md` v0.5.x). El empaquetado Linux existe; el uso diario sigue siendo `npm run dev`.
+Era **LoLTerm CLI**. El empaquetado Linux existe; el uso diario sigue siendo `npm run dev`.
 
 ### Features
 

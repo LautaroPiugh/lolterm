@@ -30,5 +30,8 @@ session.toml
 .agent/
 .agents/
 
-# briefs de diseño para modelos (no son el runtime)
+# briefs y notas locales (no son el runtime)
 apps/desktop/figma-prompt.txt
+AGENTS.md
+.*.swp
+apps/desktop/build/icons/

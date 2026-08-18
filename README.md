@@ -119,13 +119,12 @@ No hay plugins JS. Solo TOML local (`commands.toml`, `hooks.toml`, `themes/*.tom
 ```text
 lolterm/
 ├── README.md
-├── AGENTS.md          # visión y reglas de arquitectura
-├── Cargo.toml         # workspace Rust (lolterm-core)
+├── LICENSE
+├── CHANGELOG.md
+├── Cargo.toml
 ├── crates/core/       # PTY, mux, SSH, CLI, sesión
 └── apps/desktop/      # Electron + React + xterm.js
 ```
-
-Las carpetas de herramientas de IA (`.cursor`, `.claude`, …) no forman parte del proyecto y están en `.gitignore`.
 
 ## Seguridad
 

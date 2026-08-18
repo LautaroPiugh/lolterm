@@ -36,7 +36,9 @@
       {
         "from": "sidecar",
         "to": ".",
-        "filter": ["lolterm-core"]
+        "filter": [
+          "lolterm-core"
+        ]
       },
       {
         "from": "build/icon.png",
@@ -44,8 +46,10 @@
       }
     ],
     "linux": {
-      "target": ["deb"],
-      "icon": "build/icons",
+      "target": [
+        "deb"
+      ],
+      "icon": "build/icon.png",
       "category": "Development",
       "executableName": "lolterm",
       "syncDesktopName": true,
@@ -62,7 +66,6 @@
     }
   },
   "dependencies": {
-    "@iconify-json/vscode-icons": "^1.2.72",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "react": "^19.1.0",
