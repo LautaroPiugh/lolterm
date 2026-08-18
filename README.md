@@ -122,7 +122,9 @@ Conectar (sidebar Remoto, `/ssh`, `/ts-ssh`) abre:
 PTY → ssh -tt dest → tmux new-session -A -s lolterm-<workspace>
 ```
 
-Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12). Cada workspace usa su propia sesión remota para no pisarse.
+LoLTerm pasa `ServerAliveInterval=30` para que un corte corto de Tailscale no deje el pane muerto en silencio. `/ssh` también lee `Include` de `~/.ssh/config` (por ejemplo `config.d/*`).
+
+Si no hay tmux en el host, cae al shell de login. La máquina queda en el registro (máx. 12). Cada workspace usa su propia sesión remota para no pisarse. La sesión de LoLTerm al reabrir **vuelve a lanzar** ssh/tmux; no revive el buffer de la TUI.
 
 ## Extensiones (TOML)
 

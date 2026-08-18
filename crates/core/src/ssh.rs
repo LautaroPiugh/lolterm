@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 pub fn ts_ssh_dest(target: &str, default_user: Option<&str>) -> String {
@@ -23,6 +26,10 @@ pub fn ssh_args(dest: &str, tmux_session: &str) -> Vec<String> {
         "-tt".into(),
         "-o".into(),
         "StrictHostKeyChecking=accept-new".into(),
+        "-o".into(),
+        "ServerAliveInterval=30".into(),
+        "-o".into(),
+        "ServerAliveCountMax=4".into(),
         dest.to_string(),
     ];
     if !tmux_session.trim().is_empty() {
@@ -102,10 +109,66 @@ fn sanitize_tmux_session(name: &str) -> &str {
 }
 
 pub fn parse_ssh_hosts(text: &str) -> Vec<String> {
+    parse_ssh_hosts_from(text, &ssh_dir(), 0, &mut HashSet::new())
+}
+
+pub fn ssh_config_hosts() -> Vec<String> {
+    let path = ssh_dir().join("config");
+    std::fs::read_to_string(&path)
+        .map(|text| {
+            parse_ssh_hosts_from(
+                &text,
+                path.parent().unwrap_or(Path::new(".")),
+                0,
+                &mut HashSet::new(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn ssh_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".ssh")
+}
+
+fn parse_ssh_hosts_from(
+    text: &str,
+    base: &Path,
+    depth: usize,
+    seen: &mut HashSet<PathBuf>,
+) -> Vec<String> {
     let mut hosts = Vec::new();
+    if depth > 4 {
+        return hosts;
+    }
     for line in text.lines() {
         let trimmed = line.trim();
-        if !trimmed.to_ascii_lowercase().starts_with("host ") {
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("include ") {
+            for path in include_paths(base, trimmed[8..].trim()) {
+                let Ok(canon) = path.canonicalize() else {
+                    continue;
+                };
+                if !seen.insert(canon.clone()) {
+                    continue;
+                }
+                if let Ok(nested) = std::fs::read_to_string(&canon) {
+                    let nested_base = canon.parent().unwrap_or(base);
+                    for host in parse_ssh_hosts_from(&nested, nested_base, depth + 1, seen) {
+                        if !hosts.iter().any(|existing| existing == &host) {
+                            hosts.push(host);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        if !lower.starts_with("host ") {
             continue;
         }
         for name in trimmed[5..].split_whitespace() {
@@ -120,15 +183,38 @@ pub fn parse_ssh_hosts(text: &str) -> Vec<String> {
     hosts
 }
 
-pub fn ssh_config_hosts() -> Vec<String> {
-    let path = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".ssh")
-        .join("config");
-    std::fs::read_to_string(path)
-        .map(|text| parse_ssh_hosts(&text))
-        .unwrap_or_default()
+fn include_paths(base: &Path, raw: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for token in raw.split_whitespace() {
+        let expanded = expand_ssh_path(base, token);
+        if let Some(parent) = expanded.parent()
+            && let Some(name) = expanded.file_name().and_then(|name| name.to_str())
+            && name.contains('*')
+        {
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        out.push(path);
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(expanded);
+    }
+    out
+}
+
+fn expand_ssh_path(base: &Path, raw: &str) -> PathBuf {
+    let raw = raw.trim().trim_matches('"');
+    if let Some(rest) = raw.strip_prefix("~/") {
+        return ssh_dir().parent().unwrap_or(Path::new(".")).join(rest);
+    }
+    if raw.starts_with('/') {
+        return PathBuf::from(raw);
+    }
+    base.join(raw)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -170,7 +256,8 @@ mod tests {
     fn ssh_args_attach_tmux_by_default() {
         let args = ssh_args("me@pi", "lolterm");
         assert_eq!(args[0], "-tt");
-        assert_eq!(args[3], "me@pi");
+        assert_eq!(ssh_dest_from_args(&args).as_deref(), Some("me@pi"));
+        assert!(args.iter().any(|arg| arg == "ServerAliveInterval=30"));
         assert!(
             args.last()
                 .unwrap()
@@ -181,10 +268,28 @@ mod tests {
     #[test]
     fn ssh_args_skip_tmux_when_session_empty() {
         let args = ssh_args("pi", "");
-        assert_eq!(
-            args,
-            vec!["-tt", "-o", "StrictHostKeyChecking=accept-new", "pi"]
-        );
+        assert_eq!(ssh_dest_from_args(&args).as_deref(), Some("pi"));
+        assert!(!args.iter().any(|arg| arg == "sh"));
+        assert!(args.iter().any(|arg| arg == "ServerAliveInterval=30"));
+    }
+
+    #[test]
+    fn ssh_config_follows_include() {
+        let dir = std::env::temp_dir().join(format!(
+            "lolterm-ssh-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let extra = dir.join("extra");
+        let _ = std::fs::create_dir_all(&extra);
+        std::fs::write(extra.join("box"), "Host included\n").expect("write");
+        let text = "Host root\nInclude extra/*\nHost after\n";
+        let hosts = parse_ssh_hosts_from(text, &dir, 0, &mut HashSet::new());
+        assert_eq!(hosts, vec!["root", "included", "after"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

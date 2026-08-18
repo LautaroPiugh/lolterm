@@ -1614,7 +1614,7 @@ Probar que un método IPC inválido no cuelga la UI; matar el sidecar y ver el a
 
 ### B. 0.9.x posterior
 
-Checksums en uso diario, sandbox de Electron empaquetado, SSH más fiable, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
+SSH: keepalives + `Include` del config ya están. Sigue: reconnect explícito, sandbox de Electron empaquetado, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
 
 ### C. Multiplexer / workspaces (deuda anterior)
 
