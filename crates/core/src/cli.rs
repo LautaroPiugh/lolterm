@@ -925,19 +925,19 @@ mod tests {
     fn plan_ssh_uses_registry_and_workspace_tmux() {
         let cfg = AppConfig {
             machines: vec![Machine {
-                name: "chae".into(),
-                target: "chae.tailnet.ts.net".into(),
-                user: Some("lauta".into()),
+                name: "home".into(),
+                target: "home.example.ts.net".into(),
+                user: Some("dev".into()),
                 kind: crate::config::MachineKind::Tailscale,
             }],
             remote: crate::config::RemoteConfig {
-                user: Some("lauta".into()),
+                user: Some("dev".into()),
                 tmux: "lolterm".into(),
             },
             ..AppConfig::default()
         };
-        let plan = plan_ssh(&cfg, "lolterm", "chae").unwrap();
-        assert_eq!(plan.dest, "lauta@chae.tailnet.ts.net");
+        let plan = plan_ssh(&cfg, "lolterm", "home").unwrap();
+        assert_eq!(plan.dest, "dev@home.example.ts.net");
         assert!(
             plan.args
                 .last()

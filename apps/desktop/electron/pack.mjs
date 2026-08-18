@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,28 @@ mkdirSync(sidecarDir, { recursive: true });
 copyFileSync(core, sidecar);
 chmodSync(sidecar, 0o755);
 
+const iconSrc = path.join(appRoot, "public", "icon.png");
+const iconDir = path.join(appRoot, "build", "icons");
+mkdirSync(iconDir, { recursive: true });
+if (existsSync(iconSrc)) {
+  copyFileSync(iconSrc, path.join(appRoot, "build", "icon.png"));
+  copyFileSync(iconSrc, path.join(iconDir, "icon.png"));
+  const whichMagick = spawnSync("bash", ["-lc", "command -v magick || command -v convert"], { encoding: "utf8" });
+  const magick = whichMagick.status === 0 ? whichMagick.stdout.trim().split("\n")[0] : "";
+  if (magick) {
+    for (const size of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
+      spawnSync(magick, [iconSrc, "-resize", `${size}x${size}`, path.join(iconDir, `${size}x${size}.png`)], {
+        stdio: "inherit",
+      });
+    }
+  }
+  const sized = existsSync(path.join(iconDir, "512x512.png"))
+    ? path.join(iconDir, "512x512.png")
+    : iconSrc;
+  copyFileSync(sized, path.join(iconDir, "lolterm.png"));
+}
+
 await run("npx", ["vite", "build"], appRoot);
-await run("npx", ["electron-builder", "--linux", "AppImage", "deb"], appRoot);
+await run("npx", ["electron-builder", "--linux", "deb"], appRoot);
 
 console.log("paquetes en apps/desktop/release/");

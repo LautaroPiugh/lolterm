@@ -9,7 +9,7 @@
     "email": "lolterm@users.noreply.github.com"
   },
   "homepage": "https://github.com/LautaroPiugh/lolterm",
-  "desktopName": "LoLTerm.desktop",
+  "desktopName": "lolterm.desktop",
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "node electron/dev.mjs",
@@ -29,6 +29,7 @@
       "build/icon.png",
       "!electron/dev.mjs",
       "!electron/pack.mjs",
+      "!electron/**/*.test.mjs",
       "!**/node_modules/**"
     ],
     "extraResources": [
@@ -43,7 +44,7 @@
       }
     ],
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": ["deb"],
       "icon": "build/icons",
       "category": "Development",
       "executableName": "lolterm",

@@ -2,13 +2,17 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage } from "electron";
+import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain } from "electron";
+import { checkLinuxDebUpdate, installLinuxDebUpdate } from "./update.mjs";
+import { installDevDesktopEntry } from "./linux-desktop.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
 const repoRoot = path.join(appRoot, "..", "..");
 const INVOKE_MS = 8000;
 const MAX_RESTARTS = 2;
+
+process.env.CHROME_DESKTOP = app.isPackaged ? "lolterm.desktop" : "lolterm-dev.desktop";
 
 let child = null;
 let seq = 1;
@@ -26,6 +30,10 @@ function isFile(file) {
   } catch {
     return false;
   }
+}
+
+function githubToken() {
+  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 }
 
 function coreBin() {
@@ -161,13 +169,6 @@ function appIconPath() {
   return candidates.find(isFile);
 }
 
-function appIconImage() {
-  const file = appIconPath();
-  if (!file) return undefined;
-  const image = nativeImage.createFromPath(file);
-  return image.isEmpty() ? undefined : image;
-}
-
 function windowStatePath() {
   return path.join(app.getPath("userData"), "window.json");
 }
@@ -207,7 +208,7 @@ function saveWindowState() {
 }
 
 function createWindow() {
-  const icon = appIconImage();
+  const iconFile = appIconPath();
   const state = loadWindowState();
   win = new BrowserWindow({
     x: state.x,
@@ -216,7 +217,7 @@ function createWindow() {
     height: state.height,
     backgroundColor: "#ECF2EC",
     title: `LoLTerm v${app.getVersion()}`,
-    icon,
+    icon: iconFile,
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -226,7 +227,7 @@ function createWindow() {
     },
   });
   if (state.maximized) win.maximize();
-  if (icon) win.setIcon(icon);
+  if (iconFile) win.setIcon(iconFile);
   if (process.env.LOLTERM_DEV) {
     win.loadURL(process.env.LOLTERM_URL || "http://127.0.0.1:5173");
   } else {
@@ -289,6 +290,13 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    if (!app.isPackaged) {
+      installDevDesktopEntry({
+        electronBin: process.execPath,
+        appRoot,
+        iconFile: appIconPath(),
+      });
+    }
     startCore(openDirArg());
     ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
     ipcMain.handle("win-minimize", () => {
@@ -310,6 +318,25 @@ if (!gotLock) {
       const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
       if (picked.canceled || !picked.filePaths[0]) return null;
       return invoke("openProject", { path: picked.filePaths[0] });
+    });
+    ipcMain.handle("update-check", () =>
+      checkLinuxDebUpdate({
+        currentVersion: app.getVersion(),
+        userAgent: `LoLTerm/${app.getVersion()}`,
+        token: githubToken(),
+      }),
+    );
+    ipcMain.handle("update-install", () =>
+      installLinuxDebUpdate({
+        currentVersion: app.getVersion(),
+        destDir: app.getPath("temp"),
+        userAgent: `LoLTerm/${app.getVersion()}`,
+        token: githubToken(),
+      }),
+    );
+    ipcMain.handle("app-relaunch", () => {
+      app.relaunch();
+      app.quit();
     });
     createWindow();
   });

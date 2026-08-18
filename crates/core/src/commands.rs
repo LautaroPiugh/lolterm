@@ -225,6 +225,12 @@ pub const REGISTRY: &[CommandSpec] = &[
         hint: "editar comandos custom y atajos",
         kind: CommandKind::Ui,
     },
+    CommandSpec {
+        id: "app.update",
+        slash: "update",
+        hint: "buscar actualización (.deb Ubuntu)",
+        kind: CommandKind::Ui,
+    },
 ];
 
 #[derive(Serialize)]
@@ -274,6 +280,7 @@ mod tests {
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
         assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
+        assert_eq!(lookup("/update").map(|s| s.id), Some("app.update"));
         assert!(lookup("nope").is_none());
     }
 }

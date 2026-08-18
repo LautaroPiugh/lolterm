@@ -155,6 +155,13 @@ export default function App() {
   const [cmds, setCmds] = useState<CommandHit[]>([]);
   const [bootErr, setBootErr] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [update, setUpdate] = useState<
+    | null
+    | { kind: "available"; latest: string }
+    | { kind: "busy"; label: string }
+    | { kind: "done"; latest: string; method: string }
+    | { kind: "error"; error: string }
+  >(null);
   const [sshUser, setSshUser] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -251,6 +258,31 @@ export default function App() {
         setModal({ kind: "commands" });
         return;
       }
+      if (key === "app.update" || key === "update") {
+        setUpdate({ kind: "busy", label: "buscando actualización…" });
+        try {
+          const info = await window.lolterm.update.check();
+          if (info.available && info.latest) {
+            setUpdate({ kind: "available", latest: info.latest });
+          } else {
+            setUpdate(null);
+            if (info.reason === "github-404") {
+              setBanner("GitHub 404: el repo es privado o no hay release latest. En dev se usa `gh auth`; el .deb público necesita el repo público.");
+            } else if (info.reason === "github-403") {
+              setBanner("GitHub 403: rate limit o sin permiso para leer releases.");
+            } else if (info.reason === "no-deb") {
+              setBanner(`v${info.latest} no trae .deb + SHA256SUMS.txt`);
+            } else if (info.current) {
+              setBanner(`ya estás en v${info.current}`);
+            } else {
+              setBanner("no hay .deb nuevo en GitHub");
+            }
+          }
+        } catch (err) {
+          setUpdate({ kind: "error", error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
       await call("dispatch", { id: key });
     },
     [call, launchKind, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
@@ -278,7 +310,18 @@ export default function App() {
       setBootErr(err instanceof Error ? err.message : String(err));
     });
     void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
-    return off;
+    const timer = window.setTimeout(() => {
+      void window.lolterm.update
+        .check()
+        .then((info) => {
+          if (info.available && info.latest) setUpdate({ kind: "available", latest: info.latest });
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => {
+      window.clearTimeout(timer);
+      off();
+    };
   }, [apply, call]);
 
   useEffect(() => {
@@ -465,7 +508,7 @@ export default function App() {
     <div className="shell">
       <header className="titlebar">
         <button type="button" className="titlebar-wordmark" onClick={() => setActivity("home")}>
-          <img className="titlebar-icon" src={`${import.meta.env.BASE_URL}icon.png`} alt="" width={18} height={18} />
+          <img className="titlebar-icon" src={`${import.meta.env.BASE_URL}icon.png`} alt="" width={20} height={20} />
           <span className="lol">lol</span>
           <span className="mark">term</span>
           <span className="ver" title={`LoLTerm ${displayVersion(snap.version)} · ${eraLabel(snap.version)}`}>
@@ -515,6 +558,18 @@ export default function App() {
                   <Command size={12} color="var(--muted)" />
                   <span>Comandos y atajos</span>
                   <span className="hint">Ctrl-Alt-,</span>
+                </button>
+                <button
+                  type="button"
+                  className="gear-hit"
+                  onClick={() => {
+                    setGearOpen(false);
+                    void runBound("app.update");
+                  }}
+                >
+                  <Sparkles size={12} color="var(--muted)" />
+                  <span>Buscar actualización</span>
+                  <span className="hint">/update</span>
                 </button>
                 <details open>
                   <summary>Tema</summary>
@@ -661,6 +716,69 @@ export default function App() {
           </button>
         </div>
       </header>
+      {update && (
+        <div className="update-bar">
+          {update.kind === "available" && (
+            <>
+              <span>
+                LoLTerm <strong>v{update.latest}</strong> está en GitHub. Instala el <code>.deb</code> (Ubuntu)
+                después de verificar SHA256.
+              </span>
+              <button
+                type="button"
+                className="update-btn"
+                onClick={() => {
+                  const latest = update.latest;
+                  setUpdate({ kind: "busy", label: "descargando y verificando SHA256…" });
+                  void window.lolterm.update
+                    .install()
+                    .then((result) => {
+                      setUpdate({
+                        kind: "done",
+                        latest: result.version ?? latest,
+                        method: result.method ?? "pkexec",
+                      });
+                    })
+                    .catch((err: unknown) => {
+                      setUpdate({ kind: "error", error: err instanceof Error ? err.message : String(err) });
+                    });
+                }}
+              >
+                Instalar
+              </button>
+              <button type="button" className="update-btn ghost" onClick={() => setUpdate(null)}>
+                Después
+              </button>
+            </>
+          )}
+          {update.kind === "busy" && <span>{update.label}</span>}
+          {update.kind === "done" && (
+            <>
+              <span>
+                {update.method === "xdg-open"
+                  ? `v${update.latest} listo en el instalador del sistema.`
+                  : `v${update.latest} instalado. Reiniciá LoLTerm.`}
+              </span>
+              {update.method !== "xdg-open" && (
+                <button type="button" className="update-btn" onClick={() => void window.lolterm.update.relaunch()}>
+                  Reiniciar
+                </button>
+              )}
+              <button type="button" className="update-btn ghost" onClick={() => setUpdate(null)}>
+                Cerrar
+              </button>
+            </>
+          )}
+          {update.kind === "error" && (
+            <>
+              <span>{update.error}</span>
+              <button type="button" className="update-btn ghost" onClick={() => setUpdate(null)}>
+                Cerrar
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div className="body">
         <nav className="rail">
           {RAIL.map(({ id, Icon, tip }) => (

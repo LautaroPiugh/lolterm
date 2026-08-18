@@ -2,6 +2,15 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits. Las secciones 0.2.0–0.9.0 se publicaron a mano para alinear la versión global con las eras de `AGENTS.md`.
 
+## [Unreleased]
+
+### Features
+
+* Desktop comprueba la última GitHub Release y puede instalar el `.deb` de Ubuntu tras verificar `SHA256SUMS.txt` (`/update`)
+* el pack de tags `v*` genera sólo `.deb` (AppImage queda para más adelante)
+* el `.desktop` se llama `lolterm.desktop` para que GNOME use el icono del prompt `>` / panes mint
+* README de producto, licencia MIT, `.gitignore` de carpetas de IA y el updater ya no lee `gh auth token`
+
 ## [0.9.0](https://github.com/LautaroPiugh/lolterm/compare/v0.8.0...v0.9.0) (2026-08-17)
 
 Era **Stabilization & Distribution** (`AGENTS.md` v0.9.x). Primera entrega: sidecar estable y artefactos Linux. Sin auto-update, firmas ni macOS/Windows.

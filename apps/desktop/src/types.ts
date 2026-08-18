@@ -100,6 +100,17 @@ declare global {
         read: () => Promise<string>;
         write: (text: string) => Promise<void>;
       };
+      update: {
+        check: () => Promise<{
+          available: boolean;
+          current?: string;
+          latest?: string;
+          notes?: string;
+          reason?: string;
+        }>;
+        install: () => Promise<{ ok: boolean; version?: string; method?: string }>;
+        relaunch: () => Promise<void>;
+      };
     };
   }
 }

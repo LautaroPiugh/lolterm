@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { installDevDesktopEntry } from "./linux-desktop.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
@@ -46,6 +47,12 @@ cargo.on("exit", async (code) => {
   });
   await server.listen();
   const target = process.env.CARGO_TARGET_DIR || path.join(repoRoot, "target");
+  const electronBin = path.join(appRoot, "node_modules", "electron", "dist", "electron");
+  installDevDesktopEntry({
+    electronBin,
+    appRoot,
+    iconFile: path.join(appRoot, "public", "icon.png"),
+  });
   const electron = spawn(
     path.join(appRoot, "node_modules", ".bin", "electron"),
     [".", "--no-sandbox", "--disable-gpu-sandbox", "--log-level=3", "--class=LoLTerm"],
@@ -57,6 +64,7 @@ cargo.on("exit", async (code) => {
         LOLTERM_CORE: path.join(target, "debug", "lolterm-core"),
         LOLTERM_DEV: "1",
         LOLTERM_URL: "http://127.0.0.1:5173",
+        CHROME_DESKTOP: "lolterm-dev.desktop",
       },
     },
   );

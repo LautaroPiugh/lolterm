@@ -22,4 +22,9 @@ contextBridge.exposeInMainWorld("lolterm", {
     read: () => ipcRenderer.invoke("clip-read"),
     write: (text) => ipcRenderer.invoke("clip-write", text ?? ""),
   },
+  update: {
+    check: () => ipcRenderer.invoke("update-check"),
+    install: () => ipcRenderer.invoke("update-install"),
+    relaunch: () => ipcRenderer.invoke("app-relaunch"),
+  },
 });

@@ -8,3 +8,27 @@ apps/desktop/sidecar
 *.swp
 *.AppImage
 *.deb
+
+# secretos y estado local
+.env
+.env.*
+!.env.example
+*.pem
+id_rsa
+id_rsa.pub
+session.toml
+
+# herramientas de IA / IDE (no son el producto)
+.cursor/
+.claude/
+.aider/
+.continue/
+.codex/
+.opencode/
+.windsurf/
+.gemini/
+.agent/
+.agents/
+
+# briefs de diseño para modelos (no son el runtime)
+apps/desktop/figma-prompt.txt

@@ -309,23 +309,12 @@ Puente controlado entre Renderer y Main. Debe exponer una API pequeña y segura 
 
 ```text
 lolterm/
-├── AGENTS.md
-├── Cargo.toml
-├── Cargo.lock
 ├── README.md
-├── crates/
-│   └── core/
-│       ├── Cargo.toml
-│       └── src/
-│           └── ...
-└── apps/
-    └── desktop/
-        ├── package.json
-        ├── electron/
-        ├── src/
-        ├── index.html
-        ├── vite.config.ts
-        └── figma-prompt.txt
+├── AGENTS.md
+├── LICENSE
+├── Cargo.toml
+├── crates/core/
+└── apps/desktop/
 ```
 
 ### Flujo de terminal
@@ -505,7 +494,7 @@ lolterm workspace open lolterm
 lolterm run codex
 lolterm run nvim
 
-lolterm ssh chae
+lolterm ssh home
 lolterm status
 lolterm context
 ```
@@ -885,7 +874,7 @@ El repositorio actual ya contiene una base funcional:
 * agentes en git worktree + status/historial;
 * extensiones TOML (comandos, hooks, temas, status, context.extra);
 * editor de comandos/atajos en Desktop;
-* sidecar con timeout/restart; pack Linux en CI al tagear;
+* sidecar con timeout/restart; pack `.deb` Ubuntu en CI al tagear; auto-update del `.deb` vía GitHub Releases + SHA256;
 * SSH/Tailscale en desarrollo;
 * interfaz visual Sage/mint inspirada en la referencia inicial.
 
@@ -1164,43 +1153,31 @@ No publicar una release cuyo commit objetivo no pase CI.
 
 ## 20. Packaging y auto-update
 
-No es prioridad de `v0.1`, pero debe mantenerse una dirección clara.
-
-Fases:
+Packaging Linux actual: **`.deb` para Ubuntu/Debian**. AppImage, macOS y Windows quedan para más adelante.
 
 ```text
 source/dev
    ↓
-packaging
+packaging (.deb)
    ↓
-release artifacts
+GitHub Release + SHA256SUMS.txt
    ↓
-installers
-   ↓
-code signing
-   ↓
-auto-update
+Desktop comprueba latest y ofrece instalar
 ```
 
-Para Desktop, evaluar Electron Forge cuando llegue la fase de distribución, salvo que el stack cambie justificadamente.
+Auto-update de esta etapa (no es `electron-updater`; ese camino está pensado para AppImage):
 
-Artefactos objetivo futuros:
+* canal: GitHub Release **latest** de `LautaroPiugh/lolterm` (estable, no prerelease);
+* el repo debe ser **público** para que el `.deb` instalado pueda consultar releases sin token (un repo privado da 404 anónimo);
+* origen: HTTPS a GitHub / `githubusercontent.com` únicamente;
+* artefacto: `LoLTerm-*-linux-*.deb` de **esa misma** release;
+* integridad: SHA256 contra `SHA256SUMS.txt` de la misma release; si no coincide, no se instala;
+* acción explícita del usuario (banner o `/update`); PolicyKit (`pkexec apt-get install`) o el instalador del sistema (`xdg-open`);
+* rollback: reinstalar un `.deb` anterior desde Releases.
 
-```text
-Linux   → AppImage / .deb u otro formato definido
-macOS   → .dmg / signed app
-Windows → .exe/.msi según tooling elegido
-```
+Todavía **no** hay firma GPG ni apt repo. No instalar artefactos de otro repo ni de un tag que no sea latest.
 
-No implementar auto-update antes de resolver correctamente:
-
-* canales de release;
-* firmas;
-* origen confiable de artefactos;
-* rollback/fallos;
-* comportamiento por plataforma.
-
-Auto-update corresponde aproximadamente a `v0.9.x`.
+El icono de aplicación es el prompt `>` sobre panes mint (`apps/desktop/public/icon.png` → `build/icons` y `.desktop` `Icon=lolterm`).
 
 ---
 
@@ -1605,17 +1582,17 @@ En Linux, el flujo Electron actual puede requerir `--no-sandbox` por el helper S
 
 ## 32. Próximo foco inmediato
 
-LoLTerm está en **`v0.9.x` (Stabilization & Distribution)**. No implementar auto-update ni firmas todavía. No agrandar el catálogo de la CLI. No construir un runtime de plugins JS.
+LoLTerm está en **`v0.9.x` (Stabilization & Distribution)**. Pack y auto-update van por **`.deb` Ubuntu**; no agregar AppImage/macOS/Windows ni un apt repo propio salvo instrucción explícita. No construir un runtime de plugins JS. No agrandar el catálogo de la CLI.
 
 Orden recomendado:
 
-### A. Huecos de 0.9.0 (esta entrega)
+### A. Huecos de 0.9.x (esta entrega)
 
-Probar que un método IPC inválido no cuelga la UI; matar el sidecar y ver el aviso + restart; en un tag `v*` revisar que CI suba AppImage/`.deb` y `SHA256SUMS.txt`.
+Probar `/update` contra una Release real: banner, SHA256, `pkexec`/`xdg-open`. En un tag `v*` revisar que CI suba el `.deb` y `SHA256SUMS.txt`. Comprobar que GNOME muestre el icono del prompt `>` (no el de Electron).
 
 ### B. 0.9.x posterior
 
-SSH: keepalives, `Include` del config y un reconect automático. Sigue: sandbox de Electron empaquetado, restauración de sesión más fiel. Auto-update sólo con canal + firma + origen confiable.
+Sandbox de Electron empaquetado, restauración de sesión más fiel, firma GPG del `.deb` si se publica más allá de GitHub. AppImage y otros OS después.
 
 ### C. Multiplexer / workspaces (deuda anterior)
 

@@ -20,7 +20,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - name: linux deps
-        run: sudo apt-get update && sudo apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1
+        run: sudo apt-get update && sudo apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 imagemagick
       - name: pack
         working-directory: apps/desktop
         run: |
@@ -28,12 +28,11 @@ jobs:
           npm run pack
       - name: checksums
         working-directory: apps/desktop/release
-        run: sha256sum LoLTerm-*-linux-*.AppImage LoLTerm-*-linux-*.deb > SHA256SUMS.txt
+        run: sha256sum LoLTerm-*-linux-*.deb > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: lolterm-linux
           path: |
-            apps/desktop/release/LoLTerm-*-linux-*.AppImage
             apps/desktop/release/LoLTerm-*-linux-*.deb
             apps/desktop/release/SHA256SUMS.txt
       - name: attach to release
@@ -41,7 +40,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            apps/desktop/release/LoLTerm-*-linux-*.AppImage
             apps/desktop/release/LoLTerm-*-linux-*.deb
             apps/desktop/release/SHA256SUMS.txt
           fail_on_unmatched_files: true
