@@ -160,6 +160,12 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "run.copilot",
+        slash: "copilot",
+        hint: "abrir Copilot CLI (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "workspace.next",
         slash: "ws-next",
         hint: "siguiente workspace del catálogo",
@@ -211,6 +217,12 @@ pub const REGISTRY: &[CommandSpec] = &[
         id: "ui.theme",
         slash: "theme",
         hint: "claro, oscuro, tide, ember o un tema de ~/.config/lolterm/themes",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "terminal.copyOnSelect",
+        slash: "copy-select",
+        hint: "activar o desactivar copiar al seleccionar",
         kind: CommandKind::Ui,
     },
     CommandSpec {
@@ -309,10 +321,15 @@ mod tests {
         assert_eq!(lookup("tab-prev").map(|s| s.id), Some("tab.prev"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
         assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
+        assert_eq!(lookup("copilot").map(|s| s.id), Some("run.copilot"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert_eq!(lookup("/update").map(|s| s.id), Some("app.update"));
         assert_eq!(lookup("play-pause").map(|s| s.id), Some("music.playPause"));
         assert_eq!(lookup("/quota").map(|s| s.id), Some("ui.quota"));
+        assert_eq!(
+            lookup("copy-select").map(|s| s.id),
+            Some("terminal.copyOnSelect")
+        );
         assert!(lookup("nope").is_none());
     }
 }

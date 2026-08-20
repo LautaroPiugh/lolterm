@@ -1265,6 +1265,34 @@ button {
   color: #ffd4d4;
 }
 
+.copied-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: 80;
+  pointer-events: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--pane);
+  border: 1px solid var(--brand);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  animation: copied-in 0.18s ease-out;
+}
+
+@keyframes copied-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .git-branch-bar {
   display: flex;
   align-items: center;
@@ -1473,6 +1501,13 @@ button {
   margin: 0 0 8px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.copy-select-copy {
+  margin: 0 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 .cmd-section-label {

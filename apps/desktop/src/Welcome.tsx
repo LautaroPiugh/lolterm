@@ -24,12 +24,13 @@ const CLI_HINT: Record<string, string> = {
   opencode: "worktree + contexto",
   gemini: "worktree + contexto",
   cline: "worktree + contexto",
+  copilot: "worktree + contexto",
 };
 
 function CliIcon({ name }: { name: string }) {
   if (name === "lazygit") return <GitBranch size={14} />;
   if (name === "yazi") return <FileCode size={14} />;
-  if (["codex", "claude", "opencode", "gemini", "cline"].includes(name)) return <Sparkles size={14} />;
+  if (["codex", "claude", "opencode", "gemini", "cline", "copilot"].includes(name)) return <Sparkles size={14} />;
   return <Terminal size={14} />;
 }
 

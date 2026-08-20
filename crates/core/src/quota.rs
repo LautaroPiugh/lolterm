@@ -8,6 +8,8 @@
 //!   `~/.local/share/opencode/auth.json` (todas las ventanas del JSON).
 //! - ClinePass: `GET …/users/me/plan/usage-limits` con la key de
 //!   `~/.cline/data/settings/providers.json` (todas las ventanas del JSON).
+//! - Copilot CLI: `GET https://api.github.com/copilot_internal/user` con el
+//!   token de `gh auth` (o `GH_TOKEN`). LoLTerm no guarda el token.
 //!
 //! `QuotaBar.percent` es **% usado**, como en Orquester.
 
@@ -40,6 +42,9 @@ static OPENCODE_WORKER: AtomicBool = AtomicBool::new(false);
 static CLINE_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
 static CLINE_ERR: Mutex<Option<String>> = Mutex::new(None);
 static CLINE_WORKER: AtomicBool = AtomicBool::new(false);
+static COPILOT_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
+static COPILOT_ERR: Mutex<Option<String>> = Mutex::new(None);
+static COPILOT_WORKER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct QuotaBar {
@@ -68,6 +73,7 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
     kick_claude_usage();
     kick_opencode_usage();
     kick_cline_usage();
+    kick_copilot_usage();
     let mut out = Vec::new();
     if files::command_on_path("claude") {
         let agent = claude(running);
@@ -89,6 +95,12 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
     }
     if files::command_on_path("cline") {
         let agent = cline(running);
+        if agent.supported || agent.pending || agent.note.is_some() {
+            out.push(agent);
+        }
+    }
+    if files::command_on_path("copilot") {
+        let agent = copilot(running);
         if agent.supported || agent.pending || agent.note.is_some() {
             out.push(agent);
         }
@@ -195,6 +207,35 @@ fn cline(running: &[String]) -> QuotaAgent {
     QuotaAgent {
         id: "cline".into(),
         label: "Cline".into(),
+        available,
+        running,
+        pending,
+        supported: !bars.is_empty(),
+        note,
+        bars,
+    }
+}
+
+fn copilot(running: &[String]) -> QuotaAgent {
+    let available = files::command_on_path("copilot");
+    let running = running_has(running, "copilot");
+    let bars = COPILOT_BARS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_default();
+    let err = COPILOT_ERR.lock().ok().and_then(|g| g.clone());
+    let pending = bars.is_empty() && err.is_none() && available;
+    let note = if !bars.is_empty() {
+        None
+    } else if pending {
+        Some("consultando Copilot…".into())
+    } else {
+        err
+    };
+    QuotaAgent {
+        id: "copilot".into(),
+        label: "Copilot".into(),
         available,
         running,
         pending,
@@ -580,6 +621,38 @@ fn kick_cline_usage() {
     });
 }
 
+fn kick_copilot_usage() {
+    if !files::command_on_path("copilot") {
+        return;
+    }
+    if COPILOT_WORKER
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    thread::spawn(|| {
+        loop {
+            match fetch_copilot_bars() {
+                Ok(bars) => {
+                    if let Ok(mut slot) = COPILOT_BARS.lock() {
+                        *slot = Some(bars);
+                    }
+                    if let Ok(mut err) = COPILOT_ERR.lock() {
+                        *err = None;
+                    }
+                }
+                Err(msg) => {
+                    if let Ok(mut err) = COPILOT_ERR.lock() {
+                        *err = Some(msg);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(20));
+        }
+    });
+}
+
 fn claude_bars() -> Vec<QuotaBar> {
     if let Some(bars) = CLAUDE_USAGE.lock().ok().and_then(|g| g.clone())
         && !bars.is_empty()
@@ -902,6 +975,55 @@ fn fetch_cline_bars() -> Result<Vec<QuotaBar>, String> {
     }
 }
 
+fn fetch_copilot_bars() -> Result<Vec<QuotaBar>, String> {
+    let token = github_token().ok_or_else(|| {
+        "Copilot: hace falta `gh auth login` (o GH_TOKEN) para leer la cuota.".to_string()
+    })?;
+    let (status, value) = github_get("https://api.github.com/copilot_internal/user", &token)?;
+    if status == 401 || status == 403 {
+        return Err("Copilot: hay que volver a autenticar (`gh auth login`).".into());
+    }
+    if status == 404 {
+        return Err("Copilot: la API no devolvió cuota (¿sin plan activo?).".into());
+    }
+    if !(200..300).contains(&status) {
+        return Err(format!("Copilot devolvió HTTP {status}"));
+    }
+    let bars = parse_copilot_user(&value);
+    if bars.is_empty() {
+        Err("Copilot no devolvió ventanas de cuota.".into())
+    } else {
+        Ok(bars)
+    }
+}
+
+fn github_token() -> Option<String> {
+    for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
+        if let Ok(value) = std::env::var(name) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    let gh = files::resolve_command("gh")?;
+    let mut cmd = Command::new(gh);
+    if let Some(path) = files::effective_path() {
+        cmd.env("PATH", path);
+    }
+    let output = cmd
+        .args(["auth", "token"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!token.is_empty()).then_some(token)
+}
+
 fn opencode_api_key() -> Option<String> {
     for name in ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"] {
         if let Ok(value) = std::env::var(name) {
@@ -1057,9 +1179,25 @@ fn is_cline_provider(name: &str) -> bool {
 }
 
 fn bearer_get(url: &str, token: &str) -> Result<(u16, Value), String> {
+    curl_json(
+        url,
+        &format!("Authorization: Bearer {token}\nAccept: application/json\n"),
+    )
+}
+
+fn github_get(url: &str, token: &str) -> Result<(u16, Value), String> {
+    curl_json(
+        url,
+        &format!(
+            "Authorization: Bearer {token}\nAccept: application/vnd.github+json\nX-GitHub-Api-Version: 2025-05-01\nUser-Agent: LoLTerm\n"
+        ),
+    )
+}
+
+fn curl_json(url: &str, headers: &str) -> Result<(u16, Value), String> {
     let curl = files::resolve_command("curl")
         .ok_or_else(|| "hace falta `curl` para leer la cuota".to_string())?;
-    let header = write_auth_header(token)?;
+    let header = write_request_headers(headers)?;
     let _guard = TempPath(header.clone());
     let mut cmd = Command::new(curl);
     if let Some(path) = files::effective_path() {
@@ -1098,7 +1236,7 @@ impl Drop for TempPath {
     }
 }
 
-fn write_auth_header(token: &str) -> Result<PathBuf, String> {
+fn write_request_headers(headers: &str) -> Result<PathBuf, String> {
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
@@ -1110,11 +1248,8 @@ fn write_auth_header(token: &str) -> Result<PathBuf, String> {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    fs::write(
-        &path,
-        format!("Authorization: Bearer {token}\nAccept: application/json\n"),
-    )
-    .map_err(|err| format!("no pude escribir el header temporal: {err}"))?;
+    fs::write(&path, headers)
+        .map_err(|err| format!("no pude escribir el header temporal: {err}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1137,6 +1272,83 @@ fn split_curl_status(text: &str) -> Result<(&str, u16), String> {
 pub fn parse_opencode_usage(root: &Value) -> Vec<QuotaBar> {
     let usage = root.get("usage").unwrap_or(root);
     parse_named_windows(usage)
+}
+
+pub fn parse_copilot_user(root: &Value) -> Vec<QuotaBar> {
+    let reset = root
+        .get("quota_reset_date")
+        .or_else(|| root.get("quota_reset_date_utc"))
+        .and_then(Value::as_str)
+        .map(short_reset);
+    let Some(snaps) = root.get("quota_snapshots").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let preferred = [
+        "premium_interactions",
+        "chat",
+        "completions",
+        "session",
+        "weekly",
+    ];
+    let mut bars = Vec::new();
+    let mut seen = Vec::new();
+    for key in preferred {
+        if let Some(child) = snaps.get(key)
+            && let Some(bar) = bar_from_copilot_snapshot(key, child, reset.as_deref())
+        {
+            seen.push(key.to_string());
+            bars.push(bar);
+        }
+    }
+    for (key, child) in snaps {
+        if seen.iter().any(|seen| seen == key) {
+            continue;
+        }
+        if let Some(bar) = bar_from_copilot_snapshot(key, child, reset.as_deref()) {
+            bars.push(bar);
+        }
+    }
+    bars
+}
+
+fn bar_from_copilot_snapshot(key: &str, value: &Value, reset: Option<&str>) -> Option<QuotaBar> {
+    let map = value.as_object()?;
+    if map.get("unlimited").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let left = map.get("percent_remaining").and_then(Value::as_f64);
+    let entitlement = map.get("entitlement").and_then(Value::as_f64);
+    let remaining = map
+        .get("remaining")
+        .or_else(|| map.get("quota_remaining"))
+        .and_then(Value::as_f64);
+    let used = if let Some(left) = left {
+        as_points((100.0 - left).clamp(0.0, 100.0))
+    } else if let (Some(ent), Some(rem)) = (entitlement, remaining) {
+        if ent <= 0.0 {
+            return None;
+        }
+        as_points(((ent - rem) / ent * 100.0).clamp(0.0, 100.0))
+    } else {
+        return None;
+    };
+    Some(QuotaBar {
+        key: key.into(),
+        label: copilot_snapshot_label(key),
+        percent: used,
+        reset: reset.map(str::to_string),
+    })
+}
+
+fn copilot_snapshot_label(key: &str) -> String {
+    match key.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "premium_interactions" => "Premium requests".into(),
+        "chat" => "Chat".into(),
+        "completions" => "Completions".into(),
+        "session" | "interactive_session" => "Session".into(),
+        "weekly" | "seven_day" => "Weekly".into(),
+        other => window_label(other),
+    }
 }
 
 pub fn parse_cline_usage_limits(root: &Value) -> Vec<QuotaBar> {
@@ -1441,6 +1653,40 @@ Current week (all models): 40% used · Resets Aug 24
         assert_eq!(bars[1].label, "Weekly limit");
         assert_eq!(bars[2].label, "Monthly limit");
         assert_eq!(bars[3].label, "Burst limit");
+    }
+
+    #[test]
+    fn parse_copilot_premium_as_used_skips_unlimited() {
+        let root = json!({
+            "copilot_plan": "individual",
+            "quota_reset_date": "2026-09-01T00:00:00Z",
+            "quota_snapshots": {
+                "premium_interactions": {
+                    "entitlement": 300,
+                    "percent_remaining": 41.3,
+                    "remaining": 124
+                },
+                "completions": { "unlimited": true, "percent_remaining": 100 }
+            }
+        });
+        let bars = parse_copilot_user(&root);
+        assert_eq!(bars.len(), 1);
+        assert_eq!(bars[0].key, "premium_interactions");
+        assert_eq!(bars[0].label, "Premium requests");
+        assert_eq!(bars[0].percent, 59);
+        assert!(bars[0].reset.as_deref().unwrap().contains("reset"));
+        assert!(!serde_json::to_string(&bars).unwrap().contains("gho_"));
+    }
+
+    #[test]
+    fn parse_copilot_from_remaining_over_entitlement() {
+        let root = json!({
+            "quota_snapshots": {
+                "premium_interactions": { "entitlement": 50, "remaining": 10 }
+            }
+        });
+        let bars = parse_copilot_user(&root);
+        assert_eq!(bars[0].percent, 80);
     }
 
     #[test]

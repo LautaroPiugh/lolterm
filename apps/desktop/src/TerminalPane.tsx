@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { bindingFor } from "./chords";
+import { maybeCopySelection, writeClipboard } from "./copyOnSelect";
 import { parseTheme, type ThemeId, xtermTheme } from "./themes";
 import { b64decode, b64encode } from "./types";
 
@@ -83,15 +84,7 @@ export function retainPanes(live: Iterable<number>) {
 }
 
 async function copySelection(term: Terminal) {
-  const text = term.getSelection();
-  if (!text) return;
-  await window.lolterm.clipboard.write(text);
-}
-
-async function pasteInto(term: Terminal) {
-  const text = await window.lolterm.clipboard.read();
-  if (!text) return;
-  term.paste(text);
+  await writeClipboard(term.getSelection());
 }
 
 function utf8ToB64(text: string): string {
@@ -123,6 +116,22 @@ function wireOsc52(term: Terminal) {
 }
 
 function wireClipboard(term: Terminal, host: HTMLElement) {
+  let selTimer = 0;
+  let lastCopied = "";
+  const scheduleCopyOnSelect = () => {
+    window.clearTimeout(selTimer);
+    selTimer = window.setTimeout(() => {
+      const text = term.getSelection();
+      if (!text) {
+        lastCopied = "";
+        return;
+      }
+      if (text === lastCopied) return;
+      lastCopied = text;
+      maybeCopySelection(text);
+    }, 80);
+  };
+
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== "keydown") return true;
     if (bindingFor(ev)) return false;
@@ -132,19 +141,44 @@ function wireClipboard(term: Terminal, host: HTMLElement) {
       return false;
     }
     if (chord && ev.shiftKey && ev.code === "KeyV") {
-      void pasteInto(term);
+      // El evento `paste` del DOM pega una sola vez. Si también llamamos
+      // term.paste() acá, el texto entra duplicado al PTY.
+      return false;
+    }
+    if (chord && ev.shiftKey && ev.code === "KeyA") {
+      term.selectAll();
+      maybeCopySelection(term.getSelection());
       return false;
     }
     return true;
   });
-  host.addEventListener("auxclick", (ev) => {
-    if (ev.button !== 1) return;
+
+  host.addEventListener(
+    "paste",
+    (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const text = ev.clipboardData?.getData("text/plain") ?? "";
+      if (text) {
+        term.paste(text);
+        return;
+      }
+      void window.lolterm.clipboard.read().then((clip) => {
+        if (clip) term.paste(clip);
+      });
+    },
+    true,
+  );
+
+  host.addEventListener("copy", (ev) => {
+    const text = term.getSelection();
+    if (!text) return;
     ev.preventDefault();
-    void pasteInto(term);
+    ev.clipboardData?.setData("text/plain", text);
+    void writeClipboard(text);
   });
-  host.addEventListener("mouseup", () => {
-    if (term.hasSelection()) void copySelection(term);
-  });
+
+  term.onSelectionChange(scheduleCopyOnSelect);
 }
 
 function isAltScreen(term: Terminal): boolean {

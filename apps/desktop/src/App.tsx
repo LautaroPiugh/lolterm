@@ -34,6 +34,15 @@ import { MediaDock, QuotaButton } from "./Hud";
 import { applyDocumentTheme, isBuiltinTheme, swatchGradient, THEMES } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
+import {
+  copyOnSelectEnabled,
+  dismissCopyOnSelectPrompt,
+  setCopyOnSelect,
+  subscribeCopied,
+  subscribeCopyOnSelectAsk,
+  takePendingCopy,
+  writeClipboard,
+} from "./copyOnSelect";
 import type { CommandHit, HostItem, Hud, Peer, Snapshot, TabSnap, TreeRow } from "./types";
 
 type Activity = "home" | "files" | "git" | "run" | "remote";
@@ -45,6 +54,7 @@ type Modal =
   | { kind: "ts"; user: string; selected: number }
   | { kind: "theme" }
   | { kind: "commands" }
+  | { kind: "copyOnSelect" }
   | null;
 
 type IconFn = ComponentType<{ size?: number; color?: string }>;
@@ -74,7 +84,7 @@ function tabIcon(tab: TabSnap): IconFn {
   if (tabRemote(tab)) return Cloud;
   const key = `${tab.name} ${tab.panes[0]?.program ?? ""}`.toLowerCase();
   if (key.includes("nvim") || key.includes("vim")) return FileCode;
-  if (key.includes("claude") || key.includes("codex") || key.includes("opencode") || key.includes("cline")) return Sparkles;
+  if (key.includes("claude") || key.includes("codex") || key.includes("opencode") || key.includes("cline") || key.includes("copilot") || key.includes("gemini")) return Sparkles;
   if (key.includes("lazygit") || key.includes("git")) return GitBranch;
   if (key.includes("ssh")) return Server;
   return Terminal;
@@ -156,6 +166,7 @@ export default function App() {
   const [cmds, setCmds] = useState<CommandHit[]>([]);
   const [bootErr, setBootErr] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [copiedFlash, setCopiedFlash] = useState(0);
   const [update, setUpdate] = useState<
     | null
     | { kind: "available"; latest: string }
@@ -199,6 +210,15 @@ export default function App() {
     },
     [apply],
   );
+
+  const chooseCopyOnSelect = useCallback((on: boolean) => {
+    setCopyOnSelect(on);
+    const pending = takePendingCopy();
+    if (on && pending) void writeClipboard(pending);
+    setModal(null);
+    setBanner(on ? "copiar al seleccionar: sí" : "copiar al seleccionar: no");
+    window.setTimeout(() => setBanner(null), 2500);
+  }, []);
 
   const musicAction = useCallback((action: string, volume?: number) => {
     hudHoldUntil.current = Date.now() + 900;
@@ -271,6 +291,10 @@ export default function App() {
       }
       if (key === "ui.theme" || key === "theme") {
         setModal({ kind: "theme" });
+        return;
+      }
+      if (key === "terminal.copyOnSelect" || key === "copy-select") {
+        setModal({ kind: "copyOnSelect" });
         return;
       }
       if (key === "ui.tabRename" || key === "tab-rename") {
@@ -472,6 +496,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (modal?.kind === "commands") return;
+        if (modal?.kind === "copyOnSelect") dismissCopyOnSelectPrompt();
         setModal(null);
         setRenaming(null);
         setRenameWs(false);
@@ -534,6 +559,23 @@ export default function App() {
     const timer = window.setTimeout(() => setBanner(null), 3000);
     return () => window.clearTimeout(timer);
   }, [snap?.notice]);
+
+  useEffect(() => {
+    return subscribeCopyOnSelectAsk(() => setModal({ kind: "copyOnSelect" }));
+  }, []);
+
+  useEffect(() => {
+    let timer = 0;
+    const off = subscribeCopied(() => {
+      setCopiedFlash((n) => n + 1);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setCopiedFlash(0), 1400);
+    });
+    return () => {
+      off();
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (snap?.ssh_user) setSshUser((prev) => prev || snap.ssh_user || "");
@@ -1452,6 +1494,11 @@ export default function App() {
         <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
+      {copiedFlash > 0 && (
+        <div className="copied-toast" key={copiedFlash} role="status">
+          Copiado!
+        </div>
+      )}
 
       {modal?.kind === "palette" && (
         <div className="modal" onClick={() => setModal(null)}>
@@ -1514,6 +1561,32 @@ export default function App() {
                 void call("setTheme", { theme: id });
               }}
             />
+          </div>
+        </div>
+      )}
+      {modal?.kind === "copyOnSelect" && (
+        <div
+          className="modal"
+          onClick={() => {
+            dismissCopyOnSelectPrompt();
+            setModal(null);
+          }}
+        >
+          <div className="card" onClick={(e) => e.stopPropagation()}>
+            <h2>copiar al seleccionar</h2>
+            <p className="copy-select-copy">
+              {copyOnSelectEnabled() === true
+                ? "Ya está activo: al marcar texto se copia al portapapeles."
+                : copyOnSelectEnabled() === false
+                  ? "Está desactivado. Ctrl+Shift+C sigue copiando la selección."
+                  : "¿Activar copiar al seleccionar? Al marcar texto en la terminal se copia al portapapeles."}
+            </p>
+            <button type="button" className="row" onClick={() => chooseCopyOnSelect(true)}>
+              sí, copiar al seleccionar
+            </button>
+            <button type="button" className="row" onClick={() => chooseCopyOnSelect(false)}>
+              no, sólo con Ctrl+Shift+C
+            </button>
           </div>
         </div>
       )}

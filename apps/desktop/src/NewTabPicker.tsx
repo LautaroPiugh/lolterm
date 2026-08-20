@@ -1,7 +1,7 @@
 import { Cloud, GitBranch, Server, Sparkles, Terminal } from "./icons";
 import type { Snapshot } from "./types";
 
-const AGENTS = new Set(["codex", "claude", "opencode", "gemini", "cline"]);
+const AGENTS = new Set(["codex", "claude", "opencode", "gemini", "cline", "copilot"]);
 
 const HINT: Record<string, string> = {
   shell: "shell del workspace",
@@ -16,6 +16,7 @@ const HINT: Record<string, string> = {
   opencode: "worktree + contexto",
   gemini: "worktree + contexto",
   cline: "worktree + contexto",
+  copilot: "worktree + contexto",
 };
 
 type Row = { kind: string; label: string; available: boolean };

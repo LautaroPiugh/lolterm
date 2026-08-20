@@ -18,7 +18,7 @@ use crate::session::{self, SavedTab, SavedWorkspace, Session};
 use crate::ssh;
 
 pub const RUN_CLIS: &[&str] = &[
-    "nvim", "lazygit", "btop", "yazi", "codex", "claude", "opencode", "gemini", "cline",
+    "nvim", "lazygit", "btop", "yazi", "codex", "claude", "opencode", "gemini", "cline", "copilot",
 ];
 
 #[derive(Serialize)]
@@ -1977,6 +1977,7 @@ fn wants_own_tab(program: &str) -> bool {
             | "codex"
             | "gemini"
             | "cline"
+            | "copilot"
     )
 }
 
@@ -2080,6 +2081,7 @@ mod tests {
     fn new_tab_kind_accepts_catalog_and_rejects_paths() {
         assert_eq!(sanitize_new_tab("Terminal"), "shell");
         assert_eq!(sanitize_new_tab("nvim"), "nvim");
+        assert_eq!(sanitize_new_tab("copilot"), "copilot");
         assert_eq!(sanitize_new_tab("ts"), "tailscale");
         assert_eq!(sanitize_new_tab("/bin/bash"), "shell");
         assert_eq!(sanitize_new_tab("rm"), "shell");
