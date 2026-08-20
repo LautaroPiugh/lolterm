@@ -177,7 +177,7 @@ impl Mux {
             theme: if crate::ext::theme_known(&cfg.theme) {
                 cfg.theme
             } else {
-                "sage".into()
+                "claro".into()
             },
             new_tab: sanitize_new_tab(&cfg.new_tab),
             agent_worktrees: cfg.agent_worktrees,

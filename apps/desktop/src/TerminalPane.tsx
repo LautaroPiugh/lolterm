@@ -13,8 +13,8 @@ type Cached = {
 const cache = new Map<number, Cached>();
 const backlog = new Map<number, string[]>();
 const BACKLOG_CHARS = 1_500_000;
-let currentTheme: ThemeId = "sage";
-let lastXterm = xtermTheme("sage");
+let currentTheme: ThemeId = "claro";
+let lastXterm = xtermTheme("claro");
 let lastTitles = new Map<number, string>();
 let reportPaneTitle: ((pane: number, title: string) => void) | undefined;
 

@@ -210,7 +210,7 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "ui.theme",
         slash: "theme",
-        hint: "matcha, slate, warm… (claro/oscuro) o un tema de ~/.config/lolterm/themes",
+        hint: "claro, oscuro, tide, ember o un tema de ~/.config/lolterm/themes",
         kind: CommandKind::Ui,
     },
     CommandSpec {

@@ -4,26 +4,29 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
     #[default]
-    Sage,
-    Dusk,
-    Mono,
+    Claro,
+    Oscuro,
+    Tide,
+    Ember,
 }
 
 impl Theme {
     pub fn parse(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
-            "sage" => Some(Self::Sage),
-            "dusk" => Some(Self::Dusk),
-            "mono" => Some(Self::Mono),
+            "claro" => Some(Self::Claro),
+            "oscuro" => Some(Self::Oscuro),
+            "tide" => Some(Self::Tide),
+            "ember" => Some(Self::Ember),
             _ => None,
         }
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Sage => "sage",
-            Self::Dusk => "dusk",
-            Self::Mono => "mono",
+            Self::Claro => "claro",
+            Self::Oscuro => "oscuro",
+            Self::Tide => "tide",
+            Self::Ember => "ember",
         }
     }
 }
@@ -148,7 +151,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            theme: "sage".into(),
+            theme: "claro".into(),
             remote: RemoteConfig::default(),
             machines: Vec::new(),
             new_tab: "shell".into(),
@@ -171,7 +174,7 @@ pub fn load() -> AppConfig {
             .as_deref()
             .map(str::trim)
             .filter(|name| !name.is_empty())
-            .unwrap_or("sage")
+            .unwrap_or("claro")
             .to_ascii_lowercase(),
         remote: RemoteConfig {
             user: parsed.remote.user.filter(|user| !user.is_empty()),
@@ -372,11 +375,11 @@ mod tests {
 
     #[test]
     fn parses_known_themes() {
-        assert_eq!(Theme::parse("Sage"), Some(Theme::Sage));
-        assert_eq!(Theme::parse("dusk"), Some(Theme::Dusk));
-        assert_eq!(Theme::parse("MONO"), Some(Theme::Mono));
+        assert_eq!(Theme::parse("Claro"), Some(Theme::Claro));
+        assert_eq!(Theme::parse("oscuro"), Some(Theme::Oscuro));
+        assert_eq!(Theme::parse("TIDE"), Some(Theme::Tide));
         assert_eq!(Theme::parse("solarized"), None);
-        assert_eq!(Theme::Sage.as_str(), "sage");
+        assert_eq!(Theme::Claro.as_str(), "claro");
     }
 
     #[test]
