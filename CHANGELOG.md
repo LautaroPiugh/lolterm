@@ -2,6 +2,18 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.10.0](https://github.com/LautaroPiugh/lolterm/compare/v0.9.0...v0.10.0) (2026-08-20)
+
+
+### Features
+
+* add Orquester-style quota, media chip, and palettes ([66c661e](https://github.com/LautaroPiugh/lolterm/commit/66c661e9075499fe422c5b80809a595d3aaa4460))
+* **desktop:** add Ubuntu .deb updates and prepare a public repo ([184c292](https://github.com/LautaroPiugh/lolterm/commit/184c292a8fa9b81a0749ded7b87020e6328a5fe2))
+* **quota:** show OpenCode Go and ClinePass subscription windows ([11c3ac5](https://github.com/LautaroPiugh/lolterm/commit/11c3ac55f0c251677456a188aa63eacbe90e2eef))
+* **ssh:** keep sessions alive and read Include from ssh config ([db8202f](https://github.com/LautaroPiugh/lolterm/commit/db8202f0dfc3c3aaa2829755ea9bc126d6dfe1b7))
+* **ssh:** reconnect once and restore keepalives; remember window size ([cd76c16](https://github.com/LautaroPiugh/lolterm/commit/cd76c16975397aa1e54cd3c331c7c79af5f94e90))
+* **ui:** replace paired palettes with four independent themes ([81f59e3](https://github.com/LautaroPiugh/lolterm/commit/81f59e3d8f867198c1f55aad766d4493e66fae28))
+
 ## [Unreleased]
 
 ### Features
