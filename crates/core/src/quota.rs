@@ -1,9 +1,13 @@
 //! Cuotas de agentes (criterio Orquester: solo instalados con ventanas reales).
 //!
-//! LoLTerm **no** guarda tokens ni pega a api.openai.com / api.anthropic.com.
+//! LoLTerm **no** guarda tokens ni pega a APIs con credenciales propias.
+//! Usa la sesión que ya dejó cada CLI en el disco del usuario:
 //! - Claude Code: `claude --print /usage`, con fallback a `~/.claude.json`.
 //! - Codex / ChatGPT+: `codex app-server --listen stdio://` + `account/rateLimits/read`.
-//! - OpenCode: sólo si hay export de opencode-quota (OpenCode no tiene cuota Plus).
+//! - OpenCode Go: `GET https://opencode.ai/zen/go/v1/usage` con la key de
+//!   `~/.local/share/opencode/auth.json` (todas las ventanas del JSON).
+//! - ClinePass: `GET …/users/me/plan/usage-limits` con la key de
+//!   `~/.cline/data/settings/providers.json` (todas las ventanas del JSON).
 //!
 //! `QuotaBar.percent` es **% usado**, como en Orquester.
 
@@ -30,6 +34,12 @@ static CODEX_CLIENT: Mutex<Option<CodexClient>> = Mutex::new(None);
 static CLAUDE_USAGE: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
 static CLAUDE_WORKER: AtomicBool = AtomicBool::new(false);
 static CLAUDE_TRIED: AtomicBool = AtomicBool::new(false);
+static OPENCODE_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
+static OPENCODE_ERR: Mutex<Option<String>> = Mutex::new(None);
+static OPENCODE_WORKER: AtomicBool = AtomicBool::new(false);
+static CLINE_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
+static CLINE_ERR: Mutex<Option<String>> = Mutex::new(None);
+static CLINE_WORKER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct QuotaBar {
@@ -56,6 +66,8 @@ pub struct QuotaAgent {
 pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
     kick_codex_refresh();
     kick_claude_usage();
+    kick_opencode_usage();
+    kick_cline_usage();
     let mut out = Vec::new();
     if files::command_on_path("claude") {
         let agent = claude(running);
@@ -71,7 +83,13 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
     }
     if files::command_on_path("opencode") {
         let agent = opencode(running);
-        if agent.supported {
+        if agent.supported || agent.pending || agent.note.is_some() {
+            out.push(agent);
+        }
+    }
+    if files::command_on_path("cline") {
+        let agent = cline(running);
+        if agent.supported || agent.pending || agent.note.is_some() {
             out.push(agent);
         }
     }
@@ -131,15 +149,57 @@ fn codex(running: &[String]) -> QuotaAgent {
 fn opencode(running: &[String]) -> QuotaAgent {
     let available = files::command_on_path("opencode");
     let running = running_has(running, "opencode");
-    let bars = read_opencode_export();
+    let bars = OPENCODE_BARS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(read_opencode_export);
+    let err = OPENCODE_ERR.lock().ok().and_then(|g| g.clone());
+    let pending = bars.is_empty() && err.is_none() && available;
+    let note = if !bars.is_empty() {
+        None
+    } else if pending {
+        Some("consultando OpenCode Go…".into())
+    } else {
+        err
+    };
     QuotaAgent {
         id: "opencode".into(),
         label: "OpenCode".into(),
         available,
         running,
-        pending: false,
+        pending,
         supported: !bars.is_empty(),
-        note: None,
+        note,
+        bars,
+    }
+}
+
+fn cline(running: &[String]) -> QuotaAgent {
+    let available = files::command_on_path("cline");
+    let running = running_has(running, "cline");
+    let bars = CLINE_BARS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_default();
+    let err = CLINE_ERR.lock().ok().and_then(|g| g.clone());
+    let pending = bars.is_empty() && err.is_none() && available;
+    let note = if !bars.is_empty() {
+        None
+    } else if pending {
+        Some("consultando ClinePass…".into())
+    } else {
+        err
+    };
+    QuotaAgent {
+        id: "cline".into(),
+        label: "Cline".into(),
+        available,
+        running,
+        pending,
+        supported: !bars.is_empty(),
+        note,
         bars,
     }
 }
@@ -372,13 +432,27 @@ pub fn parse_codex_bars(root: &Value) -> Vec<QuotaBar> {
         .or_else(|| root.pointer("/result/rate_limits"))
         .unwrap_or(root);
     let mut bars = Vec::new();
-    push_codex_window(&mut bars, limits.get("primary"), "primary", "Primary limit");
-    push_codex_window(
-        &mut bars,
-        limits.get("secondary"),
-        "secondary",
-        "Secondary limit",
-    );
+    let mut seen = Vec::new();
+    for (key, fallback) in [
+        ("primary", "Primary limit"),
+        ("secondary", "Secondary limit"),
+    ] {
+        push_codex_window(&mut bars, limits.get(key), key, fallback);
+        if limits.get(key).is_some() {
+            seen.push(key);
+        }
+    }
+    if let Some(map) = limits.as_object() {
+        for (key, value) in map {
+            if seen.contains(&key.as_str()) {
+                continue;
+            }
+            if !value.is_object() {
+                continue;
+            }
+            push_codex_window(&mut bars, Some(value), key, &window_label(key));
+        }
+    }
     bars
 }
 
@@ -438,6 +512,70 @@ fn kick_claude_usage() {
             }
             CLAUDE_TRIED.store(true, Ordering::SeqCst);
             thread::sleep(Duration::from_secs(30));
+        }
+    });
+}
+
+fn kick_opencode_usage() {
+    if !files::command_on_path("opencode") {
+        return;
+    }
+    if OPENCODE_WORKER
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    thread::spawn(|| {
+        loop {
+            match fetch_opencode_bars() {
+                Ok(bars) => {
+                    if let Ok(mut slot) = OPENCODE_BARS.lock() {
+                        *slot = Some(bars);
+                    }
+                    if let Ok(mut err) = OPENCODE_ERR.lock() {
+                        *err = None;
+                    }
+                }
+                Err(msg) => {
+                    if let Ok(mut err) = OPENCODE_ERR.lock() {
+                        *err = Some(msg);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(20));
+        }
+    });
+}
+
+fn kick_cline_usage() {
+    if !files::command_on_path("cline") {
+        return;
+    }
+    if CLINE_WORKER
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    thread::spawn(|| {
+        loop {
+            match fetch_cline_bars() {
+                Ok(bars) => {
+                    if let Ok(mut slot) = CLINE_BARS.lock() {
+                        *slot = Some(bars);
+                    }
+                    if let Ok(mut err) = CLINE_ERR.lock() {
+                        *err = None;
+                    }
+                }
+                Err(msg) => {
+                    if let Ok(mut err) = CLINE_ERR.lock() {
+                        *err = Some(msg);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(20));
         }
     });
 }
@@ -700,6 +838,416 @@ pub fn parse_opencode_export(root: &Value) -> Vec<QuotaBar> {
     bars
 }
 
+fn fetch_opencode_bars() -> Result<Vec<QuotaBar>, String> {
+    if let Some(key) = opencode_api_key() {
+        match bearer_get("https://opencode.ai/zen/go/v1/usage", &key) {
+            Ok((status, value)) if (200..300).contains(&status) => {
+                let bars = parse_opencode_usage(&value);
+                if !bars.is_empty() {
+                    return Ok(bars);
+                }
+            }
+            Ok((401, _)) => {
+                return Err("OpenCode Go: key inválida. En el pane: /connect.".into());
+            }
+            Ok((403, _)) => {
+                return Err("OpenCode: la key no tiene suscripción Go.".into());
+            }
+            Ok((status, _)) => {
+                return Err(format!("OpenCode Go devolvió HTTP {status}"));
+            }
+            Err(err) => {
+                let export = read_opencode_export();
+                if !export.is_empty() {
+                    return Ok(export);
+                }
+                return Err(err);
+            }
+        }
+    }
+    let export = read_opencode_export();
+    if !export.is_empty() {
+        return Ok(export);
+    }
+    if opencode_api_key().is_none() {
+        Err(
+            "OpenCode Go: no hay key en ~/.local/share/opencode/auth.json. En el pane: /connect."
+                .into(),
+        )
+    } else {
+        Err("OpenCode Go no devolvió ventanas de cuota.".into())
+    }
+}
+
+fn fetch_cline_bars() -> Result<Vec<QuotaBar>, String> {
+    let key = cline_api_key().ok_or_else(|| {
+        "Cline: no hay key en ~/.cline/data/settings/providers.json. En el pane: cline auth."
+            .to_string()
+    })?;
+    let (status, value) = bearer_get(
+        "https://api.cline.bot/api/v1/users/me/plan/usage-limits",
+        &key,
+    )?;
+    if status == 401 || status == 403 {
+        return Err("Cline: hay que volver a autenticar (cline auth).".into());
+    }
+    if !(200..300).contains(&status) {
+        return Err(format!("ClinePass devolvió HTTP {status}"));
+    }
+    let bars = parse_cline_usage_limits(&value);
+    if bars.is_empty() {
+        Err("ClinePass no devolvió ventanas (¿sin suscripción?).".into())
+    } else {
+        Ok(bars)
+    }
+}
+
+fn opencode_api_key() -> Option<String> {
+    for name in ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"] {
+        if let Ok(value) = std::env::var(name) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    for path in opencode_auth_paths() {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if let Some(key) = opencode_key_from_value(&value) {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn opencode_auth_paths() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        out.push(PathBuf::from(xdg).join("opencode/auth.json"));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        out.push(home.join(".local/share/opencode/auth.json"));
+        out.push(home.join(".opencode/auth.json"));
+    }
+    out
+}
+
+pub fn opencode_key_from_value(root: &Value) -> Option<String> {
+    let map = root.as_object()?;
+    for id in ["opencode-go", "opencode", "zen"] {
+        if let Some(key) = api_key_in(map.get(id)?) {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn api_key_in(value: &Value) -> Option<String> {
+    let map = value.as_object()?;
+    let kind = map
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("api")
+        .to_ascii_lowercase();
+    if kind != "api" {
+        return None;
+    }
+    map.get("key")
+        .or_else(|| map.get("access"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+}
+
+fn cline_api_key() -> Option<String> {
+    for name in ["CLINE_API_KEY", "CLINEPASS_API_KEY"] {
+        if let Ok(value) = std::env::var(name) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    for path in cline_provider_paths() {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if let Some(key) = cline_key_from_value(&value) {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn cline_provider_paths() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        out.push(home.join(".cline/data/settings/providers.json"));
+        out.push(home.join(".cline/data/providers.json"));
+    }
+    out
+}
+
+pub fn cline_key_from_value(root: &Value) -> Option<String> {
+    let mut found = None;
+    walk_cline_key(root, "", &mut found);
+    found
+}
+
+fn walk_cline_key(value: &Value, parent: &str, found: &mut Option<String>) {
+    if found.is_some() {
+        return;
+    }
+    match value {
+        Value::Object(map) => {
+            let provider = map
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or(parent);
+            if is_cline_provider(provider) || is_cline_provider(parent) {
+                if let Some(key) = map
+                    .get("apiKey")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|key| !key.is_empty())
+                {
+                    *found = Some(key.to_string());
+                    return;
+                }
+                if let Some(key) = map
+                    .get("auth")
+                    .and_then(|auth| auth.get("accessToken"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|key| !key.is_empty())
+                {
+                    *found = Some(key.to_string());
+                    return;
+                }
+            }
+            for (key, child) in map {
+                walk_cline_key(child, key, found);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                walk_cline_key(item, parent, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_cline_provider(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "cline" | "clinepass" | "cline-pass" | "cline_pass"
+    )
+}
+
+fn bearer_get(url: &str, token: &str) -> Result<(u16, Value), String> {
+    let curl = files::resolve_command("curl")
+        .ok_or_else(|| "hace falta `curl` para leer la cuota".to_string())?;
+    let header = write_auth_header(token)?;
+    let _guard = TempPath(header.clone());
+    let mut cmd = Command::new(curl);
+    if let Some(path) = files::effective_path() {
+        cmd.env("PATH", path);
+    }
+    cmd.args([
+        "-sS",
+        "--max-time",
+        "10",
+        "-H",
+        &format!("@{}", header.display()),
+        "-w",
+        "\n%{http_code}",
+        url,
+    ])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null());
+    let output = cmd
+        .output()
+        .map_err(|err| format!("no arrancó curl: {err}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (body, status) = split_curl_status(&text)?;
+    let value = if body.trim().is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(body).unwrap_or(Value::Null)
+    };
+    Ok((status, value))
+}
+
+struct TempPath(PathBuf);
+
+impl Drop for TempPath {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn write_auth_header(token: &str) -> Result<PathBuf, String> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let path = dir.join(format!(
+        "lolterm-quota-{}-{}.hdr",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::write(
+        &path,
+        format!("Authorization: Bearer {token}\nAccept: application/json\n"),
+    )
+    .map_err(|err| format!("no pude escribir el header temporal: {err}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(path)
+}
+
+fn split_curl_status(text: &str) -> Result<(&str, u16), String> {
+    let text = text.trim_end();
+    let Some(idx) = text.rfind('\n') else {
+        let status = text.parse::<u16>().unwrap_or(0);
+        return Ok(("", status));
+    };
+    let (body, status) = text.split_at(idx);
+    let status = status.trim().parse::<u16>().unwrap_or(0);
+    Ok((body, status))
+}
+
+pub fn parse_opencode_usage(root: &Value) -> Vec<QuotaBar> {
+    let usage = root.get("usage").unwrap_or(root);
+    parse_named_windows(usage)
+}
+
+pub fn parse_cline_usage_limits(root: &Value) -> Vec<QuotaBar> {
+    let data = unwrap_envelope(root);
+    if let Some(items) = data
+        .get("limits")
+        .and_then(Value::as_array)
+        .or_else(|| data.as_array())
+    {
+        return items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| bar_from_limit_item(item, idx))
+            .collect();
+    }
+    parse_named_windows(data)
+}
+
+fn unwrap_envelope(root: &Value) -> &Value {
+    root.get("data").unwrap_or(root)
+}
+
+fn parse_named_windows(value: &Value) -> Vec<QuotaBar> {
+    let Some(map) = value.as_object() else {
+        return Vec::new();
+    };
+    let mut bars = Vec::new();
+    let preferred = ["rolling", "rolling5h", "five_hour", "weekly", "monthly"];
+    let mut seen = Vec::new();
+    for key in preferred {
+        if let Some(child) = map.get(key)
+            && let Some(bar) = bar_from_window(key, child)
+        {
+            seen.push(key.to_string());
+            bars.push(bar);
+        }
+    }
+    for (key, child) in map {
+        if seen.contains(key) {
+            continue;
+        }
+        if let Some(bar) = bar_from_window(key, child) {
+            bars.push(bar);
+        }
+    }
+    bars
+}
+
+fn bar_from_limit_item(value: &Value, idx: usize) -> Option<QuotaBar> {
+    let map = value.as_object()?;
+    let kind = map
+        .get("type")
+        .or_else(|| map.get("window"))
+        .or_else(|| map.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("limit");
+    let used = used_in_map(map)?;
+    Some(QuotaBar {
+        key: format!("{kind}-{idx}"),
+        label: window_label(kind),
+        percent: used,
+        reset: map
+            .get("resetsAt")
+            .or_else(|| map.get("resets_at"))
+            .or_else(|| map.get("resetAt"))
+            .and_then(reset_from_value),
+    })
+}
+
+fn bar_from_window(key: &str, value: &Value) -> Option<QuotaBar> {
+    let Value::Object(map) = value else {
+        return None;
+    };
+    let used = used_in_map(map)?;
+    Some(QuotaBar {
+        key: key.into(),
+        label: window_label(key),
+        percent: used,
+        reset: map
+            .get("resetsAt")
+            .or_else(|| map.get("resets_at"))
+            .or_else(|| map.get("resetAt"))
+            .and_then(reset_from_value),
+    })
+}
+
+fn used_in_map(map: &serde_json::Map<String, Value>) -> Option<u8> {
+    map.get("percent")
+        .or_else(|| map.get("percentUsed"))
+        .or_else(|| map.get("usedPercent"))
+        .or_else(|| map.get("usagePercent"))
+        .or_else(|| map.get("used"))
+        .and_then(Value::as_f64)
+        .map(as_points)
+}
+
+fn window_label(key: &str) -> String {
+    match key.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "rolling" | "rolling5h" | "five_hour" | "fivehour" | "session" => "5-hour limit".into(),
+        "weekly" | "week" | "seven_day" | "sevenday" => "Weekly limit".into(),
+        "monthly" | "month" | "thirty_day" => "Monthly limit".into(),
+        other => {
+            let mut label = other.replace('_', " ");
+            if let Some(first) = label.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            format!("{label} limit")
+        }
+    }
+}
+
 fn remaining_from_used(used: u8) -> u8 {
     100u8.saturating_sub(used)
 }
@@ -850,5 +1398,79 @@ Current week (all models): 40% used · Resets Aug 24
         assert_eq!(bars.len(), 1);
         assert_eq!(bars[0].percent, 38);
         assert!(bars[0].label.contains("Monthly"));
+    }
+
+    #[test]
+    fn parse_opencode_go_usage_all_windows_plus_extra() {
+        let root = json!({
+            "usage": {
+                "rolling": { "status": "ok", "percent": 9, "resetsAt": "2026-08-14T07:20:04Z" },
+                "weekly": { "status": "ok", "percent": 12, "resetsAt": "2026-08-17T00:00:00Z" },
+                "monthly": { "status": "ok", "percent": 6, "resetsAt": "2026-09-09T00:41:03Z" },
+                "bonus": { "percent": 3, "resetsAt": "2026-10-01T00:00:00Z" },
+                "subscribedAt": "2026-05-22T14:30:00Z"
+            }
+        });
+        let bars = parse_opencode_usage(&root);
+        assert_eq!(bars.len(), 4);
+        assert_eq!(bars[0].label, "5-hour limit");
+        assert_eq!(bars[0].percent, 9);
+        assert_eq!(bars[1].label, "Weekly limit");
+        assert_eq!(bars[2].label, "Monthly limit");
+        assert_eq!(bars[3].label, "Bonus limit");
+        assert_eq!(bars[3].percent, 3);
+    }
+
+    #[test]
+    fn parse_cline_pass_limits_from_envelope() {
+        let root = json!({
+            "success": true,
+            "data": {
+                "limits": [
+                    { "type": "five_hour", "percentUsed": 22.4, "resetsAt": "2026-08-20T21:00:00Z" },
+                    { "type": "weekly", "percentUsed": 40, "resetsAt": "2026-08-24T00:00:00Z" },
+                    { "type": "monthly", "percentUsed": 11, "resetsAt": "2026-09-01T00:00:00Z" },
+                    { "type": "burst", "percentUsed": 1 }
+                ]
+            }
+        });
+        let bars = parse_cline_usage_limits(&root);
+        assert_eq!(bars.len(), 4);
+        assert_eq!(bars[0].label, "5-hour limit");
+        assert_eq!(bars[0].percent, 22);
+        assert_eq!(bars[1].label, "Weekly limit");
+        assert_eq!(bars[2].label, "Monthly limit");
+        assert_eq!(bars[3].label, "Burst limit");
+    }
+
+    #[test]
+    fn opencode_auth_picks_go_key() {
+        let root = json!({
+            "anthropic": { "type": "api", "key": "sk-ant-other" },
+            "opencode-go": { "type": "api", "key": "sk-opencode-go" }
+        });
+        assert_eq!(
+            opencode_key_from_value(&root).as_deref(),
+            Some("sk-opencode-go")
+        );
+    }
+
+    #[test]
+    fn cline_settings_picks_account_key() {
+        let root = json!({
+            "openai": { "apiKey": "sk-openai" },
+            "cline": { "apiKey": "cline-pass-key", "auth": { "accessToken": "tok" } }
+        });
+        assert_eq!(
+            cline_key_from_value(&root).as_deref(),
+            Some("cline-pass-key")
+        );
+    }
+
+    #[test]
+    fn split_curl_appends_status() {
+        let (body, status) = split_curl_status("{\"ok\":true}\n200").unwrap();
+        assert_eq!(status, 200);
+        assert!(body.contains("ok"));
     }
 }

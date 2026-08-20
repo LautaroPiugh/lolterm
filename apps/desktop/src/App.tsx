@@ -74,7 +74,7 @@ function tabIcon(tab: TabSnap): IconFn {
   if (tabRemote(tab)) return Cloud;
   const key = `${tab.name} ${tab.panes[0]?.program ?? ""}`.toLowerCase();
   if (key.includes("nvim") || key.includes("vim")) return FileCode;
-  if (key.includes("claude") || key.includes("codex")) return Sparkles;
+  if (key.includes("claude") || key.includes("codex") || key.includes("opencode") || key.includes("cline")) return Sparkles;
   if (key.includes("lazygit") || key.includes("git")) return GitBranch;
   if (key.includes("ssh")) return Server;
   return Terminal;
