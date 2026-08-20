@@ -1,0 +1,21 @@
+---
+description: Usar Orquester como referencia de producto y UX en cada chat de LoLTerm
+alwaysApply: true
+---
+
+# Referencia: Orquester
+
+El repo de guía es **https://github.com/sammwyy/orquester**. Consultalo (README, UI, quota, media, chrome) antes de inventar HUD, cuota de agentes, reproductor, paletas o chrome de escritorio.
+
+## Qué tomar
+
+- Densidad visual, chips de estado, cuota de CLIs, media, sensación de app diaria.
+- Mejorar LoLTerm hacia esa calidad cuando el usuario pida features parecidas.
+
+## Qué no hacer
+
+- No clonar Orquester ni copiar su stack, nombres o código.
+- No convertir LoLTerm en un IDE ni en un chat de IA. La terminal/PTY sigue siendo el runtime (`AGENTS.md`).
+- No sustituir nvim, Git, SSH, tmux ni agentes CLI: organizarlos.
+
+Si hay duda entre copiar Orquester y la identidad de LoLTerm, gana LoLTerm: *el entorno desde el que trabajo, no la herramienta con la que hago cada trabajo.*

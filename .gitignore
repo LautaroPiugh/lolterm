@@ -19,7 +19,9 @@ id_rsa.pub
 session.toml
 
 # herramientas de IA / IDE (no son el producto)
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .claude/
 .aider/
 .continue/
