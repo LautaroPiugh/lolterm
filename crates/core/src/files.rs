@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -39,7 +40,16 @@ pub struct TreeRow {
 }
 
 pub fn skipped(name: &str) -> bool {
-    SKIP.contains(&name)
+    SKIP.contains(&name) || is_vim_swap(name)
+}
+
+/// Swap/undo de Vim (`.{file}.swp`). No son código; abrirlos muestra basura binaria.
+fn is_vim_swap(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".swp")
+        || lower.ends_with(".swo")
+        || lower.ends_with(".swn")
+        || lower.ends_with(".un~")
 }
 
 pub fn is_hidden(name: &str) -> bool {
@@ -255,7 +265,8 @@ pub fn user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
 }
 
-/// PATH del proceso más el del shell de login (una sola vez, no por comando).
+/// PATH del proceso más el del shell de login.
+/// Se refresca cada tanto: si instalás `codex` con LoLTerm abierto, aparece sin reiniciar.
 pub fn effective_path() -> Option<String> {
     let dirs = path_dirs();
     if dirs.is_empty() {
@@ -277,22 +288,37 @@ pub fn resolve_command(name: &str) -> Option<PathBuf> {
     lookup_in_path(name)
 }
 
-fn path_dirs() -> &'static [PathBuf] {
-    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
-    DIRS.get_or_init(|| {
-        let mut dirs = Vec::new();
-        let mut seen = HashSet::new();
-        let from_env = std::env::var_os("PATH")
-            .map(|raw| std::env::split_paths(&raw).collect::<Vec<_>>())
-            .unwrap_or_default();
-        for dir in from_env.into_iter().chain(login_path_dirs()) {
-            if dir.as_os_str().is_empty() || !seen.insert(dir.clone()) {
-                continue;
-            }
-            dirs.push(dir);
+const PATH_TTL: Duration = Duration::from_secs(20);
+
+static CACHE_PATH: Mutex<Option<(Instant, Vec<PathBuf>)>> = Mutex::new(None);
+
+fn path_dirs() -> Vec<PathBuf> {
+    if let Ok(mut slot) = CACHE_PATH.lock() {
+        if let Some((at, dirs)) = slot.as_ref()
+            && at.elapsed() < PATH_TTL
+        {
+            return dirs.clone();
         }
-        dirs
-    })
+        let dirs = collect_path_dirs();
+        *slot = Some((Instant::now(), dirs.clone()));
+        return dirs;
+    }
+    collect_path_dirs()
+}
+
+fn collect_path_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+    let from_env = std::env::var_os("PATH")
+        .map(|raw| std::env::split_paths(&raw).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for dir in from_env.into_iter().chain(login_path_dirs()) {
+        if dir.as_os_str().is_empty() || !seen.insert(dir.clone()) {
+            continue;
+        }
+        dirs.push(dir);
+    }
+    dirs
 }
 
 fn login_path_dirs() -> Vec<PathBuf> {
@@ -422,6 +448,100 @@ pub fn join_root(root: &Path, rel: &str) -> PathBuf {
     }
 }
 
+/// nvim / vim (basename del binario). Helix y otros `$EDITOR` no reciben `-c`.
+pub fn is_vim_family(program: &str) -> bool {
+    let name = Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(program);
+    matches!(name, "nvim" | "vim" | "view" | "nvim.exe" | "vim.exe")
+}
+
+/// Flags de host: título OSC y `:update` con Ctrl+S. Van con `-c` después del vimrc.
+pub fn nvim_host_args(autowrite: bool) -> Vec<String> {
+    let mut args = vec![
+        "-c".into(),
+        "set title".into(),
+        "-c".into(),
+        r"set titlestring=%t%(\ %M%)".into(),
+        "-c".into(),
+        "set mouse=a".into(),
+        "-c".into(),
+        r"set fillchars=eob:\ ".into(),
+        "-c".into(),
+        "startinsert".into(),
+        "-c".into(),
+        "set noswapfile".into(),
+        "-c".into(),
+        "set shortmess+=A".into(),
+        "-c".into(),
+        "nnoremap <C-s> :update<CR>".into(),
+        "-c".into(),
+        r"inoremap <C-s> <Esc>:update<CR>gi".into(),
+    ];
+    if autowrite {
+        args.push("-c".into());
+        args.push("set autowrite".into());
+    }
+    args
+}
+
+pub fn file_tab_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("file")
+        .to_string()
+}
+
+/// Último path en argv de nvim (`-c` / `--cmd` consumen el siguiente token).
+pub fn editor_file_arg(args: &[String]) -> Option<&str> {
+    let mut skip_value = false;
+    let mut file = None;
+    for arg in args {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if arg == "-c" || arg == "--cmd" || arg == "-u" || arg == "-S" {
+            skip_value = true;
+            continue;
+        }
+        if arg.starts_with('-') || arg.starts_with('+') {
+            continue;
+        }
+        file = Some(arg.as_str());
+    }
+    file
+}
+
+pub fn pane_holds_file(opened: Option<&Path>, args: &[String], want: &Path) -> bool {
+    if let Some(path) = opened {
+        return same_path(path, want);
+    }
+    editor_file_arg(args).is_some_and(|arg| same_path(Path::new(arg), want))
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+pub fn sanitize_pane_title(raw: &str) -> String {
+    let line = raw.lines().next().unwrap_or("").trim();
+    let cleaned: String = line
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(80)
+        .collect();
+    cleaned.trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +553,9 @@ mod tests {
         assert!(skipped(".git"));
         assert!(!skipped("src"));
         assert!(!skipped(".github"));
+        assert!(skipped(".dev.mjs.swp"));
+        assert!(skipped("dev.mjs.swp"));
+        assert!(!skipped("dev.mjs"));
         assert!(is_hidden(".github"));
         assert!(!is_hidden("src"));
     }
@@ -531,5 +654,81 @@ mod tests {
         assert_eq!(bin.as_deref(), Some(user_shell().as_str()));
         assert_eq!(args[0], "-lc");
         assert_eq!(args[2], "definitely-not-a-lolterm-bin");
+    }
+
+    #[test]
+    fn vim_family_is_basename() {
+        assert!(is_vim_family("nvim"));
+        assert!(is_vim_family("/usr/bin/nvim"));
+        assert!(is_vim_family("vim"));
+        assert!(!is_vim_family("helix"));
+        assert!(!is_vim_family("nano"));
+    }
+
+    #[test]
+    fn nvim_host_args_skip_autowrite_by_default() {
+        let args = nvim_host_args(false);
+        assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "set title"));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-c" && w[1] == "set mouse=a")
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-c" && w[1] == "startinsert")
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-c" && w[1] == "set noswapfile")
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-c" && w[1] == "set shortmess+=A")
+        );
+        assert!(args.iter().any(|arg| arg.contains("fillchars")));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-c" && w[1] == "nnoremap <C-s> :update<CR>")
+        );
+        assert!(!args.iter().any(|arg| arg.contains("autowrite")));
+        assert!(
+            nvim_host_args(true)
+                .windows(2)
+                .any(|w| w[1] == "set autowrite")
+        );
+    }
+
+    #[test]
+    fn editor_file_arg_skips_c_commands() {
+        let args = vec![
+            "-c".into(),
+            "set title".into(),
+            "-c".into(),
+            "nnoremap <C-s> :update<CR>".into(),
+            "/tmp/App.tsx".into(),
+        ];
+        assert_eq!(editor_file_arg(&args), Some("/tmp/App.tsx"));
+        assert_eq!(file_tab_name(Path::new("/tmp/App.tsx")), "App.tsx");
+    }
+
+    #[test]
+    fn pane_holds_file_matches_opened_or_argv() {
+        let want = Path::new("/proj/src/pty.rs");
+        assert!(pane_holds_file(Some(want), &[], want));
+        assert!(pane_holds_file(
+            None,
+            &["-c".into(), "set title".into(), "/proj/src/pty.rs".into()],
+            want
+        ));
+        assert!(!pane_holds_file(None, &["nvim".into()], want));
+    }
+
+    #[test]
+    fn sanitize_pane_title_strips_controls_and_truncates() {
+        assert_eq!(sanitize_pane_title("App.tsx [+]"), "App.tsx [+]");
+        assert_eq!(sanitize_pane_title("  foo\nbar  "), "foo");
+        assert_eq!(sanitize_pane_title("a\u{0007}b"), "ab");
+        assert_eq!(sanitize_pane_title(&"x".repeat(100)).len(), 80);
+        assert!(sanitize_pane_title("   ").is_empty());
     }
 }

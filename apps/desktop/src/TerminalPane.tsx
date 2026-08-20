@@ -8,12 +8,47 @@ import { b64decode, b64encode } from "./types";
 type Cached = {
   term: Terminal;
   fit: FitAddon;
-  off: () => void;
 };
 
 const cache = new Map<number, Cached>();
+const backlog = new Map<number, string[]>();
+const BACKLOG_CHARS = 1_500_000;
 let currentTheme: ThemeId = "sage";
 let lastXterm = xtermTheme("sage");
+let lastTitles = new Map<number, string>();
+let reportPaneTitle: ((pane: number, title: string) => void) | undefined;
+
+function ingestData(pane: number, b64: string) {
+  const cached = cache.get(pane);
+  if (cached) {
+    cached.term.write(b64decode(b64));
+    return;
+  }
+  const q = backlog.get(pane) ?? [];
+  q.push(b64);
+  let chars = 0;
+  for (const chunk of q) chars += chunk.length;
+  while (q.length > 1 && chars > BACKLOG_CHARS) {
+    chars -= q.shift()?.length ?? 0;
+  }
+  backlog.set(pane, q);
+}
+
+if (typeof window !== "undefined" && window.lolterm?.onEvent) {
+  window.lolterm.onEvent((msg) => {
+    if (msg.event === "exit" && msg.params?.pane != null) {
+      disposeTerm(msg.params.pane);
+      return;
+    }
+    if (msg.event === "data" && msg.params?.pane != null && msg.params.b64) {
+      ingestData(msg.params.pane, msg.params.b64);
+    }
+  });
+}
+
+export function setPaneTitleHandler(handler?: (pane: number, title: string) => void) {
+  reportPaneTitle = handler;
+}
 
 export function applyXtermTheme(id: string, vars?: Record<string, string>) {
   currentTheme = parseTheme(id);
@@ -33,10 +68,11 @@ export function applyXtermTheme(id: string, vars?: Record<string, string>) {
 
 export function disposeTerm(pane: number) {
   const cached = cache.get(pane);
+  backlog.delete(pane);
   if (!cached) return;
-  cached.off();
   cached.term.dispose();
   cache.delete(pane);
+  lastTitles.delete(pane);
 }
 
 export function retainPanes(live: Iterable<number>) {
@@ -111,13 +147,17 @@ function wireClipboard(term: Terminal, host: HTMLElement) {
   });
 }
 
+function isAltScreen(term: Terminal): boolean {
+  return term.buffer.active.type === "alternate";
+}
+
 function paintTermScroll(term: Terminal, track: HTMLElement) {
   const thumb = track.querySelector(".term-scroll-thumb") as HTMLElement | null;
   if (!thumb) return;
   const buf = term.buffer.active;
   const total = buf.length;
   const rows = term.rows;
-  if (total <= rows || track.clientHeight < 2) {
+  if (isAltScreen(term) || total <= rows || track.clientHeight < 2) {
     track.hidden = true;
     return;
   }
@@ -130,6 +170,23 @@ function paintTermScroll(term: Terminal, track: HTMLElement) {
   thumb.style.transform = `translateY(${Math.max(0, top)}px)`;
 }
 
+function wireNvimWheel(term: Terminal, host: HTMLElement, pane: number): () => void {
+  const onWheel = (ev: WheelEvent) => {
+    if (!isAltScreen(term)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const raw =
+      ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? Math.abs(ev.deltaY) : Math.abs(ev.deltaY) / 40;
+    const steps = Math.min(15, Math.max(1, Math.round(raw) || 1));
+    const bytes = new TextEncoder().encode((ev.deltaY < 0 ? "\x19" : "\x05").repeat(steps));
+    void window.lolterm.invoke("write", { pane, b64: b64encode(bytes) });
+  };
+  host.addEventListener("wheel", onWheel, { passive: false, capture: true });
+  term.attachCustomWheelEventHandler(() => !isAltScreen(term));
+  return () => {
+    host.removeEventListener("wheel", onWheel, { capture: true } as AddEventListenerOptions);
+  };
+}
 function wireTermScroll(term: Terminal, track: HTMLElement): () => void {
   const thumb = track.querySelector(".term-scroll-thumb") as HTMLElement | null;
   let raf = 0;
@@ -142,6 +199,7 @@ function wireTermScroll(term: Terminal, track: HTMLElement): () => void {
   };
   const scrollToY = (clientY: number) => {
     if (!thumb) return;
+    if (isAltScreen(term)) return;
     const max = term.buffer.active.length - term.rows;
     if (max <= 0) return;
     const rect = track.getBoundingClientRect();
@@ -192,16 +250,19 @@ function ensureTerm(pane: number): Cached {
     const bytes = new TextEncoder().encode(data);
     void window.lolterm.invoke("write", { pane, b64: b64encode(bytes) });
   });
-  const off = window.lolterm.onEvent((msg) => {
-    if (msg.event === "data" && msg.params?.pane === pane && msg.params.b64) {
-      term.write(b64decode(msg.params.b64));
-    }
-    if (msg.event === "exit" && msg.params?.pane === pane) {
-      disposeTerm(pane);
-    }
+  term.onTitleChange((title) => {
+    const next = title.trim();
+    if (!next || lastTitles.get(pane) === next) return;
+    lastTitles.set(pane, next);
+    reportPaneTitle?.(pane, next);
   });
-  const entry = { term, fit, off };
+  const entry = { term, fit };
   cache.set(pane, entry);
+  const queued = backlog.get(pane);
+  backlog.delete(pane);
+  if (queued) {
+    for (const chunk of queued) term.write(b64decode(chunk));
+  }
   return entry;
 }
 
@@ -248,6 +309,7 @@ export function TerminalPane({
       }
     }
     const unwireScroll = wireTermScroll(entry.term, scroll);
+    const unwireWheel = wireNvimWheel(entry.term, node, pane);
 
     let debounce: number | undefined;
     const sendSize = () => {
@@ -272,6 +334,7 @@ export function TerminalPane({
 
     return () => {
       unwireScroll();
+      unwireWheel();
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", schedule);
       ro.disconnect();

@@ -22,6 +22,13 @@ export function setBindings(next: Binding[] | undefined) {
   bindings = next && next.length > 0 ? next : FALLBACK;
 }
 
+/** AltGr (} ) ] etc. en teclados LATAM/ES llega como Ctrl+Alt. No es un atajo de LoLTerm. */
+export function isAltGraph(e: KeyboardEvent): boolean {
+  if (e.getModifierState("AltGraph")) return true;
+  if (!(e.ctrlKey && e.altKey) || e.metaKey) return false;
+  return e.key.length === 1 && !/[a-zA-Z]/.test(e.key);
+}
+
 export function eventChord(e: KeyboardEvent): string {
   const mods: string[] = [];
   if (e.altKey) mods.push("alt");
@@ -36,6 +43,7 @@ export function eventChord(e: KeyboardEvent): string {
 }
 
 export function bindingFor(e: KeyboardEvent): Binding | undefined {
+  if (isAltGraph(e)) return undefined;
   const chord = eventChord(e);
   return bindings.find((item) => item.chord === chord);
 }

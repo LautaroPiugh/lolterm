@@ -210,7 +210,7 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "ui.theme",
         slash: "theme",
-        hint: "sage, dusk, mono o un tema de ~/.config/lolterm/themes",
+        hint: "matcha, slate, warm… (claro/oscuro) o un tema de ~/.config/lolterm/themes",
         kind: CommandKind::Ui,
     },
     CommandSpec {
@@ -230,6 +230,36 @@ pub const REGISTRY: &[CommandSpec] = &[
         slash: "update",
         hint: "buscar actualización (.deb Ubuntu)",
         kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "ui.quota",
+        slash: "quota",
+        hint: "cuota local de agentes (caché, no API)",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "ui.media",
+        slash: "media",
+        hint: "mostrar el control de música (playerctl)",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "music.playPause",
+        slash: "play-pause",
+        hint: "play/pause del reproductor MPRIS",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "music.next",
+        slash: "music-next",
+        hint: "siguiente pista (playerctl)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "music.prev",
+        slash: "music-prev",
+        hint: "pista anterior (playerctl)",
+        kind: CommandKind::Core,
     },
 ];
 
@@ -281,6 +311,8 @@ mod tests {
         assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert_eq!(lookup("/update").map(|s| s.id), Some("app.update"));
+        assert_eq!(lookup("play-pause").map(|s| s.id), Some("music.playPause"));
+        assert_eq!(lookup("/quota").map(|s| s.id), Some("ui.quota"));
         assert!(lookup("nope").is_none());
     }
 }

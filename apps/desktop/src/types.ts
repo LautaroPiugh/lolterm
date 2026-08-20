@@ -80,6 +80,44 @@ export type Snapshot = {
   keybindings_path?: string;
 };
 
+export type QuotaBar = {
+  key: string;
+  label: string;
+  percent: number;
+  reset?: string | null;
+};
+
+export type QuotaAgent = {
+  id: string;
+  label: string;
+  available: boolean;
+  running: boolean;
+  pending?: boolean;
+  supported?: boolean;
+  note?: string | null;
+  bars: QuotaBar[];
+};
+
+export type NowPlaying = {
+  playing: boolean;
+  artist: string;
+  title: string;
+  volume: number;
+  player?: string;
+  source?: string;
+  art?: string | null;
+};
+
+export type Hud = {
+  playerctl: boolean;
+  sink?: boolean;
+  volume?: number;
+  music: NowPlaying | null;
+  quota: QuotaAgent[];
+  host?: { load?: string | null; mem?: number | null } | null;
+  notice?: string | null;
+};
+
 export type CommandHit = { id: string; slash: string; hint: string };
 export type HostItem = { name: string; target: string; hint: string };
 export type Peer = { name: string; target: string; online: boolean; ip: string | null };

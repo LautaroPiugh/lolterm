@@ -91,6 +91,16 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
     let value = match req.method.as_str() {
         "snapshot" => serde_json::to_value(mux.snapshot())?,
         "context" => serde_json::to_value(mux.context())?,
+        "hud" => serde_json::to_value(mux.hud())?,
+        "music" => {
+            let action = params["action"].as_str().unwrap_or("playPause");
+            let volume = params["volume"].as_f64();
+            serde_json::to_value(lolterm_core::hud::after_music(
+                &mux.process_names(),
+                action,
+                volume,
+            ))?
+        }
         "write" => {
             let pane = params["pane"].as_u64().unwrap_or(0);
             let bytes = b64(params["b64"].as_str().unwrap_or(""));
@@ -219,6 +229,13 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
         }
         "openFile" => {
             mux.open_file(params["rel"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "setPaneTitle" => {
+            mux.set_pane_title(
+                params["pane"].as_u64().unwrap_or(0),
+                params["title"].as_str().unwrap_or(""),
+            );
             serde_json::to_value(mux.snapshot())?
         }
         "toggleExpand" => {

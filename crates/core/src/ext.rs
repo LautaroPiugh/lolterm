@@ -263,41 +263,145 @@ pub fn all_themes() -> Vec<ThemePack> {
 
 pub fn builtin_themes() -> Vec<ThemePack> {
     vec![
-        pack(
-            "sage",
-            "Sage",
-            "mint claro",
-            Colors {
-                fill: "#ecf2ec",
-                text: "#28302a",
-                brand: "#488c58",
-                bar: "#d6e4d6",
-                pane: "#f4f7f4",
-            },
-        ),
-        pack(
+        pack_orq(
             "dusk",
-            "Dusk",
+            "Matcha",
             "oscuro",
-            Colors {
-                fill: "#1c2018",
-                text: "#e4ebe4",
-                brand: "#6aaf78",
-                bar: "#252b22",
-                pane: "#161a14",
-            },
+            [27, 34, 29],
+            [232, 235, 232],
+            [88, 105, 92],
+            [44, 54, 47],
+            [15, 19, 16],
         ),
-        pack(
+        pack_orq(
+            "sage",
+            "Matcha",
+            "claro",
+            [240, 250, 243],
+            [28, 30, 29],
+            [147, 153, 149],
+            [218, 240, 224],
+            [250, 254, 251],
+        ),
+        pack_orq(
+            "slate",
+            "Slate",
+            "oscuro",
+            [19, 31, 42],
+            [231, 233, 234],
+            [69, 97, 116],
+            [31, 49, 62],
+            [11, 19, 28],
+        ),
+        pack_orq(
+            "slate-light",
+            "Slate",
+            "claro",
+            [242, 248, 250],
+            [27, 28, 29],
+            [145, 151, 152],
+            [222, 235, 240],
+            [250, 253, 254],
+        ),
+        pack_orq(
+            "warm",
+            "Warm",
+            "oscuro",
+            [28, 25, 23],
+            [245, 245, 244],
+            [87, 83, 78],
+            [41, 37, 36],
+            [14, 12, 11],
+        ),
+        pack_orq(
+            "warm-light",
+            "Warm",
+            "claro",
+            [244, 241, 237],
+            [28, 25, 23],
+            [152, 145, 138],
+            [231, 227, 221],
+            [253, 252, 250],
+        ),
+        pack_orq(
+            "rose",
+            "Rose",
+            "oscuro",
+            [35, 29, 30],
+            [235, 233, 234],
+            [108, 76, 84],
+            [55, 43, 46],
+            [20, 17, 18],
+        ),
+        pack_orq(
+            "rose-light",
+            "Rose",
+            "claro",
+            [253, 242, 243],
+            [31, 30, 31],
+            [151, 146, 148],
+            [241, 218, 222],
+            [255, 250, 250],
+        ),
+        pack_orq(
+            "dune",
+            "Dune",
+            "oscuro",
+            [34, 31, 21],
+            [235, 234, 229],
+            [101, 91, 56],
+            [53, 48, 32],
+            [20, 18, 12],
+        ),
+        pack_orq(
+            "dune-light",
+            "Dune",
+            "claro",
+            [252, 248, 232],
+            [32, 31, 27],
+            [153, 148, 123],
+            [244, 235, 202],
+            [255, 253, 245],
+        ),
+        pack_orq(
+            "amethyst",
+            "Amethyst",
+            "oscuro",
+            [34, 27, 41],
+            [235, 233, 237],
+            [103, 77, 119],
+            [52, 40, 61],
+            [20, 16, 25],
+        ),
+        pack_orq(
+            "amethyst-light",
+            "Amethyst",
+            "claro",
+            [247, 244, 249],
+            [31, 30, 32],
+            [152, 145, 159],
+            [235, 228, 241],
+            [252, 250, 253],
+        ),
+        pack_orq(
+            "mono-dark",
+            "Mono",
+            "oscuro",
+            [23, 23, 23],
+            [245, 245, 245],
+            [82, 82, 82],
+            [38, 38, 38],
+            [10, 10, 10],
+        ),
+        pack_orq(
             "mono",
             "Mono",
-            "gris",
-            Colors {
-                fill: "#f2f2f0",
-                text: "#1a1a1a",
-                brand: "#333333",
-                bar: "#e4e4e0",
-                pane: "#fafaf8",
-            },
+            "claro",
+            [240, 240, 243],
+            [24, 24, 27],
+            [148, 148, 156],
+            [226, 226, 230],
+            [252, 252, 253],
         ),
     ]
 }
@@ -498,7 +602,7 @@ fn sanitize_status(raw: RawStatus, base: Option<&Path>) -> Option<StatusSpec> {
 
 fn sanitize_theme(raw: RawTheme) -> Option<ThemePack> {
     let id = slug(&raw.id)?;
-    if matches!(id.as_str(), "sage" | "dusk" | "mono") {
+    if reserved_theme(&id) {
         return None;
     }
     let bg = color_ok(raw.bg.as_deref()).unwrap_or("#ecf2ec");
@@ -530,6 +634,61 @@ struct Colors<'a> {
     brand: &'a str,
     bar: &'a str,
     pane: &'a str,
+}
+
+fn reserved_theme(id: &str) -> bool {
+    matches!(
+        id,
+        "sage"
+            | "dusk"
+            | "mono"
+            | "mono-dark"
+            | "slate"
+            | "slate-light"
+            | "warm"
+            | "warm-light"
+            | "rose"
+            | "rose-light"
+            | "dune"
+            | "dune-light"
+            | "amethyst"
+            | "amethyst-light"
+            | "matcha"
+    )
+}
+
+fn rgb(n: [u8; 3]) -> String {
+    format!("#{:02x}{:02x}{:02x}", n[0], n[1], n[2])
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pack_orq(
+    id: &str,
+    label: &str,
+    hint: &str,
+    n900: [u8; 3],
+    n100: [u8; 3],
+    n600: [u8; 3],
+    n800: [u8; 3],
+    n950: [u8; 3],
+) -> ThemePack {
+    let fill = rgb(n900);
+    let text = rgb(n100);
+    let brand = rgb(n600);
+    let bar = rgb(n800);
+    let pane = rgb(n950);
+    pack(
+        id,
+        label,
+        hint,
+        Colors {
+            fill: &fill,
+            text: &text,
+            brand: &brand,
+            bar: &bar,
+            pane: &pane,
+        },
+    )
 }
 
 fn pack(id: &str, label: &str, hint: &str, colors: Colors<'_>) -> ThemePack {

@@ -26,6 +26,8 @@ pub struct ContextPane {
     pub focused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,6 +42,9 @@ pub struct ContextView {
     pub processes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_process: Option<String>,
+    /// Archivo abierto en el pane enfocado (nvim host), compactado.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_file: Option<String>,
     pub panes: Vec<ContextPane>,
     /// Solo nombres. Nunca valores (tokens, passwords, PATH completo).
     pub env: Vec<String>,
@@ -140,6 +145,7 @@ mod tests {
             tmux: "lolterm-lolterm".into(),
             processes: vec!["nvim".into()],
             focused_process: Some("nvim".into()),
+            focused_file: Some("src/mux.rs".into()),
             panes: vec![ContextPane {
                 tab: 0,
                 tab_name: "nvim".into(),
@@ -148,6 +154,7 @@ mod tests {
                 remote: None,
                 focused: true,
                 worktree: None,
+                file: Some("src/mux.rs".into()),
             }],
             env: vec!["FOO".into()],
             machines: vec!["chae".into()],
@@ -156,6 +163,7 @@ mod tests {
         });
         assert!(text.contains("\"live\": true"));
         assert!(text.contains("nvim"));
+        assert!(text.contains("src/mux.rs"));
         assert!(text.contains("FOO"));
         assert!(!text.contains("TOKEN"));
         assert!(!text.contains("password"));
@@ -191,6 +199,7 @@ mod tests {
             tmux: String::new(),
             processes: vec!["codex".into()],
             focused_process: Some("codex".into()),
+            focused_file: None,
             panes: Vec::new(),
             env: vec!["TERM".into()],
             machines: Vec::new(),

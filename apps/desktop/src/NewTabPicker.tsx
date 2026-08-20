@@ -31,10 +31,10 @@ export function NewTabPicker({
 }) {
   const clis = snap.run_clis ?? [];
   const tools: Row[] = clis
-    .filter((cli) => !AGENTS.has(cli.name))
+    .filter((cli) => !AGENTS.has(cli.name) && cli.available)
     .map((cli) => ({ kind: cli.name, label: cli.name, available: cli.available }));
   const agents: Row[] = clis
-    .filter((cli) => AGENTS.has(cli.name))
+    .filter((cli) => AGENTS.has(cli.name) && cli.available)
     .map((cli) => ({ kind: cli.name, label: cli.name, available: cli.available }));
   const core: Row[] = [
     { kind: "shell", label: "Terminal", available: true },

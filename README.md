@@ -50,7 +50,7 @@ Un **workspace** es un entorno recuperable: carpeta del proyecto, pestañas, pan
 **Local:** panel → terminal en esta PC.  
 **Remoto:** panel → `ssh` → (opcional) tmux en la otra máquina, para que nvim no se muera si se corta la red.
 
-La CLI `lolterm context` (y variables como `LOLTERM_ROOT`) exponen carpeta, rama y procesos abiertos, para que un agente CLI sepa dónde está sin un protocolo propio de LoLTerm.
+La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`). El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
 
 Podés sumar comandos, atajos, temas y ganchos con archivos TOML locales. No hay plugins de JavaScript.
 
@@ -77,6 +77,7 @@ Para actualizar: paleta `/update`, o el aviso cuando hay versión nueva. Se desc
 | Workspaces | clic en el nombre, o `Ctrl-Alt-[` `]` |
 | Reiniciar el panel | `Ctrl-Alt-r` |
 | Comandos y atajos | `Ctrl-Alt-,` o `/commands` |
+| Archivo (explorer) | abre **tu nvim** (`$EDITOR`); la pestaña sigue el nombre / `[+]` de nvim. `Ctrl+S` guarda con `:update`. Autosave: `[editor] autowrite = true` en `config.toml` |
 
 El `+` pregunta qué abrir (shell, SSH, agentes). Arrastrá una pestaña al borde para partir el layout.
 

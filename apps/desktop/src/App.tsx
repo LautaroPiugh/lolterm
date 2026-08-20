@@ -26,14 +26,15 @@ import {
   Settings,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
-import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes } from "./TerminalPane";
+import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes, setPaneTitleHandler } from "./TerminalPane";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
 import { CommandsEditor } from "./CommandsEditor";
-import { THEMES } from "./themes";
+import { MediaDock, QuotaButton } from "./Hud";
+import { applyDocumentTheme, isBuiltinTheme, swatchGradient, THEMES } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
-import type { CommandHit, HostItem, Peer, Snapshot, TabSnap, TreeRow } from "./types";
+import type { CommandHit, HostItem, Hud, Peer, Snapshot, TabSnap, TreeRow } from "./types";
 
 type Activity = "home" | "files" | "git" | "run" | "remote";
 type Modal =
@@ -134,7 +135,7 @@ function ThemePicker({
           className={current === item.id ? "theme-card on" : "theme-card"}
           onClick={() => onPick(item.id)}
         >
-          <span className={`theme-swatch ${item.id}`} />
+          <span className="theme-swatch" style={{ background: swatchGradient(item.id) }} />
           <span>{item.label}</span>
           <span className="hint">{item.hint}</span>
         </button>
@@ -167,6 +168,9 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState("");
   const [renameWs, setRenameWs] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
+  const [quotaOpen, setQuotaOpen] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const [hud, setHud] = useState<Hud | null>(null);
   const [newTabOpen, setNewTabOpen] = useState(false);
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
@@ -176,7 +180,10 @@ export default function App() {
   const [draggingTab, setDraggingTab] = useState<number | null>(null);
   const [dockEdge, setDockEdge] = useState<DockEdge | null>(null);
   const gearRef = useRef<HTMLDivElement>(null);
+  const quotaRef = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLDivElement>(null);
   const newTabRef = useRef<HTMLDivElement>(null);
+  const hudHoldUntil = useRef(0);
 
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
@@ -192,6 +199,24 @@ export default function App() {
     },
     [apply],
   );
+
+  const musicAction = useCallback((action: string, volume?: number) => {
+    hudHoldUntil.current = Date.now() + 900;
+    setHud((prev) => {
+      if (!prev) return prev;
+      if (action === "playPause" && prev.music) {
+        return { ...prev, music: { ...prev.music, playing: !prev.music.playing } };
+      }
+      if (action === "volume" && volume != null) {
+        return { ...prev, volume };
+      }
+      return prev;
+    });
+    void window.lolterm.invoke("music", { action, volume }).then((next) => {
+      if (!next || typeof next !== "object") return;
+      setHud(next as Hud);
+    });
+  }, []);
 
   const launchKind = useCallback(
     async (kind: string) => {
@@ -258,6 +283,26 @@ export default function App() {
         setModal({ kind: "commands" });
         return;
       }
+      if (key === "ui.quota" || key === "quota") {
+        setQuotaOpen((open) => !open);
+        return;
+      }
+      if (key === "ui.media" || key === "media") {
+        setMediaOpen((open) => !open);
+        return;
+      }
+      if (key === "music.playPause" || key === "play-pause") {
+        musicAction("playPause");
+        return;
+      }
+      if (key === "music.next" || key === "music-next") {
+        musicAction("next");
+        return;
+      }
+      if (key === "music.prev" || key === "music-prev") {
+        musicAction("prev");
+        return;
+      }
       if (key === "app.update" || key === "update") {
         setUpdate({ kind: "busy", label: "buscando actualización…" });
         try {
@@ -285,8 +330,15 @@ export default function App() {
       }
       await call("dispatch", { id: key });
     },
-    [call, launchKind, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
+    [call, launchKind, musicAction, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
   );
+
+  useEffect(() => {
+    setPaneTitleHandler((pane, title) => {
+      void call("setPaneTitle", { pane, title });
+    });
+    return () => setPaneTitleHandler(undefined);
+  }, [call]);
 
   useEffect(() => {
     const off = window.lolterm.onEvent((msg) => {
@@ -366,6 +418,46 @@ export default function App() {
   }, [gearOpen]);
 
   useEffect(() => {
+    if (!quotaOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (quotaRef.current && !quotaRef.current.contains(event.target as Node)) {
+        setQuotaOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [quotaOpen]);
+
+  useEffect(() => {
+    if (!mediaOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (mediaRef.current && !mediaRef.current.contains(event.target as Node)) {
+        setMediaOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [mediaOpen]);
+
+  useEffect(() => {
+    let stop = false;
+    const tick = () => {
+      void window.lolterm.invoke("hud").then((value) => {
+        if (stop || !value || typeof value !== "object") return;
+        if (Date.now() < hudHoldUntil.current) return;
+        const next = value as Hud;
+        setHud(next);
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, quotaOpen ? 400 : 900);
+    return () => {
+      stop = true;
+      window.clearInterval(id);
+    };
+  }, [quotaOpen]);
+
+  useEffect(() => {
     if (!newTabOpen) return;
     const onDown = (event: MouseEvent) => {
       if (newTabRef.current && !newTabRef.current.contains(event.target as Node)) {
@@ -384,6 +476,8 @@ export default function App() {
         setRenaming(null);
         setRenameWs(false);
         setGearOpen(false);
+        setQuotaOpen(false);
+        setMediaOpen(false);
         setNewTabOpen(false);
         return;
       }
@@ -452,14 +546,17 @@ export default function App() {
   useEffect(() => {
     if (!snap) return;
     const pack = (snap.themes ?? []).find((item) => item.id === snap.theme);
-    const builtin = snap.theme === "sage" || snap.theme === "dusk" || snap.theme === "mono";
-    document.documentElement.dataset.theme = builtin ? snap.theme : "custom";
+    const builtin = isBuiltinTheme(snap.theme);
     const keys = ["fill", "text", "brand", "bar", "pane", "muted", "focus", "border", "err", "ok"];
-    if (builtin || !pack) {
+    if (builtin) {
+      applyDocumentTheme(snap.theme);
       for (const key of keys) document.documentElement.style.removeProperty(`--${key}`);
     } else {
-      for (const [key, value] of Object.entries(pack.vars ?? {})) {
-        document.documentElement.style.setProperty(`--${key}`, value);
+      document.documentElement.dataset.theme = "custom";
+      if (pack) {
+        for (const [key, value] of Object.entries(pack.vars ?? {})) {
+          document.documentElement.style.setProperty(`--${key}`, value);
+        }
       }
     }
     applyXtermTheme(snap.theme, builtin ? undefined : pack?.vars);
@@ -536,6 +633,12 @@ export default function App() {
           </button>
         </div>
         <div className="titlebar-controls">
+          <QuotaButton
+            open={quotaOpen}
+            agents={hud?.quota ?? []}
+            onToggle={() => setQuotaOpen((open) => !open)}
+            wrapRef={quotaRef}
+          />
           <div className="gear-wrap" ref={gearRef}>
             <button
               type="button"
@@ -1291,16 +1394,25 @@ export default function App() {
         </span>
         <span className="status-sep">·</span>
         <span className="status-item">
-          <GitBranch size={11} color="rgba(255,255,255,0.8)" />
+          <GitBranch size={11} />
           {snap.git?.branch ?? "—"}
         </span>
         <span className="status-sep">·</span>
         <span className="status-path">{snap.root}</span>
+        {hud?.host?.load && (
+          <>
+            <span className="status-sep">·</span>
+            <span className="status-item" title="load average">
+              {hud.host.load}
+              {hud.host.mem != null ? ` · ${hud.host.mem}% ram` : ""}
+            </span>
+          </>
+        )}
         {remoteHost && (
           <>
             <span className="status-sep">·</span>
             <span className="status-item status-remote">
-              <Cloud size={11} color="rgba(255,255,255,0.85)" />
+              <Cloud size={11} />
               {remoteHost}
               {snap.ssh_tmux_session ? ` · ${snap.ssh_tmux_session}` : ""}
             </span>
@@ -1310,7 +1422,7 @@ export default function App() {
           <>
             <span className="status-sep">·</span>
             <span className="status-item" title={(snap.agents ?? []).map((a) => a.worktree ?? a.program).join(" · ")}>
-              <Sparkles size={11} color="rgba(255,255,255,0.85)" />
+              <Sparkles size={11} />
               {(snap.agents ?? []).map((a) => a.program).join(" · ")}
             </span>
           </>
@@ -1320,6 +1432,23 @@ export default function App() {
             {item.text}
           </span>
         ))}
+        <div className="status-media-wrap" ref={mediaRef}>
+          <button
+            type="button"
+            className="status-media"
+            title={
+              hud?.music
+                ? `${hud.music.source ?? "media"} · ${hud.music.title}`
+                : hud?.playerctl
+                  ? "media (playerctl · YouTube/Spotify Web/MPRIS)"
+                  : "instalá playerctl"
+            }
+            onClick={() => setMediaOpen((open) => !open)}
+          >
+            {hud?.music ? `${hud.music.playing ? "▶ " : ""}${hud.music.title}` : "media"}
+          </button>
+          {mediaOpen && <MediaDock hud={hud} open={mediaOpen} onClose={() => setMediaOpen(false)} onAction={musicAction} />}
+        </div>
         <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
         {banner && <span className="notice">{banner}</span>}
       </footer>
@@ -1328,7 +1457,7 @@ export default function App() {
         <div className="modal" onClick={() => setModal(null)}>
           <div className="cmd-palette" onClick={(e) => e.stopPropagation()}>
             <div className="cmd-palette-input-row">
-              <Command size={13} color="#488C58" />
+              <Command size={13} color="var(--brand)" />
               <input
                 className="cmd-palette-input"
                 autoFocus

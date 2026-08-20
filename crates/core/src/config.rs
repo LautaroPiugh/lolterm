@@ -141,6 +141,8 @@ pub struct AppConfig {
     pub new_tab: String,
     /// Si un agente abre en `git worktree` (no pisa el working tree de nvim).
     pub agent_worktrees: bool,
+    /// `'autowrite'` de nvim al abrir un archivo (default off, como nvim).
+    pub editor_autowrite: bool,
 }
 
 impl Default for AppConfig {
@@ -151,6 +153,7 @@ impl Default for AppConfig {
             machines: Vec::new(),
             new_tab: "shell".into(),
             agent_worktrees: true,
+            editor_autowrite: false,
         }
     }
 }
@@ -180,6 +183,7 @@ pub fn load() -> AppConfig {
         },
         new_tab: parsed.ui.new_tab.unwrap_or_else(|| "shell".into()),
         agent_worktrees: parsed.ai.worktrees.unwrap_or(true),
+        editor_autowrite: parsed.editor.autowrite.unwrap_or(false),
         machines: parsed
             .machines
             .into_iter()
@@ -221,6 +225,9 @@ pub fn save(config: &AppConfig) -> std::io::Result<()> {
         },
         ai: FileAi {
             worktrees: Some(config.agent_worktrees),
+        },
+        editor: FileEditor {
+            autowrite: Some(config.editor_autowrite),
         },
         remote: FileRemote {
             user: config.remote.user.clone(),
@@ -312,9 +319,17 @@ struct FileConfig {
     #[serde(default)]
     ai: FileAi,
     #[serde(default)]
+    editor: FileEditor,
+    #[serde(default)]
     remote: FileRemote,
     #[serde(default)]
     machines: Vec<FileMachine>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct FileEditor {
+    #[serde(default)]
+    autowrite: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -403,6 +418,14 @@ mod tests {
         assert_eq!(parsed.ssh.as_deref(), Some("chae"));
         assert_eq!(parsed.open.as_deref(), Some("/home/me/dev/lolterm"));
         assert_eq!(parsed.run.as_deref(), Some("nvim"));
+    }
+
+    #[test]
+    fn editor_autowrite_defaults_off() {
+        let parsed: FileConfig = toml::from_str("").expect("empty");
+        assert_eq!(parsed.editor.autowrite, None);
+        let parsed: FileConfig = toml::from_str("[editor]\nautowrite = true\n").expect("editor");
+        assert_eq!(parsed.editor.autowrite, Some(true));
     }
 
     #[test]

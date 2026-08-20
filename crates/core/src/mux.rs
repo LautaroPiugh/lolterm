@@ -111,6 +111,7 @@ struct LivePane {
     args: Vec<String>,
     pty: BytePty,
     worktree: Option<PathBuf>,
+    opened_path: Option<PathBuf>,
 }
 
 struct Tab {
@@ -119,6 +120,8 @@ struct Tab {
     zoomed: Option<u64>,
     layout: LayoutNode,
     panes: HashMap<u64, LivePane>,
+    /// Rename manual: deja de seguir el OSC de nvim. Solo en memoria.
+    title_locked: bool,
 }
 
 pub struct Mux {
@@ -142,6 +145,7 @@ pub struct Mux {
     theme: String,
     new_tab: String,
     agent_worktrees: bool,
+    editor_autowrite: bool,
     ssh_fail: HashMap<String, u8>,
 }
 
@@ -177,6 +181,7 @@ impl Mux {
             },
             new_tab: sanitize_new_tab(&cfg.new_tab),
             agent_worktrees: cfg.agent_worktrees,
+            editor_autowrite: cfg.editor_autowrite,
             ssh_fail: HashMap::new(),
         };
         let mut session = session::load().unwrap_or_default();
@@ -225,6 +230,7 @@ impl Mux {
             zoomed: None,
             layout: LayoutNode::leaf(0),
             panes: HashMap::new(),
+            title_locked: false,
         });
         self.active = self.tabs.len() - 1;
         let specs = saved.tree.leaf_specs();
@@ -264,6 +270,7 @@ impl Mux {
             zoomed: None,
             layout: LayoutNode::leaf(id),
             panes,
+            title_locked: false,
         });
         self.active = self.tabs.len() - 1;
         Ok(id)
@@ -283,6 +290,10 @@ impl Mux {
         let (bin, spawn_args) = files::spawn_argv(program, args);
         let spawn_args = if program == Some("ssh") {
             ssh::ensure_alive_opts(&spawn_args)
+        } else if program.is_some_and(files::is_vim_family) {
+            let mut host = files::nvim_host_args(self.editor_autowrite);
+            host.extend(spawn_args);
+            host
         } else {
             spawn_args
         };
@@ -325,6 +336,7 @@ impl Mux {
                 args: stored_args,
                 pty,
                 worktree,
+                opened_path: files::editor_file_arg(args).map(PathBuf::from),
             },
         ))
     }
@@ -495,6 +507,7 @@ impl Mux {
             processes: self.process_names(),
             focused_process: focused
                 .and_then(|pane| (pane.program != "shell").then(|| pane.program.clone())),
+            focused_file: self.focused_opened_file(),
             panes,
             env: crate::context::env_keys_public(self.env.iter().map(|item| item.key.as_str())),
             machines: self.machines.iter().map(|item| item.name.clone()).collect(),
@@ -534,26 +547,45 @@ impl Mux {
                         .worktree
                         .as_ref()
                         .map(|path| crate::workspaces::compact_root(path)),
+                    file: pane
+                        .opened_path
+                        .as_ref()
+                        .map(|path| crate::workspaces::compact_root(path)),
                 });
             }
         }
         rows
     }
 
+    pub fn hud(&self) -> crate::hud::Hud {
+        crate::hud::snapshot(&self.process_names())
+    }
+
+    fn focused_opened_file(&self) -> Option<String> {
+        let tab = self.tabs.get(self.active)?;
+        let path = tab.panes.get(&tab.focused)?.opened_path.as_ref()?;
+        Some(crate::workspaces::compact_root(path))
+    }
+
     pub fn process_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         for tab in &self.tabs {
             for id in tab.layout.ids() {
-                let Some(program) = tab
-                    .panes
-                    .get(&id)
-                    .and_then(|pane| pane.program.as_deref())
-                    .filter(|name| !name.is_empty())
-                else {
+                let Some(pane) = tab.panes.get(&id) else {
                     continue;
                 };
-                if !names.iter().any(|seen| seen == program) {
+                let program = pane.program.as_deref().filter(|name| !name.is_empty());
+                if let Some(program) = program
+                    && !names.iter().any(|seen| seen == program)
+                {
                     names.push(program.to_string());
+                }
+                if let Some(pid) = pane.pty.process_id() {
+                    for name in crate::agents::running_under(pid) {
+                        if !names.iter().any(|seen| seen == &name) {
+                            names.push(name);
+                        }
+                    }
                 }
             }
         }
@@ -698,6 +730,7 @@ impl Mux {
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
             agent_worktrees: self.agent_worktrees,
+            editor_autowrite: self.editor_autowrite,
         };
         crate::config::save(&cfg).map_err(|err| eyre!("no pude guardar config: {err}"))
     }
@@ -785,15 +818,17 @@ impl Mux {
     }
 
     pub fn write(&mut self, pane: u64, bytes: &[u8]) -> Result<()> {
-        let tab = self
-            .tabs
-            .get_mut(self.active)
-            .ok_or_else(|| eyre!("no tab"))?;
-        let live = tab
-            .panes
-            .get_mut(&pane)
-            .ok_or_else(|| eyre!("unknown pane"))?;
+        let live = self.pane_mut(pane).ok_or_else(|| eyre!("unknown pane"))?;
         live.pty.write_input(bytes)
+    }
+
+    fn pane_mut(&mut self, pane: u64) -> Option<&mut LivePane> {
+        for tab in &mut self.tabs {
+            if let Some(live) = tab.panes.get_mut(&pane) {
+                return Some(live);
+            }
+        }
+        None
     }
 
     pub fn resize(&mut self, pane: u64, cols: u16, rows: u16) -> Result<()> {
@@ -851,6 +886,7 @@ impl Mux {
             zoomed: None,
             layout: LayoutNode::leaf(id),
             panes,
+            title_locked: false,
         });
         self.active = self.tabs.len() - 1;
         Ok(id)
@@ -1013,13 +1049,59 @@ impl Mux {
     }
 
     fn open_abs(&mut self, path: &Path) -> Result<u64> {
+        let abs = canonicalize(path);
+        if let Some((tab_index, pane)) = self.find_open_file(&abs) {
+            self.select_tab(tab_index);
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.focused = pane;
+            }
+            self.refresh_live_context();
+            return Ok(pane);
+        }
         let Some((editor, extra)) = files::editor() else {
             self.notice = Some("no hay $EDITOR / nvim".into());
             return Ok(0);
         };
         let mut args = extra;
-        args.push(path.display().to_string());
-        self.new_tab(Some(&editor), None, &args, false)
+        args.push(abs.display().to_string());
+        let label = files::file_tab_name(&abs);
+        let id = self.new_tab(Some(&editor), None, &args, false)?;
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.name = Some(label.clone());
+            tab.title_locked = false;
+            if let Some(pane) = tab.panes.get_mut(&id) {
+                pane.title = label;
+                pane.opened_path = Some(abs);
+            }
+        }
+        Ok(id)
+    }
+
+    fn find_open_file(&self, path: &Path) -> Option<(usize, u64)> {
+        for (index, tab) in self.tabs.iter().enumerate() {
+            for (id, pane) in &tab.panes {
+                if files::pane_holds_file(pane.opened_path.as_deref(), &pane.args, path) {
+                    return Some((index, *id));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn set_pane_title(&mut self, pane: u64, title: &str) {
+        let title = files::sanitize_pane_title(title);
+        if title.is_empty() {
+            return;
+        }
+        for tab in &mut self.tabs {
+            if let Some(live) = tab.panes.get_mut(&pane) {
+                live.title = title.clone();
+                if !tab.title_locked {
+                    tab.name = Some(title);
+                }
+                return;
+            }
+        }
     }
 
     pub fn save_ext_command(&mut self, draft: crate::ext::CommandDraft) -> Result<()> {
@@ -1620,6 +1702,7 @@ impl Mux {
         }
         if let Some(tab) = self.tabs.get_mut(index) {
             tab.name = Some(name.to_string());
+            tab.title_locked = true;
         }
     }
 
@@ -1752,6 +1835,15 @@ impl Mux {
             }
             id if let Some(program) = id.strip_prefix("run.") => {
                 self.run(program, &[])?;
+            }
+            "music.playPause" => {
+                let _ = crate::music::play_pause();
+            }
+            "music.next" => {
+                let _ = crate::music::next();
+            }
+            "music.prev" => {
+                let _ = crate::music::previous();
             }
             "workspace.next" => self.cycle_workspace(1)?,
             "workspace.prev" => self.cycle_workspace(-1)?,
@@ -2000,5 +2092,20 @@ mod tests {
             Some("chae".into())
         );
         assert_eq!(pane_remote(Some("nvim"), &["README.md".into()]), None);
+    }
+
+    #[test]
+    fn find_open_file_logic_uses_args_when_no_opened_path() {
+        let path = std::path::Path::new("/ws/src/App.tsx");
+        assert!(crate::files::pane_holds_file(
+            None,
+            &["-c".into(), "set title".into(), "/ws/src/App.tsx".into()],
+            path
+        ));
+        assert!(!crate::files::pane_holds_file(
+            None,
+            &["-c".into(), "set title".into(), "/ws/other.ts".into()],
+            path
+        ));
     }
 }

@@ -22,8 +22,62 @@ pub struct SessionRecord {
     pub worktree: Option<String>,
 }
 
+pub fn running_under(pid: u32) -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux_running_under(pid)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        Vec::new()
+    }
+}
+
 pub fn is_agent(program: Option<&str>) -> bool {
     program.is_some_and(|name| NAMES.contains(&name))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_running_under(root: u32) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut stack = vec![root];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(pid) = stack.pop() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        if let Some(name) = linux_comm(pid)
+            && is_agent(Some(&name))
+            && !names.iter().any(|seen| seen == &name)
+        {
+            names.push(name);
+        }
+        stack.extend(parse_children(&linux_children(pid).unwrap_or_default()));
+    }
+    names
+}
+
+#[cfg(target_os = "linux")]
+fn linux_comm(pid: u32) -> Option<String> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let name = text.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_children(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).ok()
+}
+
+fn parse_children(text: &str) -> Vec<u32> {
+    text.split_whitespace()
+        .filter_map(|item| item.parse().ok())
+        .collect()
 }
 
 pub fn worktree_branch(program: &str, stamp: u64) -> String {
@@ -102,9 +156,16 @@ mod tests {
     fn known_agent_names() {
         assert!(is_agent(Some("opencode")));
         assert!(is_agent(Some("codex")));
+        assert!(parse_children("1 2").contains(&1));
         assert!(!is_agent(Some("nvim")));
         assert!(!is_agent(Some("ssh")));
         assert!(!is_agent(None));
+    }
+
+    #[test]
+    fn parse_proc_children() {
+        assert_eq!(parse_children("  10 20 30\n"), vec![10, 20, 30]);
+        assert!(parse_children("").is_empty());
     }
 
     #[test]

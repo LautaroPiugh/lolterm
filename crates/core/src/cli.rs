@@ -737,6 +737,10 @@ fn saved_context() -> ContextView {
             .iter()
             .find(|pane| pane.focused)
             .and_then(|pane| (pane.program != "shell").then(|| pane.program.clone())),
+        focused_file: panes
+            .iter()
+            .find(|pane| pane.focused)
+            .and_then(|pane| pane.file.clone()),
         panes,
         env,
         machines: cfg
@@ -787,6 +791,7 @@ fn saved_panes(ws: &SavedWorkspace) -> Vec<ContextPane> {
                 remote: None,
                 focused,
                 worktree: None,
+                file: None,
             });
         }
     }
