@@ -10,6 +10,8 @@
 //!   `~/.cline/data/settings/providers.json` (todas las ventanas del JSON).
 //! - Copilot CLI: `GET https://api.github.com/copilot_internal/user` con el
 //!   token de `gh auth` (o `GH_TOKEN`). LoLTerm no guarda el token.
+//! - Gemini CLI: si hay OAuth en `~/.gemini/oauth_creds.json`,
+//!   `retrieveUserQuota` de Cloud Code. Con API key no hay barras locales.
 //!
 //! `QuotaBar.percent` es **% usado**, como en Orquester.
 
@@ -42,9 +44,13 @@ static OPENCODE_WORKER: AtomicBool = AtomicBool::new(false);
 static CLINE_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
 static CLINE_ERR: Mutex<Option<String>> = Mutex::new(None);
 static CLINE_WORKER: AtomicBool = AtomicBool::new(false);
+static CLINE_LIVE: Mutex<Option<String>> = Mutex::new(None);
 static COPILOT_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
 static COPILOT_ERR: Mutex<Option<String>> = Mutex::new(None);
 static COPILOT_WORKER: AtomicBool = AtomicBool::new(false);
+static GEMINI_BARS: Mutex<Option<Vec<QuotaBar>>> = Mutex::new(None);
+static GEMINI_ERR: Mutex<Option<String>> = Mutex::new(None);
+static GEMINI_WORKER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct QuotaBar {
@@ -74,6 +80,7 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
     kick_opencode_usage();
     kick_cline_usage();
     kick_copilot_usage();
+    kick_gemini_usage();
     let mut out = Vec::new();
     if files::command_on_path("claude") {
         let agent = claude(running);
@@ -87,20 +94,24 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
             out.push(agent);
         }
     }
-    if files::command_on_path("opencode") {
+    if files::command_on_path("opencode") || opencode_api_key().is_some() {
         let agent = opencode(running);
         if agent.supported || agent.pending || agent.note.is_some() {
             out.push(agent);
         }
     }
-    // Cline/ClinePass: la cuota vive en la API, no en el binario.
-    // Mostrarlo aunque `cline` no esté en el PATH del sidecar.
-    out.push(cline(running));
+    if files::command_on_path("cline") || running_has(running, "cline") || cline_api_key().is_some()
+    {
+        out.push(cline(running));
+    }
     if files::command_on_path("copilot") {
         let agent = copilot(running);
         if agent.supported || agent.pending || agent.note.is_some() {
             out.push(agent);
         }
+    }
+    if gemini_present() {
+        out.push(gemini(running));
     }
     out
 }
@@ -185,7 +196,9 @@ fn opencode(running: &[String]) -> QuotaAgent {
 }
 
 fn cline(running: &[String]) -> QuotaAgent {
-    let available = files::command_on_path("cline") || running_has(running, "cline");
+    let available = files::command_on_path("cline")
+        || running_has(running, "cline")
+        || cline_api_key().is_some();
     let running = running_has(running, "cline");
     let bars = CLINE_BARS
         .lock()
@@ -239,6 +252,71 @@ fn copilot(running: &[String]) -> QuotaAgent {
         supported: !bars.is_empty(),
         note,
         bars,
+    }
+}
+
+fn gemini(running: &[String]) -> QuotaAgent {
+    let available = gemini_present();
+    let running = running_has(running, "gemini");
+    let bars = GEMINI_BARS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_default();
+    let err = GEMINI_ERR.lock().ok().and_then(|g| g.clone());
+    let pending = bars.is_empty() && err.is_none() && gemini_oauth_creds().is_some();
+    let note = if !bars.is_empty() {
+        None
+    } else if pending {
+        Some("consultando Gemini…".into())
+    } else {
+        err.or_else(gemini_auth_note)
+    };
+    QuotaAgent {
+        id: "gemini".into(),
+        label: "Gemini".into(),
+        available,
+        running,
+        pending,
+        supported: !bars.is_empty(),
+        note,
+        bars,
+    }
+}
+
+fn gemini_present() -> bool {
+    files::command_on_path("gemini") || gemini_dir().is_some_and(|dir| dir.is_dir())
+}
+
+fn gemini_dir() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("HOME")?).join(".gemini"))
+}
+
+fn gemini_oauth_creds() -> Option<PathBuf> {
+    let path = gemini_dir()?.join("oauth_creds.json");
+    path.is_file().then_some(path)
+}
+
+fn gemini_auth_note() -> Option<String> {
+    if gemini_oauth_creds().is_some() {
+        return None;
+    }
+    let kind = gemini_dir()
+        .and_then(|dir| fs::read_to_string(dir.join("settings.json")).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|root| {
+            root.pointer("/security/auth/selectedType")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    if kind == "gemini-api-key" {
+        Some(
+            "API key de AI Studio: Gemini no publica barras de cuota locales. En el pane: /model."
+                .into(),
+        )
+    } else {
+        Some("Gemini: falta login Google (~/.gemini/oauth_creds.json). En el pane: gemini.".into())
     }
 }
 
@@ -555,7 +633,7 @@ fn kick_claude_usage() {
 }
 
 fn kick_opencode_usage() {
-    if !files::command_on_path("opencode") {
+    if !files::command_on_path("opencode") && opencode_api_key().is_none() {
         return;
     }
     if OPENCODE_WORKER
@@ -611,6 +689,38 @@ fn kick_cline_usage() {
                 }
             }
             thread::sleep(Duration::from_secs(20));
+        }
+    });
+}
+
+fn kick_gemini_usage() {
+    if gemini_oauth_creds().is_none() {
+        return;
+    }
+    if GEMINI_WORKER
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    thread::spawn(|| {
+        loop {
+            match fetch_gemini_bars() {
+                Ok(bars) => {
+                    if let Ok(mut slot) = GEMINI_BARS.lock() {
+                        *slot = Some(bars);
+                    }
+                    if let Ok(mut err) = GEMINI_ERR.lock() {
+                        *err = None;
+                    }
+                }
+                Err(msg) => {
+                    if let Ok(mut err) = GEMINI_ERR.lock() {
+                        *err = Some(msg);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(30));
         }
     });
 }
@@ -918,7 +1028,14 @@ fn fetch_opencode_bars() -> Result<Vec<QuotaBar>, String> {
                 return Err("OpenCode Go: key inválida. En el pane: /connect.".into());
             }
             Ok((403, _)) => {
-                return Err("OpenCode: la key no tiene suscripción Go.".into());
+                let export = read_opencode_export();
+                if !export.is_empty() {
+                    return Ok(export);
+                }
+                return Err(
+                    "OpenCode: esta key no tiene Zen Go. Sin ese plan no hay barras de cuota."
+                        .into(),
+                );
             }
             Ok((status, _)) => {
                 return Err(format!("OpenCode Go devolvió HTTP {status}"));
@@ -947,14 +1064,33 @@ fn fetch_opencode_bars() -> Result<Vec<QuotaBar>, String> {
 }
 
 fn fetch_cline_bars() -> Result<Vec<QuotaBar>, String> {
-    let key = cline_api_key().ok_or_else(|| {
-        "Cline: no hay key en ~/.cline/data/settings/providers.json. En el pane: cline auth."
+    let creds = cline_creds().ok_or_else(|| {
+        "Cline: no hay sesión en ~/.cline/data/settings/providers.json. En el pane: cline auth."
             .to_string()
     })?;
-    let (status, value) = bearer_get(
+    let mut access = CLINE_LIVE
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .unwrap_or(creds.access.clone());
+    let (mut status, mut value) = bearer_get(
         "https://api.cline.bot/api/v1/users/me/plan/usage-limits",
-        &key,
+        &access,
     )?;
+    if (status == 401 || status == 403)
+        && let Some(refresh) = creds.refresh.as_deref()
+    {
+        access = cline_refresh_access(refresh)?;
+        if let Ok(mut slot) = CLINE_LIVE.lock() {
+            *slot = Some(access.clone());
+        }
+        let retry = bearer_get(
+            "https://api.cline.bot/api/v1/users/me/plan/usage-limits",
+            &access,
+        )?;
+        status = retry.0;
+        value = retry.1;
+    }
     if status == 401 || status == 403 {
         return Err("Cline: hay que volver a autenticar (cline auth).".into());
     }
@@ -967,6 +1103,34 @@ fn fetch_cline_bars() -> Result<Vec<QuotaBar>, String> {
     } else {
         Ok(bars)
     }
+}
+
+fn cline_refresh_access(refresh: &str) -> Result<String, String> {
+    let body = json!({
+        "grantType": "refresh_token",
+        "refreshToken": refresh,
+    })
+    .to_string();
+    let (status, value) = curl_json_ex(
+        "https://api.cline.bot/api/v1/auth/refresh",
+        "Accept: application/json\nContent-Type: application/json\n",
+        Some(&body),
+    )?;
+    if !(200..300).contains(&status) {
+        return Err("Cline: hay que volver a autenticar (cline auth).".into());
+    }
+    cline_access_from_refresh(&value)
+        .ok_or_else(|| "Cline: el refresh no devolvió accessToken.".into())
+}
+
+pub fn cline_access_from_refresh(root: &Value) -> Option<String> {
+    let data = root.get("data").unwrap_or(root);
+    data.get("accessToken")
+        .or_else(|| data.get("access_token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
 }
 
 fn fetch_copilot_bars() -> Result<Vec<QuotaBar>, String> {
@@ -989,6 +1153,77 @@ fn fetch_copilot_bars() -> Result<Vec<QuotaBar>, String> {
     } else {
         Ok(bars)
     }
+}
+
+fn fetch_gemini_bars() -> Result<Vec<QuotaBar>, String> {
+    let token = gemini_access_token().ok_or_else(|| {
+        "Gemini: falta OAuth en ~/.gemini/oauth_creds.json. En el pane: gemini.".to_string()
+    })?;
+    let project = gemini_cloud_project().ok_or_else(|| {
+        "Gemini OAuth: hace falta GOOGLE_CLOUD_PROJECT (o el project en settings.json).".to_string()
+    })?;
+    let body = json!({
+        "project": project,
+        "userAgent": "gemini-cli"
+    })
+    .to_string();
+    let (status, value) = bearer_post(
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+        &token,
+        &body,
+    )?;
+    if status == 401 || status == 403 {
+        return Err("Gemini: hay que volver a autenticar (gemini).".into());
+    }
+    if !(200..300).contains(&status) {
+        return Err(format!("Gemini devolvió HTTP {status}"));
+    }
+    let bars = parse_gemini_quota(&value);
+    if bars.is_empty() {
+        Err("Gemini no devolvió ventanas de cuota.".into())
+    } else {
+        Ok(bars)
+    }
+}
+
+fn gemini_access_token() -> Option<String> {
+    let text = fs::read_to_string(gemini_oauth_creds()?).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
+    value
+        .get("access_token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+}
+
+fn gemini_cloud_project() -> Option<String> {
+    for name in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID"] {
+        if let Ok(value) = std::env::var(name) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    let text = fs::read_to_string(gemini_dir()?.join("settings.json")).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
+    for pointer in [
+        "/gcpProject",
+        "/googleCloudProject",
+        "/project",
+        "/security/auth/project",
+    ] {
+        if let Some(project) = value
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|project| !project.is_empty())
+        {
+            return Some(project.to_string());
+        }
+    }
+    None
 }
 
 fn github_token() -> Option<String> {
@@ -1083,11 +1318,24 @@ fn api_key_in(value: &Value) -> Option<String> {
 }
 
 fn cline_api_key() -> Option<String> {
+    cline_creds().map(|creds| creds.access)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ClineCreds {
+    access: String,
+    refresh: Option<String>,
+}
+
+fn cline_creds() -> Option<ClineCreds> {
     for name in ["CLINE_API_KEY", "CLINEPASS_API_KEY"] {
         if let Ok(value) = std::env::var(name) {
             let value = value.trim();
             if !value.is_empty() {
-                return Some(value.to_string());
+                return Some(ClineCreds {
+                    access: value.to_string(),
+                    refresh: None,
+                });
             }
         }
     }
@@ -1098,8 +1346,8 @@ fn cline_api_key() -> Option<String> {
         let Ok(value) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
-        if let Some(key) = cline_key_from_value(&value) {
-            return Some(key);
+        if let Some(creds) = cline_creds_from_value(&value) {
+            return Some(creds);
         }
     }
     None
@@ -1111,6 +1359,7 @@ fn cline_provider_paths() -> Vec<PathBuf> {
         let home = PathBuf::from(home);
         out.push(home.join(".cline/data/settings/providers.json"));
         out.push(home.join(".cline/data/providers.json"));
+        out.push(home.join(".cline/data/secrets.json"));
         out.push(home.join(".config/cline/data/settings/providers.json"));
         out.push(home.join(".config/cline/providers.json"));
         out.push(home.join(".cline/settings.json"));
@@ -1124,12 +1373,28 @@ fn cline_provider_paths() -> Vec<PathBuf> {
 }
 
 pub fn cline_key_from_value(root: &Value) -> Option<String> {
+    cline_creds_from_value(root).map(|creds| creds.access)
+}
+
+fn cline_creds_from_value(root: &Value) -> Option<ClineCreds> {
+    if let Some(id) = root.get("lastUsedProvider").and_then(Value::as_str)
+        && let Some(node) = root
+            .get("providers")
+            .and_then(|providers| providers.get(id))
+            .or_else(|| root.get(id))
+    {
+        let mut found = None;
+        walk_cline_creds(node, id, &mut found);
+        if found.is_some() {
+            return found;
+        }
+    }
     let mut found = None;
-    walk_cline_key(root, "", &mut found);
+    walk_cline_creds(root, "", &mut found);
     found
 }
 
-fn walk_cline_key(value: &Value, parent: &str, found: &mut Option<String>) {
+fn walk_cline_creds(value: &Value, parent: &str, found: &mut Option<ClineCreds>) {
     if found.is_some() {
         return;
     }
@@ -1146,27 +1411,38 @@ fn walk_cline_key(value: &Value, parent: &str, found: &mut Option<String>) {
                     .map(str::trim)
                     .filter(|key| !key.is_empty())
                 {
-                    *found = Some(key.to_string());
+                    *found = Some(ClineCreds {
+                        access: key.to_string(),
+                        refresh: None,
+                    });
                     return;
                 }
-                if let Some(key) = map
-                    .get("auth")
-                    .and_then(|auth| auth.get("accessToken"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|key| !key.is_empty())
-                {
-                    *found = Some(key.to_string());
-                    return;
+                if let Some(auth) = map.get("auth") {
+                    let access = auth
+                        .get("accessToken")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|token| !token.is_empty())
+                        .map(str::to_string);
+                    let refresh = auth
+                        .get("refreshToken")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|token| !token.is_empty())
+                        .map(str::to_string);
+                    if let Some(access) = access {
+                        *found = Some(ClineCreds { access, refresh });
+                        return;
+                    }
                 }
             }
             for (key, child) in map {
-                walk_cline_key(child, key, found);
+                walk_cline_creds(child, key, found);
             }
         }
         Value::Array(items) => {
             for item in items {
-                walk_cline_key(item, parent, found);
+                walk_cline_creds(item, parent, found);
             }
         }
         _ => {}
@@ -1190,6 +1466,16 @@ fn bearer_get(url: &str, token: &str) -> Result<(u16, Value), String> {
     )
 }
 
+fn bearer_post(url: &str, token: &str, body: &str) -> Result<(u16, Value), String> {
+    curl_json_ex(
+        url,
+        &format!(
+            "Authorization: Bearer {token}\nAccept: application/json\nContent-Type: application/json\n"
+        ),
+        Some(body),
+    )
+}
+
 fn github_get(url: &str, token: &str) -> Result<(u16, Value), String> {
     curl_json(
         url,
@@ -1200,10 +1486,21 @@ fn github_get(url: &str, token: &str) -> Result<(u16, Value), String> {
 }
 
 fn curl_json(url: &str, headers: &str) -> Result<(u16, Value), String> {
+    curl_json_ex(url, headers, None)
+}
+
+fn curl_json_ex(url: &str, headers: &str, post_body: Option<&str>) -> Result<(u16, Value), String> {
     let curl = files::resolve_command("curl")
         .ok_or_else(|| "hace falta `curl` para leer la cuota".to_string())?;
     let header = write_request_headers(headers)?;
     let _guard = TempPath(header.clone());
+    let body_path = if let Some(body) = post_body {
+        let path = write_request_body(body)?;
+        Some(path)
+    } else {
+        None
+    };
+    let _body_guard = body_path.as_ref().map(|path| TempPath(path.clone()));
     let mut cmd = Command::new(curl);
     if let Some(path) = files::effective_path() {
         cmd.env("PATH", path);
@@ -1214,12 +1511,13 @@ fn curl_json(url: &str, headers: &str) -> Result<(u16, Value), String> {
         "10",
         "-H",
         &format!("@{}", header.display()),
-        "-w",
-        "\n%{http_code}",
-        url,
-    ])
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null());
+    ]);
+    if let Some(path) = &body_path {
+        cmd.args(["-X", "POST", "-d", &format!("@{}", path.display())]);
+    }
+    cmd.args(["-w", "\n%{http_code}", url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     let output = cmd
         .output()
         .map_err(|err| format!("no arrancó curl: {err}"))?;
@@ -1255,6 +1553,27 @@ fn write_request_headers(headers: &str) -> Result<PathBuf, String> {
     ));
     fs::write(&path, headers)
         .map_err(|err| format!("no pude escribir el header temporal: {err}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(path)
+}
+
+fn write_request_body(body: &str) -> Result<PathBuf, String> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let path = dir.join(format!(
+        "lolterm-quota-{}-{}.json",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::write(&path, body).map_err(|err| format!("no pude escribir el body temporal: {err}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1440,14 +1759,76 @@ fn bar_from_window(key: &str, value: &Value) -> Option<QuotaBar> {
     })
 }
 
+pub fn parse_gemini_quota(root: &Value) -> Vec<QuotaBar> {
+    let data = unwrap_envelope(root);
+    let Some(buckets) = data
+        .get("buckets")
+        .or_else(|| data.get("quotas"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    buckets
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| {
+            let map = item.as_object()?;
+            let used = used_in_map(map)?;
+            let name = map
+                .get("modelId")
+                .or_else(|| map.get("model"))
+                .or_else(|| map.get("tokenType"))
+                .or_else(|| map.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("quota");
+            Some(QuotaBar {
+                key: format!("gemini-{idx}"),
+                label: name.replace("gemini-", "").replace('-', " "),
+                percent: used,
+                reset: map
+                    .get("resetTime")
+                    .or_else(|| map.get("resetAt"))
+                    .and_then(reset_from_value),
+            })
+        })
+        .collect()
+}
+
 fn used_in_map(map: &serde_json::Map<String, Value>) -> Option<u8> {
-    map.get("percent")
+    if let Some(n) = map
+        .get("percent")
         .or_else(|| map.get("percentUsed"))
         .or_else(|| map.get("usedPercent"))
         .or_else(|| map.get("usagePercent"))
-        .or_else(|| map.get("used"))
         .and_then(Value::as_f64)
-        .map(as_points)
+    {
+        return Some(as_points(n));
+    }
+    if let Some(left) = map
+        .get("percentRemaining")
+        .or_else(|| map.get("percent_remaining"))
+        .and_then(Value::as_f64)
+    {
+        return Some(remaining_from_used(as_percent(left)));
+    }
+    if let Some(frac) = map.get("remainingFraction").and_then(Value::as_f64) {
+        return Some(as_points(((1.0 - frac).clamp(0.0, 1.0)) * 100.0));
+    }
+    let used = map
+        .get("used")
+        .or_else(|| map.get("consumed"))
+        .and_then(Value::as_f64);
+    let limit = map
+        .get("limit")
+        .or_else(|| map.get("entitlement"))
+        .or_else(|| map.get("max"))
+        .and_then(Value::as_f64);
+    if let (Some(used), Some(limit)) = (used, limit)
+        && limit > 0.0
+    {
+        return Some(as_points((used / limit) * 100.0));
+    }
+    used.map(as_points)
 }
 
 fn window_label(key: &str) -> String {
@@ -1716,6 +2097,74 @@ Current week (all models): 40% used · Resets Aug 24
             cline_key_from_value(&root).as_deref(),
             Some("cline-pass-key")
         );
+    }
+
+    #[test]
+    fn cline_prefers_last_used_provider() {
+        let root = json!({
+            "lastUsedProvider": "cline-pass",
+            "providers": {
+                "cline": { "settings": { "provider": "cline", "auth": { "accessToken": "old" } } },
+                "cline-pass": { "settings": { "provider": "cline-pass", "auth": { "accessToken": "fresh" } } }
+            }
+        });
+        assert_eq!(cline_key_from_value(&root).as_deref(), Some("fresh"));
+        let creds = cline_creds_from_value(&root).expect("creds");
+        assert_eq!(creds.access, "fresh");
+        assert_eq!(creds.refresh.as_deref(), None);
+    }
+
+    #[test]
+    fn cline_creds_keep_refresh_token() {
+        let root = json!({
+            "lastUsedProvider": "cline-pass",
+            "providers": {
+                "cline-pass": {
+                    "settings": {
+                        "provider": "cline-pass",
+                        "auth": { "accessToken": "acc", "refreshToken": "ref" }
+                    }
+                }
+            }
+        });
+        let creds = cline_creds_from_value(&root).expect("creds");
+        assert_eq!(creds.access, "acc");
+        assert_eq!(creds.refresh.as_deref(), Some("ref"));
+    }
+
+    #[test]
+    fn cline_refresh_envelope_picks_access() {
+        let root = json!({ "success": true, "data": { "accessToken": "new-acc", "refreshToken": "new-ref" } });
+        assert_eq!(cline_access_from_refresh(&root).as_deref(), Some("new-acc"));
+    }
+
+    #[test]
+    fn parse_cline_remaining_fraction_and_counts() {
+        let root = json!({
+            "data": {
+                "limits": [
+                    { "type": "five_hour", "remainingFraction": 0.25 },
+                    { "type": "weekly", "used": 40, "limit": 80 }
+                ]
+            }
+        });
+        let bars = parse_cline_usage_limits(&root);
+        assert_eq!(bars[0].percent, 75);
+        assert_eq!(bars[1].percent, 50);
+    }
+
+    #[test]
+    fn parse_gemini_buckets_as_used() {
+        let root = json!({
+            "buckets": [
+                { "modelId": "gemini-2.5-pro", "remainingFraction": 0.4, "resetTime": "2026-08-22T00:00:00Z" },
+                { "modelId": "flash", "remainingFraction": 1 }
+            ]
+        });
+        let bars = parse_gemini_quota(&root);
+        assert_eq!(bars.len(), 2);
+        assert_eq!(bars[0].percent, 60);
+        assert_eq!(bars[1].percent, 0);
     }
 
     #[test]

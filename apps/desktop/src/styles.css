@@ -1147,11 +1147,7 @@ button {
 }
 
 .welcome-mark {
-  display: block;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 14px;
-  border-radius: 14px;
+  display: none;
 }
 
 .welcome-kicker,
@@ -1186,10 +1182,10 @@ button {
 
 .welcome-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 28px;
-  margin-top: 36px;
-  max-width: 960px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px 40px;
+  margin-top: 22px;
+  max-width: 880px;
 }
 
 .welcome-grid h2 {
@@ -1236,6 +1232,69 @@ button {
   color: var(--muted);
   font-size: 11px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.welcome-inline-row,
+.welcome-preset-row,
+.welcome-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.welcome-mini,
+.welcome-preset,
+.welcome-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.welcome-mini:hover,
+.welcome-preset:hover,
+.welcome-tool:hover {
+  border-color: var(--brand);
+  background: var(--focus);
+}
+
+.welcome-miss {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--err);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome-keys-line {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.welcome-keys-line kbd {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
 }
 
 .welcome-keys {
@@ -1625,7 +1684,7 @@ button {
   left: 50%;
   bottom: 40px;
   transform: translateX(-50%);
-  z-index: 80;
+  z-index: 120;
   pointer-events: none;
   padding: 6px 14px;
   border-radius: 8px;
@@ -2068,6 +2127,17 @@ button {
   box-shadow: 0 16px 48px rgba(20, 28, 22, 0.22);
 }
 
+.settings-panel .env-form {
+  padding: 0;
+}
+
+.settings-panel .open-folder-btn {
+  width: auto;
+  margin: 8px 0 0;
+  border-style: solid;
+  color: var(--text);
+}
+
 .settings-head {
   display: flex;
   align-items: flex-start;
@@ -2144,18 +2214,19 @@ button {
 .theme-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 10px;
 }
 
 .theme-tile {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   text-align: left;
   border: 1px solid var(--border);
   background: var(--fill);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 8px;
   color: inherit;
 }
 
@@ -2168,12 +2239,57 @@ button {
   background: var(--focus);
 }
 
+.theme-preview {
+  display: flex;
+  flex-direction: column;
+  border-radius: 7px;
+  overflow: hidden;
+  min-height: 72px;
+  pointer-events: none;
+}
+
+.theme-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px 0;
+}
+
+.theme-preview-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.theme-preview-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.28;
+}
+
+.theme-preview-tab {
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 4px 4px 0 0;
+}
+
+.theme-preview-term {
+  margin: 0 6px 6px;
+  border-radius: 4px;
+  padding: 8px 8px 10px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  flex: 1;
+}
+
+.theme-preview-fallback {
+  min-height: 72px;
+}
+
 .theme-tile-swatch {
-  width: 44px;
-  height: 28px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  display: none;
 }
 
 .theme-tile-copy {
@@ -2181,7 +2297,7 @@ button {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  flex: 1;
+  padding: 0 2px;
 }
 
 .theme-tile-copy strong {
@@ -2288,20 +2404,20 @@ button {
 
 .settings-preset-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
 .settings-preset {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   text-align: left;
   border: 1px solid var(--border);
   background: var(--fill);
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px 10px;
   color: inherit;
 }
 
@@ -2358,6 +2474,89 @@ button {
   margin-left: auto;
   color: var(--muted);
   font-size: 11px;
+}
+
+.settings-ws-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+  margin-top: 4px;
+}
+
+.settings-add-cli {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-add-cli select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  max-width: 120px;
+}
+
+.diag-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.diag-copied {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.diag-copied.is-err {
+  color: var(--err);
+}
+
+.diag-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.diag-row.is-error {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border));
+}
+
+.diag-when {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.status-diag {
+  color: var(--err);
+}
+
+@media (max-width: 720px) {
+  .settings-ws-split,
+  .settings-preset-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -2609,6 +2808,12 @@ button {
 .quota-btn:hover,
 .quota-btn.on {
   background: var(--fill);
+  color: var(--text);
+}
+
+.quota-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
   color: var(--text);
 }
 

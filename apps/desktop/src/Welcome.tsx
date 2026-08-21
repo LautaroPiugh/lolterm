@@ -11,7 +11,7 @@ import {
   Sparkles,
   Terminal,
 } from "./icons";
-import { displayVersion, eraLabel } from "./version";
+import { displayVersion } from "./version";
 import type { Snapshot } from "./types";
 
 const CLI_HINT: Record<string, string> = {
@@ -19,23 +19,26 @@ const CLI_HINT: Record<string, string> = {
   lazygit: "git",
   btop: "monitor",
   yazi: "archivos",
-  fzf: "fuzzy finder",
-  gh: "GitHub CLI",
+  fzf: "fuzzy",
+  gh: "GitHub",
   tmux: "mux",
   rg: "ripgrep",
   delta: "diffs",
-  codex: "worktree + contexto",
-  claude: "worktree + contexto",
-  opencode: "worktree + contexto",
-  gemini: "worktree + contexto",
-  cline: "worktree + contexto",
-  copilot: "worktree + contexto",
+  codex: "agente",
+  claude: "agente",
+  opencode: "agente",
+  gemini: "agente",
+  cline: "agente",
+  copilot: "agente",
 };
+
+const DAILY = ["nvim", "lazygit", "btop", "yazi", "fzf"];
+const AGENTS = ["codex", "claude", "opencode", "gemini", "cline", "copilot"];
 
 function CliIcon({ name }: { name: string }) {
   if (name === "lazygit") return <GitBranch size={14} />;
   if (name === "yazi") return <FileCode size={14} />;
-  if (["codex", "claude", "opencode", "gemini", "cline", "copilot"].includes(name)) return <Sparkles size={14} />;
+  if (AGENTS.includes(name)) return <Sparkles size={14} />;
   return <Terminal size={14} />;
 }
 
@@ -51,6 +54,7 @@ export function Welcome({
   onTs,
   onConnectMachine,
   onPreset,
+  onTools,
 }: {
   snap: Snapshot;
   onNewTab: () => void;
@@ -63,18 +67,23 @@ export function Welcome({
   onTs: () => void;
   onConnectMachine: (target: string) => void;
   onPreset: (id: string) => void;
+  onTools: () => void;
 }) {
   const others = (snap.workspaces ?? []).filter((ws) => !ws.current);
   const tools = snap.run_clis ?? [];
+  const ready = tools.filter((cli) => cli.available);
+  const daily = DAILY.map((name) => ready.find((cli) => cli.name === name)).filter(
+    (cli): cli is NonNullable<typeof cli> => Boolean(cli),
+  );
+  const agents = ready.filter((cli) => AGENTS.includes(cli.name));
+  const nvimMissing = tools.some((cli) => cli.name === "nvim" && !cli.available);
   const machines = snap.machines ?? [];
-  const presets = (snap.presets ?? []).slice(0, 4);
-  const startup = (snap.startup ?? []).map((cmd) => cmd.program).join(" · ");
+  const presets = (snap.presets ?? []).slice(0, 5);
   const git = snap.git;
 
   return (
     <div className="welcome">
       <header className="welcome-hero">
-        <img className="welcome-mark" src={`${import.meta.env.BASE_URL}icon.png`} alt="" width={56} height={56} />
         <p className="welcome-kicker">LoLTerm {displayVersion(snap.version)}</p>
         <h1>{snap.name}</h1>
         <p className="welcome-sub">
@@ -85,20 +94,13 @@ export function Welcome({
           ) : (
             "sin git"
           )}
-          {snap.meta?.git_remote ? ` · ${snap.meta.git_remote}` : ""}
-          {snap.meta?.stack?.length ? ` · ${snap.meta.stack.join(", ")}` : ""}
+          {git ? (
+            <>
+              <span className="diff-chip diff-add">+{git.staged + git.untracked}</span>
+              <span className="diff-chip diff-del">−{git.unstaged}</span>
+            </>
+          ) : null}
         </p>
-        {git ? (
-          <p className="welcome-git">
-            <span className="diff-chip diff-add">+{git.staged + git.untracked}</span>
-            <span className="diff-chip diff-del">−{git.unstaged}</span>
-            {git.ahead > 0 ? <span className="welcome-git-extra">↑{git.ahead}</span> : null}
-            {git.behind > 0 ? <span className="welcome-git-extra">↓{git.behind}</span> : null}
-            <button type="button" className="welcome-inline" onClick={() => onRun("lazygit")} disabled={!tools.some((c) => c.name === "lazygit" && c.available)}>
-              lazygit
-            </button>
-          </p>
-        ) : null}
         <p className="welcome-path">{snap.root}</p>
       </header>
       <div className="welcome-grid">
@@ -119,105 +121,84 @@ export function Welcome({
           </button>
           <button type="button" className="welcome-action" onClick={onPalette}>
             <Command size={14} />
-            Paleta de comandos
+            Paleta
             <span className="welcome-chord">Ctrl-B</span>
           </button>
-          <button type="button" className="welcome-action" onClick={onSsh}>
-            <Server size={14} />
-            Conectar SSH…
-          </button>
-          <button type="button" className="welcome-action" onClick={onTs}>
-            <Cloud size={14} />
-            Tailscale…
-          </button>
-        </section>
-        <section>
-          <h2>Herramientas</h2>
-          {tools.length === 0 ? (
-            <p className="welcome-empty">nada en el catálogo de CLIs</p>
-          ) : (
-            tools.map((cli) => (
-              <button
-                key={cli.name}
-                type="button"
-                className="welcome-action"
-                disabled={!cli.available}
-                title={cli.available ? `abrir ${cli.name}` : `${cli.name} no está en PATH`}
-                onClick={() => onRun(cli.name)}
-              >
-                <CliIcon name={cli.name} />
-                <span className="welcome-ws">{cli.name}</span>
-                <span className="welcome-ws-path">{cli.available ? (CLI_HINT[cli.name] ?? "CLI") : "no en PATH"}</span>
-              </button>
-            ))
-          )}
+          <div className="welcome-inline-row">
+            <button type="button" className="welcome-mini" onClick={onSsh}>
+              <Server size={12} />
+              SSH
+            </button>
+            <button type="button" className="welcome-mini" onClick={onTs}>
+              <Cloud size={12} />
+              Tailscale
+            </button>
+          </div>
           {presets.length > 0 ? (
             <>
               <h2 className="welcome-subhead">Layouts</h2>
-              {presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className="welcome-action"
-                  title={preset.hint}
-                  onClick={() => onPreset(preset.id)}
-                >
-                  <Columns size={14} />
-                  <span className="welcome-ws">{preset.name}</span>
-                  <span className="welcome-ws-path">{preset.hint}</span>
-                </button>
-              ))}
-            </>
-          ) : null}
-          {(snap.agent_log ?? []).length > 0 ? (
-            <>
-              <h2 className="welcome-subhead">Agentes recientes</h2>
-              {(snap.agent_log ?? []).slice(0, 5).map((row) => (
-                <button
-                  key={`${row.ts}-${row.program}-${row.worktree ?? ""}`}
-                  type="button"
-                  className="welcome-action"
-                  onClick={() => onRun(row.program)}
-                >
-                  <Sparkles size={14} />
-                  <span className="welcome-ws">{row.program}</span>
-                  <span className="welcome-ws-path">{row.worktree ?? row.workspace}</span>
-                </button>
-              ))}
-            </>
-          ) : null}
-          {(snap.extensions ?? []).length > 0 ? (
-            <>
-              <h2 className="welcome-subhead">Extensiones</h2>
-              {(snap.extensions ?? []).map((name) => (
-                <p key={name} className="welcome-empty">
-                  {name}
-                </p>
-              ))}
+              <div className="welcome-preset-row">
+                {presets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="welcome-preset"
+                    title={preset.hint}
+                    onClick={() => onPreset(preset.id)}
+                  >
+                    <Columns size={12} />
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
             </>
           ) : null}
         </section>
         <section>
-          <h2>Recientes</h2>
-          {others.length === 0 ? (
-            <p className="welcome-empty">no hay otros workspaces en el catálogo</p>
+          <h2>En PATH</h2>
+          {daily.length === 0 && agents.length === 0 ? (
+            <p className="welcome-empty">ninguna CLI del catálogo</p>
           ) : (
-            others.slice(0, 8).map((ws) => (
-              <button
-                key={ws.root}
-                type="button"
-                className="welcome-action"
-                onClick={() => onOpenWorkspace(ws.root)}
-              >
-                <span className="welcome-ws">{ws.name}</span>
-                <span className="welcome-ws-path">{ws.root_label ?? ws.root}</span>
-              </button>
-            ))
+            <div className="welcome-tool-row">
+              {[...daily, ...agents].map((cli) => (
+                <button
+                  key={cli.name}
+                  type="button"
+                  className="welcome-tool"
+                  title={CLI_HINT[cli.name] ?? "CLI"}
+                  onClick={() => onRun(cli.name)}
+                >
+                  <CliIcon name={cli.name} />
+                  {cli.name}
+                </button>
+              ))}
+            </div>
           )}
+          {nvimMissing ? (
+            <button type="button" className="welcome-miss" onClick={onTools}>
+              nvim no está en PATH · instalar en Ajustes
+            </button>
+          ) : null}
+          {others.length > 0 ? (
+            <>
+              <h2 className="welcome-subhead">Recientes</h2>
+              {others.slice(0, 5).map((ws) => (
+                <button
+                  key={ws.root}
+                  type="button"
+                  className="welcome-action"
+                  onClick={() => onOpenWorkspace(ws.root)}
+                >
+                  <span className="welcome-ws">{ws.name}</span>
+                  <span className="welcome-ws-path">{ws.root_label ?? ws.root}</span>
+                </button>
+              ))}
+            </>
+          ) : null}
           {machines.length > 0 ? (
             <>
               <h2 className="welcome-subhead">Máquinas</h2>
-              {machines.slice(0, 8).map((machine) => (
+              {machines.slice(0, 5).map((machine) => (
                 <button
                   key={`${machine.kind}:${machine.target}`}
                   type="button"
@@ -234,21 +215,9 @@ export function Welcome({
         </section>
       </div>
       <footer className="welcome-foot">
-        <ul className="welcome-keys">
-          <li>
-            <kbd>Ctrl-Tab</kbd> cicla tabs
-          </li>
-          <li>
-            <kbd>Ctrl-Alt-[ ]</kbd> workspaces
-          </li>
-          <li>
-            <kbd>Ctrl-Alt-V / S</kbd> split
-          </li>
-          <li>Arrastrá una pestaña al borde para partir el layout</li>
-        </ul>
-        {startup ? <p className="welcome-startup">al abrir: {startup}</p> : null}
-        {snap.meta?.notes ? <p className="welcome-notes">{snap.meta.notes}</p> : null}
-        <p className="welcome-era">{eraLabel(snap.version)}</p>
+        <p className="welcome-keys-line">
+          <kbd>Ctrl-Tab</kbd> tabs · <kbd>Ctrl-Alt-[ ]</kbd> workspaces · <kbd>Ctrl-Alt-V/S</kbd> split
+        </p>
       </footer>
     </div>
   );

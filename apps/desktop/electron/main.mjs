@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain } from "electron";
+import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import { checkLinuxDebUpdate, installLinuxDebUpdate } from "./update.mjs";
 import { installDevDesktopEntry } from "./linux-desktop.mjs";
 
@@ -370,6 +370,10 @@ if (!gotLock) {
     startCore(openDirArg());
     ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
     ipcMain.handle("core-hello", () => lastReady);
+    ipcMain.handle("open-external", (_e, url) => {
+      if (typeof url !== "string" || !url.startsWith("https://github.com/LautaroPiugh/lolterm")) return;
+      return shell.openExternal(url);
+    });
     ipcMain.handle("win-minimize", () => {
       win?.minimize();
     });

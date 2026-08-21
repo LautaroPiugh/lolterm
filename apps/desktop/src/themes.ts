@@ -221,6 +221,24 @@ export function swatchGradient(id: string): string {
   return `linear-gradient(135deg, rgb(${pal.n["200"]}), rgb(${pal.n["950"]}))`;
 }
 
+export function themePreview(id: string): {
+  chrome: string;
+  pane: string;
+  text: string;
+  muted: string;
+  brand: string;
+} | null {
+  const pal = PALETTES[id];
+  if (!pal) return null;
+  return {
+    chrome: `rgb(${pal.n["900"]})`,
+    pane: `rgb(${pal.n["950"]})`,
+    text: `rgb(${pal.n["50"]})`,
+    muted: `rgb(${pal.n["400"]})`,
+    brand: `rgb(${pal.n["600"]})`,
+  };
+}
+
 export function applyDocumentTheme(id: string) {
   const key = parseTheme(id);
   const pal = PALETTES[key];

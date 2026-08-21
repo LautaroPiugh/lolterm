@@ -13,9 +13,9 @@ export function QuotaButton({ open, agents, onToggle, wrapRef }: QuotaProps) {
   const visible = agents.filter(
     (agent) => agent.supported || agent.pending || agent.available || agent.running || agent.note,
   );
-  const worstUsed = visible
-    .flatMap((agent) => agent.bars)
-    .reduce((max, bar) => Math.max(max, bar.percent), 0);
+  const leftovers = visible.flatMap((agent) => agent.bars).map((bar) => Math.max(0, 100 - bar.percent));
+  const lowestLeft = leftovers.length ? Math.min(...leftovers) : null;
+  const worstUsed = lowestLeft == null ? 0 : 100 - lowestLeft;
   return (
     <div className="quota-wrap" ref={wrapRef}>
       <button
@@ -25,15 +25,16 @@ export function QuotaButton({ open, agents, onToggle, wrapRef }: QuotaProps) {
         onClick={onToggle}
       >
         Quota
+        {lowestLeft != null && <span className="quota-pct">{lowestLeft}%</span>}
         {worstUsed > 0 && <span className="quota-dot" data-hot={worstUsed >= 80 ? "1" : "0"} />}
       </button>
       {open && (
         <div className="quota-menu">
           <div className="quota-head">
             <strong>Agent quota</strong>
-            <span>solo CLIs instaladas con cuota</span>
+            <span>CLIs instaladas · barras si la CLI publica cuota</span>
           </div>
-          {visible.length === 0 && <p className="quota-note">No supported quota providers.</p>}
+          {visible.length === 0 && <p className="quota-note">Ningún agente con cuota detectable.</p>}
           {visible.map((agent) => (
             <QuotaRow key={agent.id} agent={agent} />
           ))}

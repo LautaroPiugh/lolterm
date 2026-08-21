@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("lolterm", {
     ipcRenderer.on("chord", listener);
     return () => ipcRenderer.removeListener("chord", listener);
   },
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openFolder: () => ipcRenderer.invoke("open-folder"),
   window: {
     minimize: () => ipcRenderer.invoke("win-minimize"),

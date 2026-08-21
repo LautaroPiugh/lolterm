@@ -7,9 +7,10 @@ import {
   Settings as Gear,
   Sparkles,
   Terminal,
+  AlertTriangle,
   X,
 } from "./icons";
-import { THEMES, swatchGradient } from "./themes";
+import { THEMES, swatchGradient, themePreview } from "./themes";
 import type { Snapshot } from "./types";
 
 export type SettingsTab = "look" | "tools" | "workspace" | "net";
@@ -24,6 +25,7 @@ export function Settings({
   onClose,
   onOpenCommands,
   onUpdate,
+  onDiagnostics,
 }: {
   snap: Snapshot;
   tab: SettingsTab;
@@ -32,6 +34,7 @@ export function Settings({
   onClose: () => void;
   onOpenCommands: () => void;
   onUpdate: () => void;
+  onDiagnostics: () => void;
 }) {
   const tools = snap.tools ?? snap.agent_tools ?? [];
   const clis = tools.filter((tool) => tool.kind !== "agent");
@@ -79,7 +82,9 @@ export function Settings({
       <div className="settings-body">
         {tab === "look" && (
           <>
-            <p className="settings-lead">Tema de chrome y xterm. Los packs extra viven en ~/.config/lolterm/themes.</p>
+            <p className="settings-lead">
+              Chrome y xterm. Cada tarjeta es una miniatura del tema; los packs extra viven en ~/.config/lolterm/themes.
+            </p>
             <ThemePicker
               current={snap.theme}
               themes={snap.themes ?? THEMES}
@@ -95,6 +100,10 @@ export function Settings({
                 <Sparkles size={12} />
                 Buscar actualización
                 <span>/update</span>
+              </button>
+              <button type="button" className="settings-ghost" onClick={onDiagnostics}>
+                <AlertTriangle size={12} />
+                Diagnóstico
               </button>
             </div>
           </>
@@ -127,22 +136,23 @@ export function Settings({
         {tab === "workspace" && (
           <>
             <h3 className="settings-h">Layouts</h3>
+            <p className="settings-lead">Parten el tab actual en nvim/shell. No reemplazan tmux.</p>
             <div className="settings-preset-grid">
               {(snap.presets ?? []).map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
                   className="settings-preset"
+                  title={preset.hint}
                   onClick={() => void call("applyPreset", { id: preset.id })}
                 >
                   <Columns size={13} color="var(--brand)" />
                   <strong>{preset.name}</strong>
-                  <span>{preset.hint}</span>
                 </button>
               ))}
             </div>
             <h3 className="settings-h">Al abrir</h3>
-            <p className="settings-lead">CLIs que LoLTerm lanza al recuperar este workspace.</p>
+            <p className="settings-lead">Se spawnean en PTY al recuperar este workspace.</p>
             <div className="settings-chips">
               {(snap.startup ?? []).map((cmd) => (
                 <button
@@ -156,87 +166,100 @@ export function Settings({
                   <X size={10} />
                 </button>
               ))}
-              {snap.run_clis
-                .filter(
-                  (cli) => cli.available && !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
-                )
-                .map((cli) => (
+              <label className="settings-add-cli">
+                <Plus size={10} />
+                <select
+                  value=""
+                  onChange={(event) => {
+                    const program = event.target.value;
+                    if (program) void call("addStartup", { program, args: [] });
+                  }}
+                >
+                  <option value="">añadir…</option>
+                  {(snap.run_clis ?? [])
+                    .filter(
+                      (cli) => cli.available && !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
+                    )
+                    .map((cli) => (
+                      <option key={cli.name} value={cli.name}>
+                        {cli.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div className="settings-ws-split">
+              <div>
+                <h3 className="settings-h">Entorno</h3>
+                <p className="settings-lead">Variables extra de los PTYs de este workspace. No pongas tokens.</p>
+                {(snap.env ?? []).map((item) => (
                   <button
-                    key={cli.name}
+                    key={item.key}
                     type="button"
-                    className="settings-chip"
-                    onClick={() => void call("addStartup", { program: cli.name, args: [] })}
+                    className="settings-env-hit"
+                    title="quitar"
+                    onClick={() => void call("removeEnv", { key: item.key })}
                   >
-                    <Plus size={10} />
-                    {cli.name}
+                    <code>{item.key}</code>
+                    <span>quitar</span>
                   </button>
                 ))}
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const key = envKey.trim();
+                    if (!key) return;
+                    void call("setEnv", { key, value: envVal }).then(() => {
+                      setEnvKey("");
+                      setEnvVal("");
+                    });
+                  }}
+                >
+                  <input value={envKey} onChange={(e) => setEnvKey(e.target.value)} placeholder="NOMBRE" spellCheck={false} autoComplete="off" />
+                  <input value={envVal} onChange={(e) => setEnvVal(e.target.value)} placeholder="valor" spellCheck={false} autoComplete="off" />
+                  <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
+                    Guardar
+                  </button>
+                </form>
+              </div>
+              <div>
+                <h3 className="settings-h">Proyecto</h3>
+                <p className="settings-lead">Detectado del disco. La nota queda en el workspace, no en git.</p>
+                <div className="meta-chips">
+                  {(snap.meta?.stack ?? []).map((item) => (
+                    <span key={item} className="meta-chip">
+                      {item}
+                    </span>
+                  ))}
+                  {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
+                </div>
+                <form
+                  className="env-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void call("setNotes", { notes });
+                  }}
+                >
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="nota (sin secretos)"
+                    rows={2}
+                    spellCheck={false}
+                  />
+                  <button type="submit" className="open-folder-btn" disabled={notes.trim() === (snap.meta?.notes ?? "")}>
+                    Guardar nota
+                  </button>
+                </form>
+              </div>
             </div>
-            <h3 className="settings-h">Entorno</h3>
-            {(snap.env ?? []).map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className="settings-env-hit"
-                title="quitar"
-                onClick={() => void call("removeEnv", { key: item.key })}
-              >
-                <code>{item.key}</code>
-                <span>quitar</span>
-              </button>
-            ))}
-            <form
-              className="env-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const key = envKey.trim();
-                if (!key) return;
-                void call("setEnv", { key, value: envVal }).then(() => {
-                  setEnvKey("");
-                  setEnvVal("");
-                });
-              }}
-            >
-              <input value={envKey} onChange={(e) => setEnvKey(e.target.value)} placeholder="NOMBRE" spellCheck={false} autoComplete="off" />
-              <input value={envVal} onChange={(e) => setEnvVal(e.target.value)} placeholder="valor" spellCheck={false} autoComplete="off" />
-              <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
-                Guardar
-              </button>
-            </form>
-            <h3 className="settings-h">Proyecto</h3>
-            <div className="meta-chips">
-              {(snap.meta?.stack ?? []).map((item) => (
-                <span key={item} className="meta-chip">
-                  {item}
-                </span>
-              ))}
-              {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
-            </div>
-            <form
-              className="env-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void call("setNotes", { notes });
-              }}
-            >
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="nota (sin secretos)"
-                rows={2}
-                spellCheck={false}
-              />
-              <button type="submit" className="open-folder-btn" disabled={notes.trim() === (snap.meta?.notes ?? "")}>
-                Guardar nota
-              </button>
-            </form>
           </>
         )}
         {tab === "net" && (
           <>
             <p className="settings-lead">
-              HTTP opt-in para una vista web del mismo core. LAN/VPN, password en data_dir, sin TLS propio. Remoto de
-              verdad sigue siendo SSH + tmux.
+              Vista web del mismo mux en LAN/VPN. Password en data_dir, sin TLS. SSH+tmux sigue siendo el remoto.
             </p>
             <p className="hint">puerto 47832 · {snap.http?.enabled ? `activo · ${snap.http.bind}` : "apagado"}</p>
             <form
@@ -321,21 +344,46 @@ export function ThemePicker({
 }) {
   return (
     <div className="theme-grid">
-      {themes.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={current === item.id ? "theme-tile on" : "theme-tile"}
-          onClick={() => onPick(item.id)}
-        >
-          <span className="theme-tile-swatch" style={{ background: swatchGradient(item.id) }} />
-          <span className="theme-tile-copy">
-            <strong>{item.label}</strong>
-            <span>{item.hint}</span>
-          </span>
-          {current === item.id ? <Check size={13} color="var(--brand)" /> : null}
-        </button>
-      ))}
+      {themes.map((item) => {
+        const preview = themePreview(item.id);
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className={current === item.id ? "theme-tile on" : "theme-tile"}
+            onClick={() => onPick(item.id)}
+          >
+            {preview ? (
+              <span className="theme-preview" style={{ background: preview.chrome, color: preview.text }}>
+                <span className="theme-preview-bar">
+                  <span className="theme-preview-dots" aria-hidden>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span className="theme-preview-tab" style={{ background: preview.pane, color: preview.muted }}>
+                    lolterm
+                  </span>
+                </span>
+                <span
+                  className="theme-preview-term"
+                  style={{ background: preview.pane, boxShadow: `inset 0 0 0 1px ${preview.brand}` }}
+                >
+                  <span style={{ color: preview.brand }}>$</span>
+                  <span style={{ color: preview.muted }}> nvim</span>
+                </span>
+              </span>
+            ) : (
+              <span className="theme-preview theme-preview-fallback" style={{ background: swatchGradient(item.id) }} />
+            )}
+            <span className="theme-tile-copy">
+              <strong>{item.label}</strong>
+              <span>{item.hint}</span>
+            </span>
+            {current === item.id ? <Check size={13} color="var(--brand)" /> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

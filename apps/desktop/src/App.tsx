@@ -31,10 +31,12 @@ import { ExplorerPanel } from "./ExplorerPanel";
 import { GitPanel } from "./GitPanel";
 import { CommandsEditor } from "./CommandsEditor";
 import { Settings, type SettingsTab } from "./Settings";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { RestClient } from "./RestClient";
 import { TouchBar } from "./TouchBar";
 import { StatusBar } from "./StatusBar";
 import { applyDocumentTheme, isBuiltinTheme } from "./themes";
+import { pushDiag, readDiag } from "./diagnostics";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
 import {
@@ -59,6 +61,7 @@ type Modal =
   | { kind: "ts"; user: string; selected: number }
   | { kind: "settings"; tab: SettingsTab }
   | { kind: "commands" }
+  | { kind: "diag" }
   | { kind: "copyOnSelect" }
   | null;
 
@@ -134,6 +137,7 @@ export default function App() {
   const [cmds, setCmds] = useState<CommandHit[]>([]);
   const [bootErr, setBootErr] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [diag, setDiag] = useState(readDiag);
   const [copiedFlash, setCopiedFlash] = useState(0);
   const [update, setUpdate] = useState<
     | null
@@ -172,6 +176,10 @@ export default function App() {
     setDirtyTick((n) => n + 1);
   }, []);
 
+  const noteDiag = useCallback((kind: "error" | "warn" | "info", source: string, message: string) => {
+    setDiag(pushDiag(kind, source, message));
+  }, []);
+
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
       setSnap(value as Snapshot);
@@ -180,11 +188,18 @@ export default function App() {
 
   const call = useCallback(
     async (method: string, params?: unknown) => {
-      const result = await window.lolterm.invoke(method, params);
-      apply(result);
-      return result;
+      try {
+        const result = await window.lolterm.invoke(method, params);
+        apply(result);
+        return result;
+      } catch (err: unknown) {
+        if (method !== "hud") {
+          noteDiag("error", method, err instanceof Error ? err.message : String(err));
+        }
+        throw err;
+      }
     },
-    [apply],
+    [apply, noteDiag],
   );
 
   const closeTabAt = useCallback(
@@ -387,10 +402,15 @@ export default function App() {
         void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
       }
       if (msg.event === "core-down") {
-        setBanner(msg.params?.error ?? "lolterm-core se cayó");
+        const text = msg.params?.error ?? "lolterm-core se cayó";
+        const reconnect = /reconectando/i.test(text);
+        setBanner(reconnect ? null : text);
+        noteDiag(reconnect ? "info" : "error", "core", text);
       }
       if (msg.event === "core-error") {
-        setBanner(msg.params?.error ?? "error del core");
+        const text = msg.params?.error ?? "error del core";
+        setBanner(text);
+        noteDiag("error", "core", text);
       }
       if (msg.event === "exit" && msg.params?.pane != null) {
         disposeTerm(msg.params.pane);
@@ -400,7 +420,9 @@ export default function App() {
     void call("snapshot")
       .then(() => setBootErr(null))
       .catch((err: unknown) => {
-        setBootErr((prev) => prev ?? (err instanceof Error ? err.message : String(err)));
+        const text = err instanceof Error ? err.message : String(err);
+        setBootErr((prev) => prev ?? text);
+        noteDiag("error", "boot", text);
       });
     const timer = window.setTimeout(() => {
       void window.lolterm.update
@@ -414,7 +436,7 @@ export default function App() {
       window.clearTimeout(timer);
       off();
     };
-  }, [apply, call]);
+  }, [apply, call, noteDiag]);
 
   useEffect(() => {
     if (snap) return;
@@ -1181,6 +1203,7 @@ export default function App() {
                   void call("connectMachine", { target, user: sshUser.trim() || undefined })
                 }
                 onPreset={(id) => void call("applyPreset", { id })}
+                onTools={() => setModal({ kind: "settings", tab: "tools" })}
               />
             ) : (
               tab &&
@@ -1234,6 +1257,8 @@ export default function App() {
         onOpenRoot={() => {
           void window.lolterm.invoke("openRoot");
         }}
+        diagCount={diag.filter((row) => row.kind === "error").length}
+        onOpenDiag={() => setModal({ kind: "diag" })}
       />
       {tab && tab.kind !== "file" && tab.kind !== "rest" && (
         <TouchBar
@@ -1298,6 +1323,18 @@ export default function App() {
           />
         </div>
       )}
+      {modal?.kind === "diag" && (
+        <div className="modal" onClick={() => setModal(null)}>
+          <DiagnosticsPanel
+            entries={diag}
+            version={snap.version}
+            theme={snap.theme}
+            root={snap.root}
+            onChange={setDiag}
+            onClose={() => setModal(null)}
+          />
+        </div>
+      )}
       {modal?.kind === "settings" && (
         <div className="modal" onClick={() => setModal(null)}>
           <Settings
@@ -1311,6 +1348,7 @@ export default function App() {
               setModal(null);
               void runBound("app.update");
             }}
+            onDiagnostics={() => setModal({ kind: "diag" })}
           />
         </div>
       )}

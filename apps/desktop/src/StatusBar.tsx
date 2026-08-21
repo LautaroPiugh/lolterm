@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { GitBranch, Network, Sparkles, Terminal } from "./icons";
+import { AlertTriangle, GitBranch, Network, Sparkles, Terminal } from "./icons";
 import { MediaDock, QuotaButton } from "./Hud";
 import { displayVersion, eraLabel } from "./version";
 import type { Hud, Snapshot } from "./types";
@@ -15,6 +15,8 @@ type Props = {
   quotaRef: RefObject<HTMLDivElement | null>;
   mediaRef: RefObject<HTMLDivElement | null>;
   banner: string | null;
+  diagCount: number;
+  onOpenDiag: () => void;
   agentsTick: number;
   onToggleQuota: () => void;
   onToggleMedia: () => void;
@@ -34,6 +36,8 @@ export function StatusBar({
   quotaRef,
   mediaRef,
   banner,
+  diagCount,
+  onOpenDiag,
   agentsTick,
   onToggleQuota,
   onToggleMedia,
@@ -248,6 +252,15 @@ export function StatusBar({
           {mediaOpen && <MediaDock hud={hud} open={mediaOpen} onClose={onToggleMedia} onAction={onMusic} />}
         </div>
       </div>
+      {diagCount > 0 && (
+        <>
+          <span className="status-sep">·</span>
+          <button type="button" className="status-chip status-diag" title="Diagnóstico" onClick={onOpenDiag}>
+            <AlertTriangle size={11} />
+            {diagCount} {diagCount === 1 ? "error" : "errores"}
+          </button>
+        </>
+      )}
       {banner && <span className="notice">{banner}</span>}
     </footer>
   );

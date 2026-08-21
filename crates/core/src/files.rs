@@ -374,13 +374,36 @@ fn collect_path_dirs() -> Vec<PathBuf> {
     let from_env = std::env::var_os("PATH")
         .map(|raw| std::env::split_paths(&raw).collect::<Vec<_>>())
         .unwrap_or_default();
-    for dir in from_env {
+    for dir in from_env.into_iter().chain(extra_home_bins()) {
         if dir.as_os_str().is_empty() || !seen.insert(dir.clone()) {
             continue;
         }
         dirs.push(dir);
     }
     dirs
+}
+
+/// Bins que el sidecar de Electron suele no heredar: nvm, cargo, OpenCode.
+fn extra_home_bins() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let home = PathBuf::from(home);
+    let mut out = vec![
+        home.join(".local/bin"),
+        home.join(".cargo/bin"),
+        home.join(".opencode/bin"),
+    ];
+    if let Ok(entries) = fs::read_dir(home.join(".nvm/versions/node")) {
+        let mut vers: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path().join("bin"))
+            .filter(|path| path.is_dir())
+            .collect();
+        vers.sort();
+        out.extend(vers);
+    }
+    out.into_iter().filter(|path| path.is_dir()).collect()
 }
 
 fn login_path_dirs() -> Vec<PathBuf> {
@@ -875,6 +898,13 @@ mod tests {
     fn resolve_command_finds_sh() {
         assert!(resolve_command("sh").is_some() || resolve_command("bash").is_some());
         assert!(resolve_command("definitely-not-a-lolterm-bin").is_none());
+    }
+
+    #[test]
+    fn extra_home_bins_skips_missing() {
+        for dir in extra_home_bins() {
+            assert!(dir.is_dir(), "{}", dir.display());
+        }
     }
 
     #[test]
