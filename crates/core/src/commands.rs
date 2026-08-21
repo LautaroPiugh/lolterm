@@ -130,6 +130,54 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
+        id: "run.nvim",
+        slash: "nvim",
+        hint: "abrir Neovim",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.btop",
+        slash: "btop",
+        hint: "abrir btop",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.yazi",
+        slash: "yazi",
+        hint: "abrir yazi",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.fzf",
+        slash: "fzf",
+        hint: "abrir fzf",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.gh",
+        slash: "gh",
+        hint: "abrir GitHub CLI",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.tmux",
+        slash: "tmux",
+        hint: "abrir tmux",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.rg",
+        slash: "rg",
+        hint: "abrir ripgrep",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.delta",
+        slash: "delta",
+        hint: "abrir git-delta",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
         id: "run.codex",
         slash: "codex",
         hint: "abrir Codex (worktree + contexto)",
@@ -345,6 +393,8 @@ mod tests {
         assert_eq!(lookup("tab-prev").map(|s| s.id), Some("tab.prev"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
         assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
+        assert_eq!(lookup("nvim").map(|s| s.id), Some("run.nvim"));
+        assert_eq!(lookup("lazygit").map(|s| s.id), Some("run.lazygit"));
         assert_eq!(lookup("copilot").map(|s| s.id), Some("run.copilot"));
         assert_eq!(lookup("ws-next").map(|s| s.id), Some("workspace.next"));
         assert_eq!(lookup("/update").map(|s| s.id), Some("app.update"));

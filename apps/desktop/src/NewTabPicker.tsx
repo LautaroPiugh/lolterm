@@ -2,6 +2,8 @@ import { Cloud, GitBranch, Server, Sparkles, Terminal } from "./icons";
 import type { Snapshot } from "./types";
 
 const AGENTS = new Set(["codex", "claude", "opencode", "gemini", "cline", "copilot"]);
+/** CLIs del catálogo que no se abren como tab vacía (viven en el shell / Ajustes). */
+const NOT_A_TAB = new Set(["gh", "rg"]);
 
 const HINT: Record<string, string> = {
   shell: "shell del workspace",
@@ -37,10 +39,10 @@ export function NewTabPicker({
 }) {
   const clis = snap.run_clis ?? [];
   const tools: Row[] = clis
-    .filter((cli) => !AGENTS.has(cli.name) && cli.available)
+    .filter((cli) => !AGENTS.has(cli.name) && !NOT_A_TAB.has(cli.name))
     .map((cli) => ({ kind: cli.name, label: cli.name, available: cli.available }));
   const agents: Row[] = clis
-    .filter((cli) => AGENTS.has(cli.name) && cli.available)
+    .filter((cli) => AGENTS.has(cli.name))
     .map((cli) => ({ kind: cli.name, label: cli.name, available: cli.available }));
   const core: Row[] = [
     { kind: "shell", label: "Terminal", available: true },
@@ -57,7 +59,9 @@ export function NewTabPicker({
         if (e.key === "Escape") e.currentTarget.parentElement?.querySelector("button")?.blur();
       }}
     >
-      <p className="new-tab-hint">la estrella es Ctrl-Alt-N. Un agente abre en git worktree y ve $LOLTERM_CONTEXT.</p>
+      <p className="new-tab-hint">
+        clic abre un PTY. Si no está en PATH, instalalo en Ajustes. Un agente abre en git worktree y ve $LOLTERM_CONTEXT.
+      </p>
       <Section title="Sesión" rows={core} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />
       <Section title="Herramientas" rows={tools} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />
       <Section title="Agentes" rows={agents} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />

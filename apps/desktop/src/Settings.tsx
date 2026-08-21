@@ -104,8 +104,24 @@ export function Settings({
             <p className="settings-lead">
               Instalar abre un PTY y corre el comando de esa herramienta (apt, npm, cargo, go). No hay tienda propia.
             </p>
-            <ToolGroup title="CLIs" tools={clis} onInstall={install} />
-            <ToolGroup title="Agentes" tools={agents} onInstall={install} />
+            <ToolGroup
+              title="CLIs"
+              tools={clis}
+              onInstall={install}
+              onOpen={(name) => {
+                void call("run", { program: name, args: [] });
+                onClose();
+              }}
+            />
+            <ToolGroup
+              title="Agentes"
+              tools={agents}
+              onInstall={install}
+              onOpen={(name) => {
+                void call("run", { program: name, args: [] });
+                onClose();
+              }}
+            />
           </>
         )}
         {tab === "workspace" && (
@@ -256,10 +272,12 @@ function ToolGroup({
   title,
   tools,
   onInstall,
+  onOpen,
 }: {
   title: string;
   tools: NonNullable<Snapshot["tools"]>;
   onInstall: (name: string) => void;
+  onOpen: (name: string) => void;
 }) {
   if (tools.length === 0) return null;
   return (
@@ -273,20 +291,19 @@ function ToolGroup({
             <span>{tool.hint ?? tool.install}</span>
           </div>
           {tool.available ? (
-            <span className="settings-ok">
-              <Check size={11} strokeWidth={2.4} />
-              {tool.version ?? "en PATH"}
-            </span>
+            <>
+              <button type="button" className="settings-install" title={`abrir ${tool.name}`} onClick={() => onOpen(tool.name)}>
+                Abrir
+              </button>
+              <button type="button" className="settings-ghost tiny" title={tool.install} onClick={() => onInstall(tool.name)}>
+                actualizar
+              </button>
+            </>
           ) : (
             <button type="button" className="settings-install" title={tool.install} onClick={() => onInstall(tool.name)}>
               Instalar
             </button>
           )}
-          {tool.available ? (
-            <button type="button" className="settings-ghost tiny" title={tool.install} onClick={() => onInstall(tool.name)}>
-              actualizar
-            </button>
-          ) : null}
         </div>
       ))}
     </section>

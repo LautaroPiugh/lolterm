@@ -328,6 +328,12 @@ const PATH_TTL: Duration = Duration::from_secs(120);
 
 static CACHE_PATH: Mutex<Option<(Instant, Vec<PathBuf>)>> = Mutex::new(None);
 
+pub fn invalidate_path() {
+    if let Ok(mut slot) = CACHE_PATH.lock() {
+        *slot = None;
+    }
+}
+
 fn path_dirs() -> Vec<PathBuf> {
     if let Ok(mut slot) = CACHE_PATH.lock() {
         if let Some((at, dirs)) = slot.as_ref()

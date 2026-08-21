@@ -10,7 +10,7 @@ use crate::context::{self, ContextPane, ContextView};
 use crate::ctl;
 use crate::files;
 use crate::git;
-use crate::mux::RUN_CLIS;
+use crate::registry;
 use crate::session::{self, SavedWorkspace, Session};
 use crate::ssh;
 use crate::workspaces;
@@ -465,7 +465,8 @@ fn run_program(program: &str) -> Result<i32, String> {
 
 fn format_run_list() -> String {
     let mut out = String::new();
-    for name in RUN_CLIS {
+    for tool in registry::TOOLS {
+        let name = tool.name;
         let mark = if files::command_on_path(name) {
             "  "
         } else {

@@ -23,6 +23,10 @@ pub const RUN_CLIS: &[&str] = &[
     "opencode", "gemini", "cline", "copilot",
 ];
 
+fn is_run_cli(name: &str) -> bool {
+    crate::registry::is_known(name) || RUN_CLIS.contains(&name)
+}
+
 #[derive(Serialize)]
 pub struct Snapshot {
     pub root: PathBuf,
@@ -505,13 +509,16 @@ impl Mux {
             tailscale: crate::tailscale::probe_cached(),
             run_clis: {
                 let running = self.process_names();
-                RUN_CLIS
+                crate::registry::TOOLS
                     .iter()
-                    .map(|name| RunCli {
-                        name: (*name).to_string(),
-                        available: files::command_on_path(name)
-                            || running.iter().any(|item| item == name),
-                        version: crate::registry::version_of(name),
+                    .map(|tool| {
+                        let name = tool.name;
+                        RunCli {
+                            name: name.to_string(),
+                            available: files::command_on_path(name)
+                                || running.iter().any(|item| item == name),
+                            version: crate::registry::version_of(name),
+                        }
                     })
                     .collect()
             },
@@ -2346,21 +2353,7 @@ fn cap_parked<T>(parked: &mut HashMap<PathBuf, T>, order: &mut VecDeque<PathBuf>
 }
 
 fn wants_own_tab(program: &str) -> bool {
-    matches!(
-        program,
-        "nvim"
-            | "vim"
-            | "lazygit"
-            | "btop"
-            | "htop"
-            | "yazi"
-            | "opencode"
-            | "claude"
-            | "codex"
-            | "gemini"
-            | "cline"
-            | "copilot"
-    )
+    matches!(program, "vim" | "htop") || crate::registry::is_known(program)
 }
 
 fn sanitize_new_tab(raw: &str) -> String {
@@ -2369,7 +2362,7 @@ fn sanitize_new_tab(raw: &str) -> String {
         "" | "shell" | "term" | "terminal" => "shell".into(),
         "ts" => "tailscale".into(),
         "ssh" | "tailscale" => name,
-        other if RUN_CLIS.contains(&other) => other.into(),
+        other if is_run_cli(other) => other.into(),
         _ => "shell".into(),
     }
 }

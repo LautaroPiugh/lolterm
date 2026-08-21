@@ -30,6 +30,7 @@ import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
 import { FileEditor } from "./FileEditor";
 import { GitPanel } from "./GitPanel";
+import { CommandsEditor } from "./CommandsEditor";
 import { Settings, type SettingsTab } from "./Settings";
 import { RestClient } from "./RestClient";
 import { TouchBar } from "./TouchBar";

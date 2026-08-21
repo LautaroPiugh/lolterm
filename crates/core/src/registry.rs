@@ -25,6 +25,10 @@ pub struct Tool {
     pub install: &'static str,
 }
 
+pub fn is_known(name: &str) -> bool {
+    TOOLS.iter().any(|tool| tool.name == name)
+}
+
 pub const TOOLS: &[Tool] = &[
     Tool {
         name: "claude",
@@ -176,6 +180,7 @@ pub fn install_cmd(name: &str) -> Option<&'static str> {
 }
 
 pub fn invalidate() {
+    crate::files::invalidate_path();
     if let Ok(mut guard) = CACHE.lock() {
         *guard = None;
     }
@@ -224,6 +229,9 @@ mod tests {
     fn known_agents_have_install_cmd() {
         assert!(install_cmd("claude").is_some());
         assert!(install_cmd("lazygit").is_some());
+        assert!(crate::registry::is_known("nvim"));
+        assert!(crate::registry::is_known("claude"));
+        assert!(!crate::registry::is_known("nope"));
         assert!(install_cmd("nvim").is_some());
         assert!(install_cmd("nope").is_none());
         assert!(
