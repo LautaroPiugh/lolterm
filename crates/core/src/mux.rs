@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
@@ -29,10 +30,14 @@ pub struct Snapshot {
     pub active_tab: usize,
     pub tabs: Vec<TabSnap>,
     pub git: Option<git::Status>,
+    pub git_files: Vec<git::WorkingFile>,
+    pub git_branches: Vec<String>,
     pub git_log: Vec<String>,
     pub tree: Vec<files::TreeRow>,
     pub tailscale: crate::tailscale::Status,
     pub run_clis: Vec<RunCli>,
+    pub agent_tools: Vec<crate::registry::ToolInfo>,
+    pub http: HttpSnap,
     pub notice: Option<String>,
     pub theme: String,
     pub ssh_user: Option<String>,
@@ -55,6 +60,9 @@ pub struct Snapshot {
     pub ext_commands: Vec<crate::ext::ExtCommand>,
     pub commands_path: PathBuf,
     pub keybindings_path: PathBuf,
+    /// Panes con PTY vivo (workspace actual + estacionados). El renderer
+    /// no debe `dispose` estos xterm al cambiar de proyecto.
+    pub held_panes: Vec<u64>,
 }
 
 #[derive(Serialize)]
@@ -65,6 +73,7 @@ pub struct AgentSnap {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
     pub focused: bool,
+    pub attention: bool,
 }
 
 #[derive(Serialize)]
@@ -85,6 +94,9 @@ pub struct WorkspaceSnap {
 #[derive(Serialize)]
 pub struct TabSnap {
     pub name: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
     pub focused: u64,
     pub zoomed: Option<u64>,
     pub layout: LayoutNode,
@@ -103,6 +115,14 @@ pub struct PaneSnap {
 pub struct RunCli {
     pub name: String,
     pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct HttpSnap {
+    pub enabled: bool,
+    pub bind: String,
 }
 
 struct LivePane {
@@ -116,12 +136,26 @@ struct LivePane {
 
 struct Tab {
     name: Option<String>,
+    kind: String,
+    rel: Option<String>,
     focused: u64,
     zoomed: Option<u64>,
     layout: LayoutNode,
     panes: HashMap<u64, LivePane>,
     /// Rename manual: deja de seguir el OSC de nvim. Solo en memoria.
     title_locked: bool,
+}
+
+/// Tabs/PTYs de un workspace que no está en pantalla. Siguen vivos
+/// hasta cerrar LoLTerm o olvidar el proyecto.
+struct ParkedWorkspace {
+    tabs: Vec<Tab>,
+    active: usize,
+    expanded: HashSet<String>,
+    name: String,
+    startup: Vec<session::StartupCmd>,
+    env: Vec<session::EnvVar>,
+    notes: String,
 }
 
 pub struct Mux {
@@ -137,6 +171,8 @@ pub struct Mux {
     recents: Vec<String>,
     recent_projects: Vec<PathBuf>,
     saved_workspaces: Vec<SavedWorkspace>,
+    parked: HashMap<PathBuf, ParkedWorkspace>,
+    parked_order: VecDeque<PathBuf>,
     startup: Vec<session::StartupCmd>,
     env: Vec<session::EnvVar>,
     notes: String,
@@ -169,6 +205,8 @@ impl Mux {
             recents: Vec::new(),
             recent_projects: Vec::new(),
             saved_workspaces: Vec::new(),
+            parked: HashMap::new(),
+            parked_order: VecDeque::new(),
             startup: Vec::new(),
             env: Vec::new(),
             notes: String::new(),
@@ -224,8 +262,18 @@ impl Mux {
     }
 
     fn restore_one(&mut self, saved: &SavedTab) -> Result<()> {
+        let specs = saved.tree.leaf_specs();
+        if let Some(spec) = specs.first()
+            && let Some(kind) = view_kind(spec.program.as_deref())
+        {
+            let rel = spec.args.first().cloned().unwrap_or_default();
+            self.push_view(kind, &rel, saved.name.clone());
+            return Ok(());
+        }
         self.tabs.push(Tab {
             name: saved.name.clone(),
+            kind: "term".into(),
+            rel: None,
             focused: 0,
             zoomed: None,
             layout: LayoutNode::leaf(0),
@@ -266,6 +314,8 @@ impl Mux {
         panes.insert(id, live);
         self.tabs.push(Tab {
             name: program.map(ToString::to_string),
+            kind: "term".into(),
+            rel: None,
             focused: id,
             zoomed: None,
             layout: LayoutNode::leaf(id),
@@ -425,6 +475,8 @@ impl Mux {
                 .iter()
                 .map(|tab| TabSnap {
                     name: tab.name.clone().unwrap_or_else(|| tab_label(tab)),
+                    kind: tab.kind.clone(),
+                    rel: tab.rel.clone(),
                     focused: tab.focused,
                     zoomed: tab.zoomed,
                     layout: tab.layout.clone(),
@@ -444,17 +496,26 @@ impl Mux {
                         .collect(),
                 })
                 .collect(),
-            git: git::status(&self.root),
-            git_log: git::oneline(&self.root, 8),
+            git: git::status_cached(&self.root),
+            git_files: git::working_files_cached(&self.root),
+            git_branches: git::branches_cached(&self.root),
+            git_log: git::oneline_cached(&self.root, 8),
             tree: files::visible_tree(&self.root, &self.expanded, &marks),
-            tailscale: crate::tailscale::probe(),
-            run_clis: RUN_CLIS
-                .iter()
-                .map(|name| RunCli {
-                    name: (*name).to_string(),
-                    available: files::command_on_path(name),
-                })
-                .collect(),
+            tailscale: crate::tailscale::probe_cached(),
+            run_clis: {
+                let running = self.process_names();
+                RUN_CLIS
+                    .iter()
+                    .map(|name| RunCli {
+                        name: (*name).to_string(),
+                        available: files::command_on_path(name)
+                            || running.iter().any(|item| item == name),
+                        version: crate::registry::version_of(name),
+                    })
+                    .collect()
+            },
+            agent_tools: crate::registry::listing(),
+            http: self.http_snap(),
             notice: self.notice.clone(),
             theme: self.theme.clone(),
             ssh_user: self.remote.user.clone(),
@@ -481,6 +542,7 @@ impl Mux {
             ext_commands: crate::ext::user_commands(),
             commands_path: crate::ext::commands_path(),
             keybindings_path: keys::keybindings_path(),
+            held_panes: self.held_pane_ids(),
         }
     }
 
@@ -557,8 +619,31 @@ impl Mux {
         rows
     }
 
+    pub fn hud_parts(&self) -> (Vec<String>, Vec<(u64, u32)>, std::path::PathBuf) {
+        (self.process_names(), self.pane_pids(), self.root.clone())
+    }
+
     pub fn hud(&self) -> crate::hud::Hud {
-        crate::hud::snapshot(&self.process_names())
+        let mut hud = crate::hud::snapshot(&self.process_names());
+        hud.extra = crate::inspect::extra(&self.root, &self.pane_pids());
+        hud
+    }
+
+    fn pane_pids(&self) -> Vec<(u64, u32)> {
+        let mut out = collect_pane_pids(&self.tabs);
+        for parked in self.parked.values() {
+            out.extend(collect_pane_pids(&parked.tabs));
+        }
+        out
+    }
+
+    fn http_snap(&self) -> HttpSnap {
+        let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+        let enabled = text.contains("[http]") && text.contains("enabled = true");
+        HttpSnap {
+            enabled,
+            bind: "127.0.0.1:47832".into(),
+        }
     }
 
     fn focused_opened_file(&self) -> Option<String> {
@@ -569,27 +654,21 @@ impl Mux {
 
     pub fn process_names(&self) -> Vec<String> {
         let mut names = Vec::new();
-        for tab in &self.tabs {
-            for id in tab.layout.ids() {
-                let Some(pane) = tab.panes.get(&id) else {
-                    continue;
-                };
-                let program = pane.program.as_deref().filter(|name| !name.is_empty());
-                if let Some(program) = program
-                    && !names.iter().any(|seen| seen == program)
-                {
-                    names.push(program.to_string());
-                }
-                if let Some(pid) = pane.pty.process_id() {
-                    for name in crate::agents::running_under(pid) {
-                        if !names.iter().any(|seen| seen == &name) {
-                            names.push(name);
-                        }
-                    }
-                }
-            }
+        collect_process_names(&self.tabs, &mut names);
+        for parked in self.parked.values() {
+            collect_process_names(&parked.tabs, &mut names);
         }
         names
+    }
+
+    fn held_pane_ids(&self) -> Vec<u64> {
+        let mut ids = pane_ids_in(&self.tabs);
+        for parked in self.parked.values() {
+            ids.extend(pane_ids_in(&parked.tabs));
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 
     fn agent_snaps(&self) -> Vec<AgentSnap> {
@@ -612,6 +691,7 @@ impl Mux {
                         .as_ref()
                         .map(|path| crate::workspaces::compact_root(path)),
                     focused: tab_idx == self.active && id == tab.focused,
+                    attention: pane_needs_attention(&pane.title),
                 });
             }
         }
@@ -676,6 +756,23 @@ impl Mux {
                 .tabs
                 .iter()
                 .map(|tab| {
+                    if tab.kind == "file" || tab.kind == "rest" {
+                        let program = if tab.kind == "rest" {
+                            "__rest__"
+                        } else {
+                            "__file__"
+                        };
+                        return SavedTab {
+                            focused: 0,
+                            name: tab.name.clone(),
+                            zoomed: None,
+                            tree: session::SavedNode::Leaf {
+                                cwd: Some(self.root.clone()),
+                                program: Some(program.into()),
+                                args: vec![tab.rel.clone().unwrap_or_default()],
+                            },
+                        };
+                    }
                     let keep: HashSet<u64> = tab.panes.keys().copied().collect();
                     let specs = tab
                         .panes
@@ -786,6 +883,8 @@ impl Mux {
             return Ok(());
         }
         self.saved_workspaces.retain(|ws| ws.root != root);
+        self.parked.remove(&root);
+        self.parked_order.retain(|path| path != &root);
         let mut catalog = crate::workspaces::load();
         crate::workspaces::remove_root(&mut catalog.workspaces, &root);
         let _ = crate::workspaces::save(&catalog);
@@ -869,6 +968,10 @@ impl Mux {
         self.active
     }
 
+    pub fn root_path(&self) -> &Path {
+        &self.root
+    }
+
     pub fn new_tab(
         &mut self,
         program: Option<&str>,
@@ -882,6 +985,8 @@ impl Mux {
         panes.insert(id, live);
         self.tabs.push(Tab {
             name: program.map(ToString::to_string),
+            kind: "term".into(),
+            rel: None,
             focused: id,
             zoomed: None,
             layout: LayoutNode::leaf(id),
@@ -924,6 +1029,13 @@ impl Mux {
         let Some(src) = self.tabs.get(index) else {
             return Ok(());
         };
+        if src.kind != "term" {
+            let kind = src.kind.clone();
+            let rel = src.rel.clone().unwrap_or_default();
+            let name = src.name.clone();
+            self.push_view(&kind, &rel, name);
+            return Ok(());
+        }
         let keep: HashSet<u64> = src.panes.keys().copied().collect();
         let specs = src
             .panes
@@ -957,6 +1069,14 @@ impl Mux {
     }
 
     pub fn split(&mut self, dir: SplitDir, program: Option<&str>, args: &[String]) -> Result<u64> {
+        if self
+            .tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.kind != "term")
+        {
+            self.notice = Some("no se puede partir un editor/REST".into());
+            return Ok(0);
+        }
         if self.tabs.is_empty() {
             return self.new_tab(program, None, args, true);
         }
@@ -1026,6 +1146,19 @@ impl Mux {
             }
             return Ok(0);
         }
+        if crate::rest::looks_like(rel) {
+            self.push_view("rest", rel, None);
+            return Ok(0);
+        }
+        self.push_view("file", rel, None);
+        Ok(0)
+    }
+
+    pub fn open_in_nvim(&mut self, rel: &str) -> Result<u64> {
+        let path = files::join_root(&self.root, rel);
+        if path.is_dir() {
+            return Ok(0);
+        }
         self.open_abs(&path)
     }
 
@@ -1075,6 +1208,122 @@ impl Mux {
             }
         }
         Ok(id)
+    }
+
+    fn push_view(&mut self, kind: &str, rel: &str, name: Option<String>) {
+        let rel = rel.trim().trim_start_matches('/').to_string();
+        if let Some((index, _)) = self
+            .tabs
+            .iter()
+            .enumerate()
+            .find(|(_, tab)| tab.kind == kind && tab.rel.as_deref() == Some(rel.as_str()))
+        {
+            self.active = index;
+            return;
+        }
+        let label = name.unwrap_or_else(|| {
+            Path::new(&rel)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(kind)
+                .to_string()
+        });
+        self.tabs.push(Tab {
+            name: Some(label),
+            kind: kind.into(),
+            rel: Some(rel),
+            focused: 0,
+            zoomed: None,
+            layout: LayoutNode::leaf(0),
+            panes: HashMap::new(),
+            title_locked: true,
+        });
+        self.active = self.tabs.len() - 1;
+    }
+
+    pub fn read_file(&self, rel: &str) -> Result<String, String> {
+        Ok(files::read_text(&self.root, rel)?.text)
+    }
+
+    pub fn write_file(&mut self, rel: &str, text: &str) -> Result<(), String> {
+        files::write_text(&self.root, rel, text)?;
+        self.notice = Some(format!("guardado {rel}"));
+        Ok(())
+    }
+
+    pub fn git_op(
+        &mut self,
+        op: &str,
+        path: Option<&str>,
+        message: Option<&str>,
+    ) -> Result<(), String> {
+        git::run_op(&self.root, op, path, message)?;
+        git::invalidate_cache();
+        self.branch = git::branch_label(&self.root);
+        self.notice = Some(format!("git {op}"));
+        Ok(())
+    }
+
+    pub fn rest_send(&self, rel: &str) -> Result<crate::rest::RestResult, String> {
+        let text = files::read_text(&self.root, rel)?.text;
+        let env_text = files::read_text(&self.root, ".env")
+            .map(|file| file.text)
+            .unwrap_or_default();
+        let pairs = crate::rest::dotenv_pairs(&env_text);
+        let env: Vec<(&str, &str)> = pairs
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        crate::rest::send(&text, &env)
+    }
+
+    pub fn install_agent(&mut self, name: &str) -> Result<u64> {
+        let cmd = crate::registry::install_cmd(name)
+            .ok_or_else(|| eyre!("agente desconocido: {name}"))?;
+        self.notice = Some(format!("instalando {name}"));
+        self.new_tab(Some("bash"), None, &["-lc".into(), cmd.to_string()], false)
+    }
+
+    pub fn set_http(&mut self, enabled: bool, password: Option<&str>) -> Result<(), String> {
+        if let Some(password) = password.filter(|p| !p.is_empty()) {
+            crate::http::set_password(password)?;
+        }
+        let mut text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+        if !text.contains("[http]") {
+            text.push_str("\n[http]\nenabled = false\nhost = \"127.0.0.1\"\nport = 47832\n");
+        }
+        let enabled_line = if enabled {
+            "enabled = true"
+        } else {
+            "enabled = false"
+        };
+        let mut out = String::new();
+        let mut in_http = false;
+        for line in text.lines() {
+            if line.trim() == "[http]" {
+                in_http = true;
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            if line.trim().starts_with('[') {
+                in_http = false;
+            }
+            if in_http && line.trim().starts_with("enabled") {
+                out.push_str(enabled_line);
+                out.push('\n');
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        std::fs::write(crate::config::config_path(), out).map_err(|err| err.to_string())?;
+        self.notice = Some(if enabled {
+            "HTTP LAN on · reiniciá LoLTerm para escuchar".into()
+        } else {
+            "HTTP LAN off".into()
+        });
+        Ok(())
     }
 
     fn find_open_file(&self, path: &Path) -> Option<(usize, u64)> {
@@ -1147,13 +1396,27 @@ impl Mux {
     }
 
     pub fn open_project(&mut self, path: &Path) -> Result<()> {
+        git::invalidate_cache();
         let next = canonicalize(path);
         if next == self.root && !self.tabs.is_empty() {
             return Ok(());
         }
-        if !self.tabs.is_empty() {
-            let snapshot = self.capture_workspace();
-            session::upsert_workspace(&mut self.saved_workspaces, snapshot, 12);
+        self.stash_current();
+        if let Some(live) = self.take_parked(&next) {
+            self.root = next;
+            self.name = live.name;
+            self.startup = live.startup;
+            self.env = live.env;
+            self.notes = live.notes;
+            self.expanded = live.expanded;
+            self.tabs = live.tabs;
+            self.active = live.active.min(self.tabs.len().saturating_sub(1));
+            self.branch = git::branch_label(&self.root);
+            self.apply_startup()?;
+            self.refresh_live_context();
+            session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
+            self.persist();
+            return Ok(());
         }
         self.tabs.clear();
         self.root = next;
@@ -1180,6 +1443,37 @@ impl Mux {
         session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
         self.persist();
         Ok(())
+    }
+
+    fn stash_current(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let snapshot = self.capture_workspace();
+        session::upsert_workspace(&mut self.saved_workspaces, snapshot, 12);
+        let root = self.root.clone();
+        self.parked_order.retain(|path| path != &root);
+        self.parked.insert(
+            root.clone(),
+            ParkedWorkspace {
+                tabs: mem::take(&mut self.tabs),
+                active: self.active,
+                expanded: mem::take(&mut self.expanded),
+                name: self.name.clone(),
+                startup: self.startup.clone(),
+                env: self.env.clone(),
+                notes: self.notes.clone(),
+            },
+        );
+        self.parked_order.push_back(root);
+        cap_parked(&mut self.parked, &mut self.parked_order, 12);
+        self.active = 0;
+    }
+
+    fn take_parked(&mut self, root: &Path) -> Option<ParkedWorkspace> {
+        let live = self.parked.remove(root)?;
+        self.parked_order.retain(|path| path != root);
+        Some(live)
     }
 
     fn has_program(&self, program: &str) -> bool {
@@ -1940,6 +2234,13 @@ impl Mux {
             ended.dedup();
             self.notice = Some(format!("{} se cortó", ended.join(", ")));
         }
+        self.reap_parked();
+    }
+
+    fn reap_parked(&mut self) {
+        for parked in self.parked.values_mut() {
+            drop_exited_in_tabs(&mut parked.tabs);
+        }
     }
 
     fn refresh_live_context(&self) {
@@ -1960,6 +2261,85 @@ fn drop_panes_not_in_layout(tab: &mut Tab) {
     }
     if tab.zoomed.is_some_and(|id| !keep.contains(&id)) {
         tab.zoomed = None;
+    }
+}
+
+fn drop_exited_in_tabs(tabs: &mut Vec<Tab>) {
+    let mut empty_tabs = Vec::new();
+    for (index, tab) in tabs.iter_mut().enumerate() {
+        drop_panes_not_in_layout(tab);
+        let dead: Vec<u64> = tab
+            .panes
+            .iter_mut()
+            .filter_map(|(id, pane)| {
+                let _ = pane.pty.poll_exit();
+                pane.pty.child_exited().then_some(*id)
+            })
+            .collect();
+        for id in dead {
+            tab.panes.remove(&id);
+            tab.layout.remove_pane(id);
+            tab.focused = tab.layout.first_leaf().unwrap_or(id);
+            if tab.zoomed == Some(id) {
+                tab.zoomed = None;
+            }
+        }
+        if tab.panes.is_empty() && tab.kind == "term" {
+            empty_tabs.push(index);
+        }
+    }
+    for index in empty_tabs.into_iter().rev() {
+        tabs.remove(index);
+    }
+}
+
+fn pane_ids_in(tabs: &[Tab]) -> Vec<u64> {
+    tabs.iter()
+        .flat_map(|tab| tab.panes.keys().copied())
+        .collect()
+}
+
+fn collect_pane_pids(tabs: &[Tab]) -> Vec<(u64, u32)> {
+    let mut out = Vec::new();
+    for tab in tabs {
+        for (id, pane) in &tab.panes {
+            if let Some(pid) = pane.pty.process_id() {
+                out.push((*id, pid));
+            }
+        }
+    }
+    out
+}
+
+fn collect_process_names(tabs: &[Tab], names: &mut Vec<String>) {
+    for tab in tabs {
+        for id in tab.layout.ids() {
+            let Some(pane) = tab.panes.get(&id) else {
+                continue;
+            };
+            let program = pane.program.as_deref().filter(|name| !name.is_empty());
+            if let Some(program) = program
+                && !names.iter().any(|seen| seen == program)
+            {
+                names.push(program.to_string());
+            }
+            if let Some(pid) = pane.pty.process_id() {
+                for name in crate::agents::running_under(pid) {
+                    if !names.iter().any(|seen| seen == &name) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cap_parked<T>(parked: &mut HashMap<PathBuf, T>, order: &mut VecDeque<PathBuf>, cap: usize) {
+    while parked.len() > cap {
+        let Some(old) = order.pop_front() else {
+            break;
+        };
+        parked.remove(&old);
     }
 }
 
@@ -2026,10 +2406,40 @@ fn pane_remote(program: Option<&str>, args: &[String]) -> Option<String> {
 }
 
 fn tab_label(tab: &Tab) -> String {
+    if tab.kind != "term" {
+        return tab
+            .name
+            .clone()
+            .or_else(|| tab.rel.clone())
+            .unwrap_or_else(|| tab.kind.clone());
+    }
     tab.panes
         .get(&tab.focused)
         .map(|pane| pane.title.clone())
         .unwrap_or_else(|| "tab".into())
+}
+
+fn view_kind(program: Option<&str>) -> Option<&'static str> {
+    match program {
+        Some("__file__") => Some("file"),
+        Some("__rest__") => Some("rest"),
+        _ => None,
+    }
+}
+
+fn pane_needs_attention(title: &str) -> bool {
+    let lower = title.to_ascii_lowercase();
+    [
+        "waiting",
+        "awaiting",
+        "permission",
+        "ask",
+        "yn?",
+        "(y/n)",
+        "approve",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn layout_from_saved(node: &session::SavedNode, ids: &[u64]) -> LayoutNode {
@@ -2109,5 +2519,25 @@ mod tests {
             &["-c".into(), "set title".into(), "/ws/other.ts".into()],
             path
         ));
+    }
+
+    #[test]
+    fn cap_parked_drops_oldest_roots() {
+        use std::collections::{HashMap, VecDeque};
+        use std::path::PathBuf;
+
+        let mut parked = HashMap::new();
+        let mut order = VecDeque::new();
+        for i in 0..14 {
+            let root = PathBuf::from(format!("/ws/{i}"));
+            parked.insert(root.clone(), i);
+            order.retain(|path| path != &root);
+            order.push_back(root);
+            super::cap_parked(&mut parked, &mut order, 12);
+        }
+        assert_eq!(parked.len(), 12);
+        assert!(!parked.contains_key(&PathBuf::from("/ws/0")));
+        assert!(!parked.contains_key(&PathBuf::from("/ws/1")));
+        assert_eq!(parked.get(&PathBuf::from("/ws/13")), Some(&13));
     }
 }

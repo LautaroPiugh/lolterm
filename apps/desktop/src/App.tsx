@@ -29,8 +29,10 @@ import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes, setPaneTitleHandler } from "./TerminalPane";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
-import { CommandsEditor } from "./CommandsEditor";
-import { MediaDock, QuotaButton } from "./Hud";
+import { FileEditor } from "./FileEditor";
+import { RestClient } from "./RestClient";
+import { TouchBar } from "./TouchBar";
+import { StatusBar } from "./StatusBar";
 import { applyDocumentTheme, isBuiltinTheme, swatchGradient, THEMES } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
@@ -81,6 +83,8 @@ function tabRemote(tab: TabSnap): string | null {
 }
 
 function tabIcon(tab: TabSnap): IconFn {
+  if (tab.kind === "file") return FileCode;
+  if (tab.kind === "rest") return Network;
   if (tabRemote(tab)) return Cloud;
   const key = `${tab.name} ${tab.panes[0]?.program ?? ""}`.toLowerCase();
   if (key.includes("nvim") || key.includes("vim")) return FileCode;
@@ -181,11 +185,14 @@ export default function App() {
   const [gearOpen, setGearOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [agentsTick, setAgentsTick] = useState(0);
   const [hud, setHud] = useState<Hud | null>(null);
   const [newTabOpen, setNewTabOpen] = useState(false);
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
   const [wsNotes, setWsNotes] = useState("");
+  const [gitMsg, setGitMsg] = useState("");
+  const [httpPass, setHttpPass] = useState("");
   const [sshDest, setSshDest] = useState("");
   const [tmuxSession, setTmuxSession] = useState("lolterm");
   const [draggingTab, setDraggingTab] = useState<number | null>(null);
@@ -253,6 +260,10 @@ export default function App() {
         setModal({ kind: "ts", user: sshUser, selected: 0 });
         return;
       }
+      if (kind === "rest") {
+        setModal({ kind: "files", query: ".http" });
+        return;
+      }
       await call("newTab", { program: kind });
     },
     [call, sshUser],
@@ -275,6 +286,15 @@ export default function App() {
       }
       if (key === "ui.files" || key === "files") {
         setModal({ kind: "files", query: "" });
+        return;
+      }
+      if (key === "ui.rest" || key === "rest") {
+        setModal({ kind: "files", query: ".http" });
+        return;
+      }
+      if (key === "git.commit" || key === "commit") {
+        setActivity("git");
+        setSidebar(true);
         return;
       }
       if (key === "ui.ssh" || key === "ssh") {
@@ -309,6 +329,10 @@ export default function App() {
       }
       if (key === "ui.quota" || key === "quota") {
         setQuotaOpen((open) => !open);
+        return;
+      }
+      if (key === "ui.attention" || key === "attention") {
+        setAgentsTick((n) => n + 1);
         return;
       }
       if (key === "ui.media" || key === "media") {
@@ -410,7 +434,7 @@ export default function App() {
 
   useEffect(() => {
     if (!snap) return;
-    const live = new Set<number>();
+    const live = new Set<number>(snap.held_panes ?? []);
     for (const item of snap.tabs) {
       for (const pane of item.panes) live.add(pane.id);
     }
@@ -474,7 +498,7 @@ export default function App() {
       });
     };
     tick();
-    const id = window.setInterval(tick, quotaOpen ? 400 : 900);
+    const id = window.setInterval(tick, quotaOpen ? 2500 : 4000);
     return () => {
       stop = true;
       window.clearInterval(id);
@@ -675,12 +699,6 @@ export default function App() {
           </button>
         </div>
         <div className="titlebar-controls">
-          <QuotaButton
-            open={quotaOpen}
-            agents={hud?.quota ?? []}
-            onToggle={() => setQuotaOpen((open) => !open)}
-            wrapRef={quotaRef}
-          />
           <div className="gear-wrap" ref={gearRef}>
             <button
               type="button"
@@ -846,6 +864,47 @@ export default function App() {
                       Guardar nota
                     </button>
                   </form>
+                </details>
+                <details>
+                  <summary>HTTP LAN</summary>
+                  <p className="hint">opt-in · password en data_dir · sin TLS · puerto 47832</p>
+                  <form
+                    className="env-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void call("setHttp", { enabled: true, password: httpPass });
+                    }}
+                  >
+                    <input
+                      type="password"
+                      value={httpPass}
+                      placeholder="password ≥ 8"
+                      onChange={(e) => setHttpPass(e.target.value)}
+                    />
+                    <button type="submit" className="open-folder-btn">
+                      {snap.http?.enabled ? "actualizar" : "activar"}
+                    </button>
+                  </form>
+                  <button type="button" className="gear-hit" onClick={() => void call("setHttp", { enabled: false })}>
+                    desactivar HTTP
+                  </button>
+                </details>
+                <details>
+                  <summary>Instalar agentes</summary>
+                  {(snap.agent_tools ?? []).map((tool) => (
+                    <button
+                      key={tool.name}
+                      type="button"
+                      className="gear-hit"
+                      onClick={() => void call("installAgent", { name: tool.name })}
+                    >
+                      <Sparkles size={12} color="var(--muted)" />
+                      <span>{tool.name}</span>
+                      <span className="hint">
+                        {tool.available ? tool.version ?? "instalado" : "install en PTY"}
+                      </span>
+                    </button>
+                  ))}
                 </details>
               </div>
             )}
@@ -1042,9 +1101,9 @@ export default function App() {
                     >
                       {row.is_dir ? (
                         row.expanded ? (
-                          <ChevronDown size={10} color="#6C8070" />
+                          <ChevronDown size={10} color="var(--muted)" />
                         ) : (
-                          <ChevronRight size={10} color="#6C8070" />
+                          <ChevronRight size={10} color="var(--muted)" />
                         )
                       ) : (
                         <span style={{ width: 10, flexShrink: 0 }} />
@@ -1062,7 +1121,7 @@ export default function App() {
             {activity === "git" && (
               <>
                 <div className="git-branch-bar">
-                  <GitBranch size={12} color="#6C8070" />
+                  <GitBranch size={12} color="var(--muted)" />
                   <span className="branch-name">{snap.git?.branch ?? "sin repo"}</span>
                   {snap.git && (
                     <>
@@ -1075,13 +1134,65 @@ export default function App() {
                   </button>
                 </div>
                 <div className="sidebar-content">
+                  <div className="section-label">Working tree</div>
+                  {(snap.git_files ?? []).length === 0 && <p className="hint">limpio</p>}
+                  {(snap.git_files ?? []).map((file) => (
+                    <div key={file.path} className="git-file-row">
+                      <button type="button" className="git-file-name" onClick={() => void call("openFile", { rel: file.path })}>
+                        <span className={`tree-badge ${badgeClass(file.untracked ? "?" : "M")}`}>{file.mark}</span>
+                        {file.path}
+                      </button>
+                      {file.untracked || file.unstaged ? (
+                        <button type="button" title="stage" onClick={() => void call("gitOp", { op: "stage", path: file.path })}>
+                          +
+                        </button>
+                      ) : null}
+                      {file.staged ? (
+                        <button type="button" title="unstage" onClick={() => void call("gitOp", { op: "unstage", path: file.path })}>
+                          −
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <form
+                    className="env-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!gitMsg.trim()) return;
+                      void call("gitOp", { op: "commit", message: gitMsg }).then(() => setGitMsg(""));
+                    }}
+                  >
+                    <input value={gitMsg} placeholder="mensaje de commit" onChange={(e) => setGitMsg(e.target.value)} />
+                    <button type="submit" className="open-folder-btn" disabled={!gitMsg.trim()}>
+                      commit
+                    </button>
+                  </form>
+                  <div className="git-actions">
+                    <button type="button" onClick={() => void call("gitOp", { op: "fetch" })}>
+                      fetch
+                    </button>
+                    <button type="button" onClick={() => void call("gitOp", { op: "pull" })}>
+                      pull --ff-only
+                    </button>
+                  </div>
+                  <div className="section-label">Ramas</div>
+                  {(snap.git_branches ?? []).slice(0, 12).map((branch) => (
+                    <button
+                      key={branch}
+                      type="button"
+                      className="cli-item"
+                      onClick={() => void call("gitOp", { op: "checkout", path: branch })}
+                    >
+                      {branch}
+                    </button>
+                  ))}
                   <div className="section-label">Log</div>
                   {snap.git_log.map((line) => {
                     const sha = line.slice(0, 7);
                     const msg = line.slice(8);
                     return (
                       <div key={line} className="git-log-sidebar-item">
-                        <GitCommitHorizontal size={11} color="#488C58" />
+                        <GitCommitHorizontal size={11} color="var(--ok)" />
                         <span className="git-sha">{sha}</span>
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {msg || line}
@@ -1106,6 +1217,7 @@ export default function App() {
                       {cli.available && <Check size={9} strokeWidth={3} color="#fff" />}
                     </span>
                     <span className="cli-name">{cli.name}</span>
+                    {cli.version && <span className="hint">{cli.version}</span>}
                   </button>
                 ))}
               </div>
@@ -1314,7 +1426,7 @@ export default function App() {
                     void call("moveTab", { from, to: index });
                   }}
                 >
-                  <Icon size={12} color={on ? "#488C58" : "#6C8070"} />
+                  <Icon size={12} color={on ? "var(--brand)" : "var(--muted)"} />
                   <span>{item.name}</span>
                   <span
                     className="tab-close"
@@ -1372,7 +1484,7 @@ export default function App() {
           <div className="crumbs">
             {crumbs.map((part, i) => (
               <span key={`${part}-${i}`} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {i > 0 && <ChevronRight size={10} color="#C5D4C5" />}
+                {i > 0 && <ChevronRight size={10} color="var(--muted)" />}
                 <span className={i === crumbs.length - 1 ? "current" : ""}>{part}</span>
               </span>
             ))}
@@ -1414,7 +1526,12 @@ export default function App() {
                 onPreset={(id) => void call("applyPreset", { id })}
               />
             ) : (
-              tab && (
+              tab &&
+              (tab.kind === "file" && tab.rel ? (
+                <FileEditor rel={tab.rel} onOpenNvim={() => void call("openInNvim", { rel: tab.rel })} />
+              ) : tab.kind === "rest" && tab.rel ? (
+                <RestClient rel={tab.rel} />
+              ) : (
                 <SplitView
                   node={tab.layout}
                   panes={tab.panes}
@@ -1422,7 +1539,7 @@ export default function App() {
                   zoomed={tab.zoomed}
                   onFocus={(id) => void call("focus", { pane: id })}
                 />
-              )
+              ))
             )}
             {dockEdge && draggingTab != null && draggingTab !== snap.active_tab && (
               <div className={`dock-overlay ${dockEdge}`} />
@@ -1430,70 +1547,37 @@ export default function App() {
           </div>
         </main>
       </div>
-      <footer className="status">
-        <span className="status-item status-version" title={eraLabel(snap.version)}>
-          {displayVersion(snap.version)}
-        </span>
-        <span className="status-sep">·</span>
-        <span className="status-item">
-          <GitBranch size={11} />
-          {snap.git?.branch ?? "—"}
-        </span>
-        <span className="status-sep">·</span>
-        <span className="status-path">{snap.root}</span>
-        {hud?.host?.load && (
-          <>
-            <span className="status-sep">·</span>
-            <span className="status-item" title="load average">
-              {hud.host.load}
-              {hud.host.mem != null ? ` · ${hud.host.mem}% ram` : ""}
-            </span>
-          </>
-        )}
-        {remoteHost && (
-          <>
-            <span className="status-sep">·</span>
-            <span className="status-item status-remote">
-              <Cloud size={11} />
-              {remoteHost}
-              {snap.ssh_tmux_session ? ` · ${snap.ssh_tmux_session}` : ""}
-            </span>
-          </>
-        )}
-        {(snap.agents ?? []).length > 0 && (
-          <>
-            <span className="status-sep">·</span>
-            <span className="status-item" title={(snap.agents ?? []).map((a) => a.worktree ?? a.program).join(" · ")}>
-              <Sparkles size={11} />
-              {(snap.agents ?? []).map((a) => a.program).join(" · ")}
-            </span>
-          </>
-        )}
-        {(snap.status_ext ?? []).map((item) => (
-          <span key={item.id} className="status-item" title={item.id}>
-            {item.text}
-          </span>
-        ))}
-        <div className="status-media-wrap" ref={mediaRef}>
-          <button
-            type="button"
-            className="status-media"
-            title={
-              hud?.music
-                ? `${hud.music.source ?? "media"} · ${hud.music.title}`
-                : hud?.playerctl
-                  ? "media (playerctl · YouTube/Spotify Web/MPRIS)"
-                  : "instalá playerctl"
-            }
-            onClick={() => setMediaOpen((open) => !open)}
-          >
-            {hud?.music ? `${hud.music.playing ? "▶ " : ""}${hud.music.title}` : "media"}
-          </button>
-          {mediaOpen && <MediaDock hud={hud} open={mediaOpen} onClose={() => setMediaOpen(false)} onAction={musicAction} />}
-        </div>
-        <span className="status-shortcut">Ctrl+B paleta · Ctrl+Alt+[ ] workspaces · clic en el nombre</span>
-        {banner && <span className="notice">{banner}</span>}
-      </footer>
+      <StatusBar
+        snap={snap}
+        hud={hud}
+        remoteHost={remoteHost ? `${remoteHost}${snap.ssh_tmux_session ? ` · ${snap.ssh_tmux_session}` : ""}` : null}
+        quotaOpen={quotaOpen}
+        mediaOpen={mediaOpen}
+        quotaRef={quotaRef}
+        mediaRef={mediaRef}
+        banner={banner}
+        agentsTick={agentsTick}
+        onToggleQuota={() => setQuotaOpen((open) => !open)}
+        onToggleMedia={() => setMediaOpen((open) => !open)}
+        onMusic={musicAction}
+        onSelectTab={(index) => void call("selectTab", { index })}
+        onFocusPane={(pane) => void call("focus", { pane })}
+        onOpenPort={(port, pane) => {
+          void call("focus", { pane });
+          void window.lolterm.invoke("openUrl", { url: `http://127.0.0.1:${port}/` });
+        }}
+        onOpenRoot={() => {
+          void window.lolterm.invoke("openRoot");
+        }}
+      />
+      {tab && tab.kind !== "file" && tab.kind !== "rest" && (
+        <TouchBar
+          pane={tab.focused}
+          onSend={(b64) => {
+            void window.lolterm.invoke("write", { pane: tab.focused, b64 });
+          }}
+        />
+      )}
       {copiedFlash > 0 && (
         <div className="copied-toast" key={copiedFlash} role="status">
           Copiado!
@@ -1520,7 +1604,7 @@ export default function App() {
             <div className="cmd-section-label">Acciones</div>
             {cmds.map((cmd) => (
               <button key={cmd.id} type="button" className="cmd-result" onClick={() => void runCommand(cmd.id)}>
-                <Terminal size={12} color="#6C8070" />
+                <Terminal size={12} color="var(--muted)" />
                 <span className="cmd-result-label">
                   /{cmd.slash} · {cmd.hint}
                 </span>

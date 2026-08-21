@@ -16,6 +16,8 @@ pub struct Hud {
     pub quota: Vec<QuotaAgent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<HostStats>,
+    #[serde(default)]
+    pub extra: crate::inspect::HostExtra,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
 }
@@ -29,6 +31,7 @@ pub fn snapshot(running: &[String]) -> Hud {
         music: music::now(),
         quota: quota::agents(running),
         host: (host.load.is_some() || host.mem.is_some()).then_some(host),
+        extra: crate::inspect::HostExtra::default(),
         notice: None,
     }
 }

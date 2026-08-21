@@ -17,6 +17,8 @@ export type PaneSnap = {
 
 export type TabSnap = {
   name: string;
+  kind?: string;
+  rel?: string | null;
   focused: number;
   zoomed: number | null;
   layout: LayoutNode;
@@ -34,6 +36,14 @@ export type TreeRow = {
   hidden?: boolean;
 };
 
+export type GitFile = {
+  path: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  mark: string;
+};
+
 export type GitStatus = {
   branch: string;
   staged: number;
@@ -43,7 +53,7 @@ export type GitStatus = {
   behind: number;
 };
 
-export type RunCli = { name: string; available: boolean };
+export type RunCli = { name: string; available: boolean; version?: string | null };
 
 export type Snapshot = {
   root: string;
@@ -52,10 +62,14 @@ export type Snapshot = {
   active_tab: number;
   tabs: TabSnap[];
   git: GitStatus | null;
+  git_files?: GitFile[];
+  git_branches?: string[];
   git_log: string[];
   tree: TreeRow[];
   tailscale: unknown;
   run_clis: RunCli[];
+  agent_tools?: { name: string; available: boolean; version?: string | null; install: string }[];
+  http?: { enabled: boolean; bind: string };
   notice: string | null;
   theme: string;
   ssh_user: string | null;
@@ -70,7 +84,7 @@ export type Snapshot = {
   meta: { stack: string[]; git_remote: string | null; notes: string };
   machines: { name: string; target: string; user: string | null; kind: string }[];
   new_tab: string;
-  agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean }[];
+  agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean; attention?: boolean }[];
   agent_log?: { ts: number; workspace: string; program: string; worktree?: string | null }[];
   themes?: { id: string; label: string; hint: string; vars: Record<string, string> }[];
   extensions?: string[];
@@ -78,6 +92,7 @@ export type Snapshot = {
   ext_commands?: { id: string; slash: string; hint: string; run: string; args?: string[] }[];
   commands_path?: string;
   keybindings_path?: string;
+  held_panes?: number[];
 };
 
 export type QuotaBar = {
@@ -115,6 +130,12 @@ export type Hud = {
   music: NowPlaying | null;
   quota: QuotaAgent[];
   host?: { load?: string | null; mem?: number | null } | null;
+  extra?: {
+    disk?: number | null;
+    battery?: number | null;
+    ports?: { port: number; pid: number; pane: number; program: string }[];
+    processes?: { pid: number; program: string; pane: number }[];
+  };
   notice?: string | null;
 };
 

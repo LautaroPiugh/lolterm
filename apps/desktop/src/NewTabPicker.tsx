@@ -6,7 +6,7 @@ const AGENTS = new Set(["codex", "claude", "opencode", "gemini", "cline", "copil
 const HINT: Record<string, string> = {
   shell: "shell del workspace",
   ssh: "host de ~/.ssh/config",
-  tailscale: "máquina Tailscale",
+  rest: ".http / .rest + curl",
   nvim: "editor",
   lazygit: "git",
   btop: "monitor",
@@ -41,6 +41,7 @@ export function NewTabPicker({
     { kind: "shell", label: "Terminal", available: true },
     { kind: "ssh", label: "SSH", available: true },
     { kind: "tailscale", label: "Tailscale", available: true },
+    { kind: "rest", label: "REST", available: true },
   ];
 
   return (
@@ -89,7 +90,11 @@ function Section({
             >
               <KindIcon kind={row.kind} />
               <span>{row.label}</span>
-              <span className="new-tab-meta">{row.available ? HINT[row.kind] : "no en PATH"}</span>
+                  <span className="new-tab-meta">
+                    {row.available
+                      ? snap.run_clis.find((cli) => cli.name === row.kind)?.version || HINT[row.kind]
+                      : "no en PATH"}
+                  </span>
             </button>
             <button
               type="button"
@@ -108,7 +113,7 @@ function Section({
 
 function KindIcon({ kind }: { kind: string }) {
   if (kind === "ssh") return <Server size={13} />;
-  if (kind === "tailscale") return <Cloud size={13} />;
+  if (kind === "tailscale" || kind === "rest") return <Cloud size={13} />;
   if (kind === "lazygit") return <GitBranch size={13} />;
   if (AGENTS.has(kind)) return <Sparkles size={13} />;
   return <Terminal size={13} />;

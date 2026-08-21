@@ -10,7 +10,9 @@ type QuotaProps = {
 };
 
 export function QuotaButton({ open, agents, onToggle, wrapRef }: QuotaProps) {
-  const visible = agents.filter((agent) => agent.supported || agent.pending);
+  const visible = agents.filter(
+    (agent) => agent.supported || agent.pending || agent.available || agent.running || agent.note,
+  );
   const worstUsed = visible
     .flatMap((agent) => agent.bars)
     .reduce((max, bar) => Math.max(max, bar.percent), 0);
@@ -54,7 +56,9 @@ function QuotaRow({ agent }: { agent: QuotaAgent }) {
               : "instalado"}
         </span>
       </div>
-      {agent.pending && agent.bars.length === 0 && <p className="quota-note">{agent.note ?? "consultando…"}</p>}
+      {agent.bars.length === 0 && (
+        <p className="quota-note">{agent.note ?? (agent.pending ? "consultando…" : "sin ventana de cuota")}</p>
+      )}
       {agent.bars.map((bar) => {
         const used = bar.percent;
         const left = Math.max(0, 100 - used);
@@ -73,7 +77,7 @@ function QuotaRow({ agent }: { agent: QuotaAgent }) {
                 className="quota-fill"
                 data-hot={hot ? "1" : "0"}
                 data-warm={warm && !hot ? "1" : "0"}
-                style={{ width: `${left}%` }}
+                style={{ width: `${used}%` }}
               />
             </div>
           </div>

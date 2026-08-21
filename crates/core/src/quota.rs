@@ -93,12 +93,9 @@ pub fn agents(running: &[String]) -> Vec<QuotaAgent> {
             out.push(agent);
         }
     }
-    if files::command_on_path("cline") {
-        let agent = cline(running);
-        if agent.supported || agent.pending || agent.note.is_some() {
-            out.push(agent);
-        }
-    }
+    // Cline/ClinePass: la cuota vive en la API, no en el binario.
+    // Mostrarlo aunque `cline` no esté en el PATH del sidecar.
+    out.push(cline(running));
     if files::command_on_path("copilot") {
         let agent = copilot(running);
         if agent.supported || agent.pending || agent.note.is_some() {
@@ -188,7 +185,7 @@ fn opencode(running: &[String]) -> QuotaAgent {
 }
 
 fn cline(running: &[String]) -> QuotaAgent {
-    let available = files::command_on_path("cline");
+    let available = files::command_on_path("cline") || running_has(running, "cline");
     let running = running_has(running, "cline");
     let bars = CLINE_BARS
         .lock()
@@ -196,7 +193,7 @@ fn cline(running: &[String]) -> QuotaAgent {
         .and_then(|g| g.clone())
         .unwrap_or_default();
     let err = CLINE_ERR.lock().ok().and_then(|g| g.clone());
-    let pending = bars.is_empty() && err.is_none() && available;
+    let pending = bars.is_empty() && err.is_none();
     let note = if !bars.is_empty() {
         None
     } else if pending {
@@ -590,9 +587,6 @@ fn kick_opencode_usage() {
 }
 
 fn kick_cline_usage() {
-    if !files::command_on_path("cline") {
-        return;
-    }
     if CLINE_WORKER
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -1117,6 +1111,14 @@ fn cline_provider_paths() -> Vec<PathBuf> {
         let home = PathBuf::from(home);
         out.push(home.join(".cline/data/settings/providers.json"));
         out.push(home.join(".cline/data/providers.json"));
+        out.push(home.join(".config/cline/data/settings/providers.json"));
+        out.push(home.join(".config/cline/providers.json"));
+        out.push(home.join(".cline/settings.json"));
+    }
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        let xdg = PathBuf::from(xdg);
+        out.push(xdg.join("cline/data/settings/providers.json"));
+        out.push(xdg.join("cline/providers.json"));
     }
     out
 }
@@ -1172,10 +1174,13 @@ fn walk_cline_key(value: &Value, parent: &str, found: &mut Option<String>) {
 }
 
 fn is_cline_provider(name: &str) -> bool {
-    matches!(
-        name.trim().to_ascii_lowercase().as_str(),
-        "cline" | "clinepass" | "cline-pass" | "cline_pass"
-    )
+    let name = name.trim().to_ascii_lowercase();
+    name == "cline"
+        || name == "clinepass"
+        || name.contains("clinepass")
+        || name == "cline-pass"
+        || name == "cline_pass"
+        || name == "account"
 }
 
 fn bearer_get(url: &str, token: &str) -> Result<(u16, Value), String> {

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -251,6 +252,41 @@ pub fn command_on_path(name: &str) -> bool {
     resolve_command(name).is_some()
 }
 
+/// Abre un path o URL con `xdg-open`. No espera al browser.
+pub fn open_external(target: &str) -> Result<(), String> {
+    let bin = resolve_command("xdg-open").ok_or_else(|| "xdg-open no está en PATH".to_string())?;
+    Command::new(bin)
+        .arg(target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+/// Solo `http(s)://localhost` / `127.0.0.1` / `::1`. Los puertos del mux son locales.
+pub fn local_http_url(url: &str) -> Result<String, String> {
+    let url = url.trim();
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .ok_or_else(|| "solo http(s) local".to_string())?;
+    let hostport = rest.split('/').next().unwrap_or(rest);
+    let host = host_of(hostport);
+    if !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+        return Err("solo localhost".into());
+    }
+    Ok(url.to_string())
+}
+
+fn host_of(hostport: &str) -> &str {
+    if let Some(rest) = hostport.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    hostport.split(':').next().unwrap_or(hostport)
+}
+
 /// Nombre de programa para `lolterm run`: un binario, sin path ni shell.
 pub fn program_ok(name: &str) -> bool {
     let name = name.trim();
@@ -288,7 +324,7 @@ pub fn resolve_command(name: &str) -> Option<PathBuf> {
     lookup_in_path(name)
 }
 
-const PATH_TTL: Duration = Duration::from_secs(20);
+const PATH_TTL: Duration = Duration::from_secs(120);
 
 static CACHE_PATH: Mutex<Option<(Instant, Vec<PathBuf>)>> = Mutex::new(None);
 
@@ -438,6 +474,65 @@ pub fn language_id(name: &str) -> Option<&'static str> {
         "svg" => "svg",
         _ => return None,
     })
+}
+
+const MAX_TEXT: usize = 1_000_000;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FileText {
+    pub rel: String,
+    pub text: String,
+    pub lang: Option<String>,
+}
+
+pub fn confined(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let rel = rel.trim().trim_start_matches('/');
+    if rel.is_empty() || rel.contains('\0') || rel.split('/').any(|part| part == "..") {
+        return Err("ruta inválida".into());
+    }
+    let root_abs = fs::canonicalize(root).map_err(|err| err.to_string())?;
+    let joined = join_root(&root_abs, rel);
+    if let Ok(canon) = fs::canonicalize(&joined) {
+        if !canon.starts_with(&root_abs) {
+            return Err("fuera del workspace".into());
+        }
+        return Ok(canon);
+    }
+    if let Some(parent) = joined.parent()
+        && let Ok(parent) = fs::canonicalize(parent)
+        && parent.starts_with(&root_abs)
+    {
+        return Ok(joined);
+    }
+    Err("fuera del workspace".into())
+}
+
+pub fn read_text(root: &Path, rel: &str) -> Result<FileText, String> {
+    let path = confined(root, rel)?;
+    let bytes = fs::read(&path).map_err(|err| err.to_string())?;
+    if bytes.len() > MAX_TEXT {
+        return Err("archivo demasiado grande".into());
+    }
+    if bytes.contains(&0) {
+        return Err("archivo binario".into());
+    }
+    let text = String::from_utf8(bytes).map_err(|_| "no es UTF-8".to_string())?;
+    Ok(FileText {
+        rel: rel.replace('\\', "/"),
+        text,
+        lang: language_id(rel).map(str::to_string),
+    })
+}
+
+pub fn write_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
+    if text.len() > MAX_TEXT {
+        return Err("archivo demasiado grande".into());
+    }
+    let path = confined(root, rel)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    fs::write(path, text).map_err(|err| err.to_string())
 }
 
 pub fn join_root(root: &Path, rel: &str) -> PathBuf {
@@ -609,6 +704,15 @@ mod tests {
         assert_eq!(language_id("App.tsx"), Some("tsx"));
         assert_eq!(language_id("Dockerfile"), Some("docker"));
         assert_eq!(language_id("notes.txt"), None);
+    }
+
+    #[test]
+    fn local_http_url_allows_loopback_only() {
+        assert!(local_http_url("http://127.0.0.1:5173/").is_ok());
+        assert!(local_http_url("http://localhost:3000").is_ok());
+        assert!(local_http_url("http://[::1]:8080/").is_ok());
+        assert!(local_http_url("https://example.com").is_err());
+        assert!(local_http_url("file:///tmp").is_err());
     }
 
     #[test]

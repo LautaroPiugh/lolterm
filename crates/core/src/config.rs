@@ -6,6 +6,7 @@ pub enum Theme {
     #[default]
     Claro,
     Oscuro,
+    Contraste,
     Tide,
     Ember,
 }
@@ -15,6 +16,7 @@ impl Theme {
         match name.trim().to_ascii_lowercase().as_str() {
             "claro" => Some(Self::Claro),
             "oscuro" => Some(Self::Oscuro),
+            "contraste" => Some(Self::Contraste),
             "tide" => Some(Self::Tide),
             "ember" => Some(Self::Ember),
             _ => None,
@@ -25,6 +27,7 @@ impl Theme {
         match self {
             Self::Claro => "claro",
             Self::Oscuro => "oscuro",
+            Self::Contraste => "contraste",
             Self::Tide => "tide",
             Self::Ember => "ember",
         }
@@ -376,7 +379,7 @@ mod tests {
     #[test]
     fn parses_known_themes() {
         assert_eq!(Theme::parse("Claro"), Some(Theme::Claro));
-        assert_eq!(Theme::parse("oscuro"), Some(Theme::Oscuro));
+        assert_eq!(Theme::parse("contraste"), Some(Theme::Contraste));
         assert_eq!(Theme::parse("TIDE"), Some(Theme::Tide));
         assert_eq!(Theme::parse("solarized"), None);
         assert_eq!(Theme::Claro.as_str(), "claro");

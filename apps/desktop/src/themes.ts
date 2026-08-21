@@ -34,40 +34,59 @@ const scale = (...values: string[]): Scale => ({
 });
 
 /**
- * Cuatro paletas independientes (no son pares claro/oscuro del mismo tinte).
- * La escala sigue el contrato de Orquester: 11 pasos RGB, 50 = texto, 950 = fondo.
+ * Paletas independientes (no son pares claro/oscuro del mismo tinte).
+ * La escala: 11 pasos RGB, 50 = texto, 950 = fondo.
  */
 export const PALETTES: Record<string, Palette> = {
   claro: {
     mode: "light",
+    // chrome #F3F3F3, editor #FCFCFC, texto #141414
     n: scale(
-      "18 22 28",
-      "32 38 46",
-      "48 56 66",
-      "70 80 92",
-      "98 110 124",
-      "122 134 148",
-      "148 160 174",
-      "206 216 226",
-      "226 232 238",
-      "242 246 250",
-      "252 253 254",
+      "20 20 20",
+      "20 20 20",
+      "55 55 55",
+      "80 80 80",
+      "110 110 110",
+      "140 140 140",
+      "39 120 193",
+      "228 228 228",
+      "243 243 243",
+      "243 243 243",
+      "252 252 252",
     ),
   },
   oscuro: {
     mode: "dark",
+    // chrome #141414, editor #181818, acento #81A1C1
     n: scale(
-      "236 238 236",
-      "214 218 214",
-      "180 188 182",
-      "142 152 146",
-      "104 116 110",
-      "72 84 78",
-      "50 62 56",
-      "34 44 40",
-      "22 30 26",
-      "13 17 15",
-      "7 9 8",
+      "255 255 255",
+      "240 240 240",
+      "220 220 220",
+      "177 177 177",
+      "160 160 160",
+      "90 90 90",
+      "129 161 193",
+      "36 36 36",
+      "20 20 20",
+      "20 20 20",
+      "24 24 24",
+    ),
+  },
+  contraste: {
+    mode: "dark",
+    // negro #0A0A0A, texto #F0F0F0
+    n: scale(
+      "255 255 255",
+      "240 240 240",
+      "220 220 220",
+      "177 177 177",
+      "160 160 160",
+      "88 88 88",
+      "67 76 94",
+      "42 42 42",
+      "10 10 10",
+      "10 10 10",
+      "10 10 10",
     ),
   },
   tide: {
@@ -107,8 +126,9 @@ export const PALETTES: Record<string, Palette> = {
 export type ThemeId = keyof typeof PALETTES | string;
 
 export const THEMES: { id: string; label: string; hint: string }[] = [
-  { id: "claro", label: "Claro", hint: "papel frío" },
-  { id: "oscuro", label: "Oscuro", hint: "carbón" },
+  { id: "claro", label: "Claro", hint: "papel, chrome gris" },
+  { id: "oscuro", label: "Oscuro", hint: "carbón #141414" },
+  { id: "contraste", label: "Contraste", hint: "negro puro" },
   { id: "tide", label: "Tide", hint: "mar de noche" },
   { id: "ember", label: "Ember", hint: "cobre" },
 ];
@@ -175,13 +195,32 @@ export function applyDocumentTheme(id: string) {
   const root = document.documentElement;
   root.dataset.theme = key;
   root.dataset.mode = pal.mode;
+  for (const name of ["fill", "text", "brand", "bar", "pane", "muted", "focus", "border", "err", "ok", "hover"]) {
+    root.style.removeProperty(`--${name}`);
+  }
   for (const step of STEPS) {
     root.style.setProperty(`--n-${step}`, pal.n[step]);
   }
 }
 
 export function xtermTheme(id: ThemeId): ITheme {
-  const pal = PALETTES[parseTheme(String(id))] ?? PALETTES.claro;
+  const key = parseTheme(String(id));
+  if (key === "oscuro") {
+    return XTERM_OSCURO;
+  }
+  if (key === "contraste") {
+    return XTERM_CONTRASTE;
+  }
+  if (key === "claro") {
+    return XTERM_CLARO;
+  }
+  if (key === "tide") {
+    return XTERM_TIDE;
+  }
+  if (key === "ember") {
+    return XTERM_EMBER;
+  }
+  const pal = PALETTES[key] ?? PALETTES.claro;
   const ansi = pal.mode === "dark" ? ANSI_DARK : ANSI_LIGHT;
   const background = rgbToHex(pal.n["950"]);
   const foreground = rgbToHex(pal.n["200"]);
@@ -197,6 +236,126 @@ export function xtermTheme(id: ThemeId): ITheme {
     black: pal.mode === "dark" ? "#1c1c1c" : "#27272a",
   };
 }
+
+const XTERM_OSCURO: ITheme = {
+  background: "#181818",
+  foreground: "#F0F0F0",
+  cursor: "#F0F0F0",
+  cursorAccent: "#181818",
+  selectionBackground: "#40404099",
+  black: "#242424",
+  red: "#FC6B83",
+  green: "#3FA266",
+  yellow: "#D2943E",
+  blue: "#81A1C1",
+  magenta: "#B48EAD",
+  cyan: "#88C0D0",
+  white: "#F0F0F0",
+  brightBlack: "#888888",
+  brightRed: "#FC6B83",
+  brightGreen: "#70B489",
+  brightYellow: "#F1B467",
+  brightBlue: "#87A6C4",
+  brightMagenta: "#B48EAD",
+  brightCyan: "#88C0D0",
+  brightWhite: "#FFFFFF",
+};
+
+const XTERM_CONTRASTE: ITheme = {
+  background: "#0A0A0A",
+  foreground: "#F0F0F0",
+  cursor: "#F0F0F0",
+  cursorAccent: "#0A0A0A",
+  selectionBackground: "#40404099",
+  black: "#2A2A2A",
+  red: "#BF616A",
+  green: "#A3BE8C",
+  yellow: "#EBCB8B",
+  blue: "#81A1C1",
+  magenta: "#B48EAD",
+  cyan: "#88C0D0",
+  white: "#F0F0F0",
+  brightBlack: "#888888",
+  brightRed: "#BF616A",
+  brightGreen: "#A3BE8C",
+  brightYellow: "#EBCB8B",
+  brightBlue: "#81A1C1",
+  brightMagenta: "#B48EAD",
+  brightCyan: "#88C0D0",
+  brightWhite: "#FFFFFF",
+};
+
+const XTERM_CLARO: ITheme = {
+  background: "#FCFCFC",
+  foreground: "#141414",
+  cursor: "#141414",
+  cursorAccent: "#FCFCFC",
+  selectionBackground: "#14141414",
+  black: "#141414",
+  red: "#BE1744",
+  green: "#007041",
+  yellow: "#8B5700",
+  blue: "#0064B0",
+  magenta: "#92156A",
+  cyan: "#176C74",
+  white: "#FCFCFC",
+  brightBlack: "#6B6B6B",
+  brightRed: "#CE405B",
+  brightGreen: "#00854C",
+  brightYellow: "#A46700",
+  brightBlue: "#2778C1",
+  brightMagenta: "#B54E90",
+  brightCyan: "#3B7E84",
+  brightWhite: "#FFFFFF",
+};
+
+const XTERM_TIDE: ITheme = {
+  background: "#041018",
+  foreground: "#c4e4ea",
+  cursor: "#6cb0c2",
+  cursorAccent: "#041018",
+  selectionBackground: "#0e384a",
+  black: "#071c28",
+  red: "#f87171",
+  green: "#5eead4",
+  yellow: "#fde68a",
+  blue: "#6cb0c2",
+  magenta: "#c4b5fd",
+  cyan: "#9aceda",
+  white: "#e2f2f4",
+  brightBlack: "#448ea4",
+  brightRed: "#fca5a5",
+  brightGreen: "#99f6e4",
+  brightYellow: "#fef3c7",
+  brightBlue: "#9aceda",
+  brightMagenta: "#ddd6fe",
+  brightCyan: "#c4e4ea",
+  brightWhite: "#ffffff",
+};
+
+const XTERM_EMBER: ITheme = {
+  background: "#fffaf4",
+  foreground: "#382012",
+  cursor: "#c48e52",
+  cursorAccent: "#fffaf4",
+  selectionBackground: "#e8c698",
+  black: "#382012",
+  red: "#9a3412",
+  green: "#3f6212",
+  yellow: "#a16207",
+  blue: "#9a3412",
+  magenta: "#9f1239",
+  cyan: "#0f766e",
+  white: "#fcf0e0",
+  brightBlack: "#946034",
+  brightRed: "#c2410c",
+  brightGreen: "#4d7c0f",
+  brightYellow: "#ca8a04",
+  brightBlue: "#b45309",
+  brightMagenta: "#be123c",
+  brightCyan: "#0d9488",
+  brightWhite: "#fffaf4",
+};
 
 const CODE = new Set([
   "rust",

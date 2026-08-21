@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -228,6 +230,180 @@ pub fn worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), String
     }
     let err = String::from_utf8_lossy(&output.stderr);
     Err(err.trim().to_string())
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WorkingFile {
+    pub path: String,
+    pub staged: bool,
+    pub unstaged: bool,
+    pub untracked: bool,
+    pub mark: String,
+}
+
+pub fn working_files(dir: &Path) -> Vec<WorkingFile> {
+    let porcelain = git_output(dir, &["status", "--porcelain"]).unwrap_or_default();
+    let mut out = Vec::new();
+    for line in porcelain.lines() {
+        let bytes = line.as_bytes();
+        if bytes.len() < 4 {
+            continue;
+        }
+        let x = bytes[0] as char;
+        let y = bytes[1] as char;
+        let path = line[3..].trim();
+        let path = path
+            .rsplit_once(" -> ")
+            .map(|(_, next)| next)
+            .unwrap_or(path)
+            .trim_matches('"')
+            .replace('\\', "/");
+        if path.is_empty() {
+            continue;
+        }
+        let untracked = x == '?' && y == '?';
+        out.push(WorkingFile {
+            path,
+            staged: !untracked && x != ' ' && x != '!',
+            unstaged: !untracked && y != ' ' && y != '!',
+            untracked,
+            mark: format!("{x}{y}"),
+        });
+    }
+    out
+}
+
+pub fn branches(dir: &Path) -> Vec<String> {
+    let stdout = git_output(dir, &["branch", "--format=%(refname:short)"]).unwrap_or_default();
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Operaciones de trabajo. Nunca `--force` ni push con lease saltado.
+pub fn run_op(
+    dir: &Path,
+    op: &str,
+    path: Option<&str>,
+    message: Option<&str>,
+) -> Result<(), String> {
+    let op = op.trim();
+    match op {
+        "init" => git_ok(dir, &["init"])?,
+        "stage" => {
+            let path = path_arg(path)?;
+            git_ok(dir, &["add", "--", path])?;
+        }
+        "unstage" => {
+            let path = path_arg(path)?;
+            git_ok(dir, &["restore", "--staged", "--", path])?;
+        }
+        "discard" => {
+            let path = path_arg(path)?;
+            git_ok(dir, &["checkout", "--", path])?;
+        }
+        "commit" => {
+            let message = message
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .ok_or("hace falta un mensaje")?;
+            git_ok(dir, &["commit", "-m", message])?;
+        }
+        "fetch" => git_ok(dir, &["fetch", "--all", "--prune"])?,
+        "pull" => git_ok(dir, &["pull", "--ff-only"])?,
+        "checkout" => {
+            let branch = path_arg(path)?;
+            if !branch
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/'))
+            {
+                return Err("rama inválida".into());
+            }
+            git_ok(dir, &["checkout", branch])?;
+        }
+        other => return Err(format!("git op desconocida: {other}")),
+    }
+    Ok(())
+}
+
+fn path_arg(path: Option<&str>) -> Result<&str, String> {
+    let path = path
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .ok_or("hace falta un path")?;
+    if path.starts_with('-') || path.contains('\0') || path.split('/').any(|p| p == "..") {
+        return Err("path git inválido".into());
+    }
+    Ok(path)
+}
+
+fn git_ok(dir: &Path, args: &[&str]) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["-C", &dir.to_string_lossy()])
+        .args(args)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&output.stderr);
+    Err(err.trim().to_string())
+}
+
+pub fn working_files_cached(dir: &Path) -> Vec<WorkingFile> {
+    git_side_cache(dir).files
+}
+
+pub fn branches_cached(dir: &Path) -> Vec<String> {
+    git_side_cache(dir).branches
+}
+
+pub fn oneline_cached(dir: &Path, limit: usize) -> Vec<String> {
+    let _ = limit;
+    git_side_cache(dir).log
+}
+
+#[derive(Clone)]
+struct Side {
+    status: Option<Status>,
+    files: Vec<WorkingFile>,
+    branches: Vec<String>,
+    log: Vec<String>,
+}
+
+pub fn status_cached(dir: &Path) -> Option<Status> {
+    git_side_cache(dir).status
+}
+
+pub fn invalidate_cache() {
+    if let Ok(mut slot) = GIT_SIDE.lock() {
+        *slot = None;
+    }
+}
+
+static GIT_SIDE: Mutex<Option<(PathBuf, Instant, Side)>> = Mutex::new(None);
+
+fn git_side_cache(dir: &Path) -> Side {
+    if let Ok(guard) = GIT_SIDE.lock()
+        && let Some((root, at, side)) = guard.as_ref()
+        && root == dir
+        && at.elapsed() < Duration::from_millis(800)
+    {
+        return side.clone();
+    }
+    let side = Side {
+        status: status(dir),
+        files: working_files(dir),
+        branches: branches(dir),
+        log: oneline(dir, 8),
+    };
+    if let Ok(mut slot) = GIT_SIDE.lock() {
+        *slot = Some((dir.to_path_buf(), Instant::now(), side.clone()));
+    }
+    side
 }
 
 pub fn origin_label(dir: &Path) -> Option<String> {

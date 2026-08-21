@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+static PROBE: Mutex<Option<(Instant, Status)>> = Mutex::new(None);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum Status {
@@ -94,6 +98,20 @@ pub fn probe() -> Status {
         }
         Some(parsed) => parse_status(parsed),
     }
+}
+
+pub fn probe_cached() -> Status {
+    if let Ok(guard) = PROBE.lock()
+        && let Some((at, status)) = guard.as_ref()
+        && at.elapsed() < Duration::from_secs(3)
+    {
+        return status.clone();
+    }
+    let status = probe();
+    if let Ok(mut slot) = PROBE.lock() {
+        *slot = Some((Instant::now(), status.clone()));
+    }
+    status
 }
 
 pub fn peers() -> Vec<Peer> {

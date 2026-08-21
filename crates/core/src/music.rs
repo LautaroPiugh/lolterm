@@ -5,6 +5,7 @@
 use std::fs;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -28,6 +29,8 @@ pub struct NowPlaying {
     pub art: Option<String>,
 }
 
+static NOW: Mutex<Option<(Instant, Option<NowPlaying>)>> = Mutex::new(None);
+
 #[derive(Clone, Debug)]
 struct Row {
     player: String,
@@ -44,10 +47,20 @@ pub fn available() -> bool {
 }
 
 pub fn now() -> Option<NowPlaying> {
+    if let Ok(guard) = NOW.lock()
+        && let Some((at, cached)) = guard.as_ref()
+        && at.elapsed() < Duration::from_millis(1500)
+    {
+        return cached.clone();
+    }
     let rows = list_rows()?;
     let row = pick_row(&rows)?;
     remember(&row.player);
-    Some(to_now(row))
+    let now = Some(to_now(row));
+    if let Ok(mut slot) = NOW.lock() {
+        *slot = Some((Instant::now(), now.clone()));
+    }
+    now
 }
 
 pub fn play_pause() -> Result<(), String> {
@@ -63,6 +76,9 @@ pub fn previous() -> Result<(), String> {
 }
 
 pub fn action(name: &str, volume: Option<f64>) -> Result<(), String> {
+    if let Ok(mut slot) = NOW.lock() {
+        *slot = None;
+    }
     match name {
         "playPause" | "play-pause" | "music.playPause" => play_pause(),
         "next" | "music.next" => next(),

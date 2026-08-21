@@ -266,22 +266,32 @@ pub fn builtin_themes() -> Vec<ThemePack> {
         pack_orq(
             "claro",
             "Claro",
-            "papel frío",
-            [242, 246, 250],
-            [32, 38, 46],
-            [148, 160, 174],
-            [226, 232, 238],
-            [252, 253, 254],
+            "papel, chrome gris",
+            [243, 243, 243],
+            [20, 20, 20],
+            [39, 120, 193],
+            [243, 243, 243],
+            [252, 252, 252],
         ),
         pack_orq(
             "oscuro",
             "Oscuro",
-            "carbón",
-            [13, 17, 15],
-            [214, 218, 214],
-            [50, 62, 56],
-            [22, 30, 26],
-            [7, 9, 8],
+            "carbón #141414",
+            [20, 20, 20],
+            [240, 240, 240],
+            [129, 161, 193],
+            [20, 20, 20],
+            [24, 24, 24],
+        ),
+        pack_orq(
+            "contraste",
+            "Contraste",
+            "negro puro",
+            [10, 10, 10],
+            [240, 240, 240],
+            [136, 192, 208],
+            [10, 10, 10],
+            [10, 10, 10],
         ),
         pack_orq(
             "tide",
@@ -537,7 +547,7 @@ struct Colors<'a> {
 }
 
 fn reserved_theme(id: &str) -> bool {
-    matches!(id, "claro" | "oscuro" | "tide" | "ember")
+    matches!(id, "claro" | "oscuro" | "contraste" | "tide" | "ember")
 }
 
 fn rgb(n: [u8; 3]) -> String {

@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -8,6 +9,9 @@ use lolterm_core::layout::{NavDir, SplitDir};
 use lolterm_core::mux::Mux;
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+static HUD_BUSY: AtomicBool = AtomicBool::new(false);
+static HUD_LAST: Mutex<Option<Value>> = Mutex::new(None);
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -23,6 +27,7 @@ fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<(u64, Vec<u8>)>();
     let mux = Arc::new(Mutex::new(Mux::boot(open, tx)?));
     lolterm_core::ctl::serve(Arc::clone(&mux));
+    lolterm_core::http::serve(Arc::clone(&mux));
     let out = Arc::new(Mutex::new(std::io::stdout()));
 
     {
@@ -68,6 +73,10 @@ fn main() -> Result<()> {
                 continue;
             }
         };
+        if req.method == "hud" {
+            dispatch_hud(&mux, &out, req.id);
+            continue;
+        }
         let result = handle(&mux, &req);
         match result {
             Ok(value) => emit(&out, json!({ "id": req.id, "result": value })),
@@ -84,6 +93,46 @@ fn emit(out: &Arc<Mutex<std::io::Stdout>>, value: Value) {
     let _ = out.flush();
 }
 
+/// El HUD (cuota, playerctl, /proc) no debe bloquear `write`: el loop de stdin
+/// es un solo hilo. Si ya hay un HUD en vuelo, devolvemos la última foto.
+fn dispatch_hud(mux: &Arc<Mutex<Mux>>, out: &Arc<Mutex<std::io::Stdout>>, id: u64) {
+    if HUD_BUSY.swap(true, Ordering::SeqCst) {
+        let cached = HUD_LAST.lock().ok().and_then(|slot| slot.clone());
+        if let Some(value) = cached {
+            emit(out, json!({ "id": id, "result": value }));
+        } else {
+            emit(out, json!({ "id": id, "result": json!({}) }));
+        }
+        return;
+    }
+    let mux = Arc::clone(mux);
+    let out = Arc::clone(out);
+    std::thread::spawn(move || {
+        let result = hud_value(&mux);
+        match result {
+            Ok(value) => {
+                if let Ok(mut slot) = HUD_LAST.lock() {
+                    *slot = Some(value.clone());
+                }
+                emit(&out, json!({ "id": id, "result": value }));
+            }
+            Err(err) => emit(&out, json!({ "id": id, "error": err.to_string() })),
+        }
+        HUD_BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+fn hud_value(mux: &Arc<Mutex<Mux>>) -> Result<Value> {
+    let (running, pids, root) = {
+        let mut mux = mux.lock().expect("mux");
+        mux.reap();
+        mux.hud_parts()
+    };
+    let mut hud = lolterm_core::hud::snapshot(&running);
+    hud.extra = lolterm_core::inspect::extra(&root, &pids);
+    serde_json::to_value(hud).map_err(|err| color_eyre::eyre::eyre!(err))
+}
+
 fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
     let mut mux = mux.lock().expect("mux");
     mux.reap();
@@ -91,7 +140,6 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
     let value = match req.method.as_str() {
         "snapshot" => serde_json::to_value(mux.snapshot())?,
         "context" => serde_json::to_value(mux.context())?,
-        "hud" => serde_json::to_value(mux.hud())?,
         "music" => {
             let action = params["action"].as_str().unwrap_or("playPause");
             let volume = params["volume"].as_f64();
@@ -229,6 +277,67 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
         }
         "openFile" => {
             mux.open_file(params["rel"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "openInNvim" => {
+            mux.open_in_nvim(params["rel"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "openUrl" => {
+            let raw = params["url"].as_str().unwrap_or("");
+            let url = lolterm_core::files::local_http_url(raw)
+                .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            lolterm_core::files::open_external(&url).map_err(|err| color_eyre::eyre::eyre!(err))?;
+            json!({ "ok": true })
+        }
+        "openRoot" => {
+            let root = mux.root_path();
+            let target = root
+                .to_str()
+                .ok_or_else(|| color_eyre::eyre::eyre!("root no es utf-8"))?;
+            lolterm_core::files::open_external(target)
+                .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            json!({ "ok": true })
+        }
+        "readFile" => {
+            let rel = params["rel"].as_str().unwrap_or("");
+            let file = lolterm_core::files::read_text(mux.root_path(), rel)
+                .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            serde_json::to_value(file)?
+        }
+        "writeFile" => {
+            mux.write_file(
+                params["rel"].as_str().unwrap_or(""),
+                params["text"].as_str().unwrap_or(""),
+            )
+            .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "gitOp" => {
+            mux.git_op(
+                params["op"].as_str().unwrap_or(""),
+                params["path"].as_str(),
+                params["message"].as_str(),
+            )
+            .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "restSend" => {
+            let result = mux
+                .rest_send(params["rel"].as_str().unwrap_or(""))
+                .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            serde_json::to_value(result)?
+        }
+        "installAgent" => {
+            mux.install_agent(params["name"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "setHttp" => {
+            mux.set_http(
+                params["enabled"].as_bool().unwrap_or(false),
+                params["password"].as_str(),
+            )
+            .map_err(|err| color_eyre::eyre::eyre!(err))?;
             serde_json::to_value(mux.snapshot())?
         }
         "setPaneTitle" => {

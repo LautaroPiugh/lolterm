@@ -216,7 +216,7 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "ui.theme",
         slash: "theme",
-        hint: "claro, oscuro, tide, ember o un tema de ~/.config/lolterm/themes",
+        hint: "claro, oscuro, contraste, tide, ember o un tema de ~/.config/lolterm/themes",
         kind: CommandKind::Ui,
     },
     CommandSpec {
@@ -256,6 +256,12 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Ui,
     },
     CommandSpec {
+        id: "ui.attention",
+        slash: "attention",
+        hint: "agentes waiting / active del mux",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
         id: "music.playPause",
         slash: "play-pause",
         hint: "play/pause del reproductor MPRIS",
@@ -272,6 +278,18 @@ pub const REGISTRY: &[CommandSpec] = &[
         slash: "music-prev",
         hint: "pista anterior (playerctl)",
         kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "ui.rest",
+        slash: "rest",
+        hint: "abrir un .http/.rest del workspace",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "git.commit",
+        slash: "commit",
+        hint: "commit de lo staged (mensaje en el panel Git)",
+        kind: CommandKind::Ui,
     },
 ];
 
@@ -326,6 +344,8 @@ mod tests {
         assert_eq!(lookup("/update").map(|s| s.id), Some("app.update"));
         assert_eq!(lookup("play-pause").map(|s| s.id), Some("music.playPause"));
         assert_eq!(lookup("/quota").map(|s| s.id), Some("ui.quota"));
+        assert_eq!(lookup("/attention").map(|s| s.id), Some("ui.attention"));
+        assert_eq!(lookup("/rest").map(|s| s.id), Some("ui.rest"));
         assert_eq!(
             lookup("copy-select").map(|s| s.id),
             Some("terminal.copyOnSelect")
