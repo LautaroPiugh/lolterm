@@ -1907,6 +1907,318 @@ button {
   margin: 0 auto;
 }
 
+.settings-panel {
+  position: relative;
+  width: min(640px, 94vw);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--pane);
+  border: 2px double var(--brand);
+  border-radius: 10px;
+  padding: 16px 18px 18px;
+  margin: 0 auto;
+  box-shadow: 0 16px 48px rgba(20, 28, 22, 0.22);
+}
+
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.settings-kicker {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.settings-close:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0 10px;
+  padding: 3px;
+  background: var(--fill);
+  border-radius: 8px;
+}
+
+.settings-tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.settings-tabs button.on {
+  background: var(--pane);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+  font-weight: 600;
+}
+
+.settings-lead {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-h {
+  margin: 14px 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.theme-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: inherit;
+}
+
+.theme-tile:hover,
+.theme-tile.on {
+  border-color: var(--brand);
+}
+
+.theme-tile.on {
+  background: var(--focus);
+}
+
+.theme-tile-swatch {
+  width: 44px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.theme-tile-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.theme-tile-copy strong {
+  font-size: 12px;
+}
+
+.theme-tile-copy span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.settings-ghost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-ghost.tiny {
+  width: auto;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings-ghost span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settings-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tool-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.settings-tool-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-tool-copy strong {
+  font-size: 12px;
+}
+
+.settings-tool-copy span {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--ok);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-install {
+  border: 0;
+  background: var(--brand);
+  color: #fff;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settings-preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.settings-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  border-radius: 8px;
+  padding: 10px;
+  color: inherit;
+}
+
+.settings-preset:hover {
+  border-color: var(--brand);
+}
+
+.settings-preset strong {
+  font-size: 12px;
+}
+
+.settings-preset span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.settings-chip.on {
+  background: var(--focus);
+  border-color: var(--brand);
+}
+
+.settings-env-hit {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 4px 0;
+}
+
+.settings-env-hit span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .theme-grid,
+  .settings-preset-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .commands-head {
   display: flex;
   align-items: center;
@@ -2383,9 +2695,7 @@ button {
   margin-right: auto;
 }
 
-.doc-bar button,
-.git-actions button,
-.git-file-row button {
+.doc-bar button {
   border: 1px solid var(--border);
   background: var(--fill);
   color: var(--text);
@@ -2423,11 +2733,18 @@ button {
 .git-file-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  padding: 1px 6px 1px 10px;
+  min-height: 22px;
+}
+
+.git-file-row:hover {
+  background: var(--fill);
 }
 
 .git-file-name {
   flex: 1;
+  min-width: 0;
   text-align: left;
   background: none;
   border: 0;
@@ -2435,8 +2752,207 @@ button {
   font: inherit;
   display: flex;
   gap: 6px;
-  align-items: center;
+  align-items: baseline;
   overflow: hidden;
+  padding: 2px 0;
+}
+
+.git-file-base {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.git-file-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.git-file-actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.git-file-row:hover .git-file-actions,
+.git-file-row:focus-within .git-file-actions {
+  opacity: 1;
+}
+
+.git-letter {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.git-letter-m {
+  color: #d29922;
+}
+
+.git-letter-a,
+.git-letter-u {
+  color: var(--ok);
+}
+
+.git-letter-d {
+  color: var(--err);
+}
+
+.git-letter-r,
+.git-letter-c {
+  color: var(--brand);
+}
+
+.git-scm .hint {
+  padding: 4px 12px;
+  margin: 0;
+}
+
+.git-empty {
+  padding-left: 22px;
+}
+
+.git-commit-box {
+  padding: 8px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.git-commit-msg {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.git-commit-msg:focus {
+  outline: 1px solid var(--brand);
+  border-color: var(--brand);
+}
+
+.git-commit-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.git-commit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--brand);
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.git-commit-btn:disabled {
+  opacity: 0.4;
+}
+
+.git-text-btn,
+.git-icon-btn,
+.git-branch-hit {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.git-text-btn:hover,
+.git-icon-btn:hover,
+.git-branch-hit:hover,
+.git-section-toggle:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.git-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text);
+}
+
+.git-section {
+  padding-bottom: 4px;
+}
+
+.git-section-head {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px 2px 4px;
+}
+
+.git-section-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 4px;
+}
+
+.git-count {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.git-sync-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.git-branch-hit {
+  display: block;
+  width: calc(100% - 8px);
+  text-align: left;
+  color: var(--text);
+  font-size: 12px;
+  padding: 3px 12px 3px 22px;
+}
+
+.git-branch-hit.current {
+  color: var(--brand);
+}
+
+.git-log-msg {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-actions {

@@ -216,7 +216,13 @@ pub const REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: "ui.theme",
         slash: "theme",
-        hint: "claro, oscuro, contraste, tide, ember o un tema de ~/.config/lolterm/themes",
+        hint: "ajustes: tema de chrome y xterm",
+        kind: CommandKind::Ui,
+    },
+    CommandSpec {
+        id: "ui.settings",
+        slash: "settings",
+        hint: "temas, herramientas e instalación en PTY",
         kind: CommandKind::Ui,
     },
     CommandSpec {
@@ -345,7 +351,7 @@ mod tests {
         assert_eq!(lookup("play-pause").map(|s| s.id), Some("music.playPause"));
         assert_eq!(lookup("/quota").map(|s| s.id), Some("ui.quota"));
         assert_eq!(lookup("/attention").map(|s| s.id), Some("ui.attention"));
-        assert_eq!(lookup("/rest").map(|s| s.id), Some("ui.rest"));
+        assert_eq!(lookup("/settings").map(|s| s.id), Some("ui.settings"));
         assert_eq!(
             lookup("copy-select").map(|s| s.id),
             Some("terminal.copyOnSelect")

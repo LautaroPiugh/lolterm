@@ -9,49 +9,135 @@ use serde::Serialize;
 
 use crate::files;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolKind {
+    Agent,
+    Cli,
+}
+
 #[derive(Clone, Copy)]
 pub struct Tool {
     pub name: &'static str,
+    pub kind: ToolKind,
+    pub hint: &'static str,
     pub version_flag: &'static str,
     pub install: &'static str,
 }
 
-pub const AGENTS: &[Tool] = &[
+pub const TOOLS: &[Tool] = &[
     Tool {
         name: "claude",
+        kind: ToolKind::Agent,
+        hint: "Claude Code",
         version_flag: "--version",
         install: "npm install -g @anthropic-ai/claude-code",
     },
     Tool {
         name: "codex",
+        kind: ToolKind::Agent,
+        hint: "OpenAI Codex CLI",
         version_flag: "--version",
         install: "npm install -g @openai/codex",
     },
     Tool {
         name: "opencode",
+        kind: ToolKind::Agent,
+        hint: "OpenCode",
         version_flag: "--version",
         install: "npm install -g opencode-ai",
     },
     Tool {
         name: "gemini",
+        kind: ToolKind::Agent,
+        hint: "Gemini CLI",
         version_flag: "--version",
         install: "npm install -g @google/gemini-cli",
     },
     Tool {
         name: "cline",
+        kind: ToolKind::Agent,
+        hint: "Cline CLI",
         version_flag: "--version",
         install: "npm install -g cline",
     },
     Tool {
         name: "copilot",
+        kind: ToolKind::Agent,
+        hint: "GitHub Copilot CLI",
         version_flag: "--version",
         install: "gh extension install github/gh-copilot",
+    },
+    Tool {
+        name: "lazygit",
+        kind: ToolKind::Cli,
+        hint: "TUI de git",
+        version_flag: "--version",
+        install: "sudo apt-get install -y lazygit || go install github.com/jesseduffield/lazygit@latest",
+    },
+    Tool {
+        name: "nvim",
+        kind: ToolKind::Cli,
+        hint: "Neovim",
+        version_flag: "--version",
+        install: "sudo apt-get install -y neovim",
+    },
+    Tool {
+        name: "btop",
+        kind: ToolKind::Cli,
+        hint: "monitor del sistema",
+        version_flag: "--version",
+        install: "sudo apt-get install -y btop",
+    },
+    Tool {
+        name: "yazi",
+        kind: ToolKind::Cli,
+        hint: "file manager TUI",
+        version_flag: "--version",
+        install: "cargo install --locked yazi-fm yazi-cli",
+    },
+    Tool {
+        name: "fzf",
+        kind: ToolKind::Cli,
+        hint: "fuzzy finder",
+        version_flag: "--version",
+        install: "sudo apt-get install -y fzf",
+    },
+    Tool {
+        name: "gh",
+        kind: ToolKind::Cli,
+        hint: "GitHub CLI",
+        version_flag: "--version",
+        install: "sudo apt-get install -y gh",
+    },
+    Tool {
+        name: "tmux",
+        kind: ToolKind::Cli,
+        hint: "sesiones remotas",
+        version_flag: "-V",
+        install: "sudo apt-get install -y tmux",
+    },
+    Tool {
+        name: "rg",
+        kind: ToolKind::Cli,
+        hint: "ripgrep",
+        version_flag: "--version",
+        install: "sudo apt-get install -y ripgrep",
+    },
+    Tool {
+        name: "delta",
+        kind: ToolKind::Cli,
+        hint: "pager de diffs git",
+        version_flag: "--version",
+        install: "sudo apt-get install -y git-delta",
     },
 ];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ToolInfo {
     pub name: String,
+    pub kind: ToolKind,
+    pub hint: String,
     pub available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -65,14 +151,14 @@ struct Cache {
 
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 
-pub fn agents() -> Vec<ToolInfo> {
+pub fn listing() -> Vec<ToolInfo> {
     if let Ok(guard) = CACHE.lock()
         && let Some(cache) = guard.as_ref()
         && cache.at.elapsed() < Duration::from_secs(45)
     {
         return cache.rows.clone();
     }
-    let rows: Vec<ToolInfo> = AGENTS.iter().map(probe).collect();
+    let rows: Vec<ToolInfo> = TOOLS.iter().map(probe).collect();
     if let Ok(mut guard) = CACHE.lock() {
         *guard = Some(Cache {
             at: Instant::now(),
@@ -83,27 +169,16 @@ pub fn agents() -> Vec<ToolInfo> {
 }
 
 pub fn install_cmd(name: &str) -> Option<&'static str> {
-    AGENTS
+    TOOLS
         .iter()
         .find(|tool| tool.name == name)
         .map(|tool| tool.install)
 }
 
-pub fn listing() -> Vec<ToolInfo> {
-    if let Ok(guard) = CACHE.lock()
-        && let Some(cache) = guard.as_ref()
-    {
-        return cache.rows.clone();
+pub fn invalidate() {
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = None;
     }
-    AGENTS
-        .iter()
-        .map(|tool| ToolInfo {
-            name: tool.name.into(),
-            available: files::command_on_path(tool.name),
-            version: None,
-            install: tool.install.into(),
-        })
-        .collect()
 }
 
 pub fn version_of(name: &str) -> Option<String> {
@@ -124,6 +199,8 @@ fn probe(tool: &Tool) -> ToolInfo {
     let version = available.then(|| read_version(tool.name, tool.version_flag));
     ToolInfo {
         name: tool.name.into(),
+        kind: tool.kind,
+        hint: tool.hint.into(),
         available,
         version: version.flatten(),
         install: tool.install.into(),
@@ -146,6 +223,18 @@ mod tests {
     #[test]
     fn known_agents_have_install_cmd() {
         assert!(install_cmd("claude").is_some());
+        assert!(install_cmd("lazygit").is_some());
+        assert!(install_cmd("nvim").is_some());
         assert!(install_cmd("nope").is_none());
+        assert!(
+            TOOLS
+                .iter()
+                .any(|tool| tool.name == "claude" && tool.kind == ToolKind::Agent)
+        );
+        assert!(
+            TOOLS
+                .iter()
+                .any(|tool| tool.name == "lazygit" && tool.kind == ToolKind::Cli)
+        );
     }
 }

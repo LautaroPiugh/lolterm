@@ -12,7 +12,6 @@ import {
   Files,
   FolderPlus,
   GitBranch,
-  GitCommitHorizontal,
   Home,
   Minus,
   Network,
@@ -23,17 +22,19 @@ import {
   Square,
   Terminal,
   X,
-  Settings,
+  Settings as GearIcon,
 } from "./icons";
 import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes, setPaneTitleHandler } from "./TerminalPane";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
 import { FileEditor } from "./FileEditor";
+import { GitPanel } from "./GitPanel";
+import { Settings, type SettingsTab } from "./Settings";
 import { RestClient } from "./RestClient";
 import { TouchBar } from "./TouchBar";
 import { StatusBar } from "./StatusBar";
-import { applyDocumentTheme, isBuiltinTheme, swatchGradient, THEMES } from "./themes";
+import { applyDocumentTheme, isBuiltinTheme } from "./themes";
 import { displayVersion, eraLabel } from "./version";
 import { bindingFor, commandForChord, isChromeField, setBindings } from "./chords";
 import {
@@ -54,7 +55,7 @@ type Modal =
   | { kind: "files"; query: string }
   | { kind: "ssh"; query: string }
   | { kind: "ts"; user: string; selected: number }
-  | { kind: "theme" }
+  | { kind: "settings"; tab: SettingsTab }
   | { kind: "commands" }
   | { kind: "copyOnSelect" }
   | null;
@@ -131,33 +132,6 @@ function dockEdgeFromPoint(host: HTMLElement, clientX: number, clientY: number):
   return edge;
 }
 
-function ThemePicker({
-  current,
-  themes,
-  onPick,
-}: {
-  current: string;
-  themes: { id: string; label: string; hint: string }[];
-  onPick: (id: string) => void;
-}) {
-  return (
-    <div className="theme-list">
-      {themes.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={current === item.id ? "theme-card on" : "theme-card"}
-          onClick={() => onPick(item.id)}
-        >
-          <span className="theme-swatch" style={{ background: swatchGradient(item.id) }} />
-          <span>{item.label}</span>
-          <span className="hint">{item.hint}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [activity, setActivity] = useState<Activity>("home");
@@ -182,22 +156,15 @@ export default function App() {
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameWs, setRenameWs] = useState(false);
-  const [gearOpen, setGearOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [agentsTick, setAgentsTick] = useState(0);
   const [hud, setHud] = useState<Hud | null>(null);
   const [newTabOpen, setNewTabOpen] = useState(false);
-  const [envKey, setEnvKey] = useState("");
-  const [envVal, setEnvVal] = useState("");
-  const [wsNotes, setWsNotes] = useState("");
-  const [gitMsg, setGitMsg] = useState("");
-  const [httpPass, setHttpPass] = useState("");
   const [sshDest, setSshDest] = useState("");
   const [tmuxSession, setTmuxSession] = useState("lolterm");
   const [draggingTab, setDraggingTab] = useState<number | null>(null);
   const [dockEdge, setDockEdge] = useState<DockEdge | null>(null);
-  const gearRef = useRef<HTMLDivElement>(null);
   const quotaRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLDivElement>(null);
   const newTabRef = useRef<HTMLDivElement>(null);
@@ -310,7 +277,11 @@ export default function App() {
         return;
       }
       if (key === "ui.theme" || key === "theme") {
-        setModal({ kind: "theme" });
+        setModal({ kind: "settings", tab: "look" });
+        return;
+      }
+      if (key === "ui.settings" || key === "settings") {
+        setModal({ kind: "settings", tab: "look" });
         return;
       }
       if (key === "terminal.copyOnSelect" || key === "copy-select") {
@@ -451,21 +422,6 @@ export default function App() {
   }, [snap?.keybindings]);
 
   useEffect(() => {
-    if (snap) setWsNotes(snap.meta?.notes ?? "");
-  }, [snap?.meta?.notes]);
-
-  useEffect(() => {
-    if (!gearOpen) return;
-    const onDown = (event: MouseEvent) => {
-      if (gearRef.current && !gearRef.current.contains(event.target as Node)) {
-        setGearOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [gearOpen]);
-
-  useEffect(() => {
     if (!quotaOpen) return;
     const onDown = (event: MouseEvent) => {
       if (quotaRef.current && !quotaRef.current.contains(event.target as Node)) {
@@ -524,7 +480,6 @@ export default function App() {
         setModal(null);
         setRenaming(null);
         setRenameWs(false);
-        setGearOpen(false);
         setQuotaOpen(false);
         setMediaOpen(false);
         setNewTabOpen(false);
@@ -664,9 +619,6 @@ export default function App() {
     );
   }
 
-  const gitAdds = (snap.git?.staged ?? 0) + (snap.git?.untracked ?? 0);
-  const gitDels = snap.git?.unstaged ?? 0;
-
   return (
     <div className="shell">
       <header className="titlebar">
@@ -699,216 +651,14 @@ export default function App() {
           </button>
         </div>
         <div className="titlebar-controls">
-          <div className="gear-wrap" ref={gearRef}>
-            <button
-              type="button"
-              className={gearOpen ? "wm-btn on" : "wm-btn"}
-              title="Workspace"
-              onClick={() => setGearOpen((open) => !open)}
-            >
-              <Settings size={12} />
-            </button>
-            {gearOpen && (
-              <div className="gear-menu">
-                <button
-                  type="button"
-                  className="gear-hit"
-                  onClick={() => {
-                    setGearOpen(false);
-                    setModal({ kind: "commands" });
-                  }}
-                >
-                  <Command size={12} color="var(--muted)" />
-                  <span>Comandos y atajos</span>
-                  <span className="hint">Ctrl-Alt-,</span>
-                </button>
-                <button
-                  type="button"
-                  className="gear-hit"
-                  onClick={() => {
-                    setGearOpen(false);
-                    void runBound("app.update");
-                  }}
-                >
-                  <Sparkles size={12} color="var(--muted)" />
-                  <span>Buscar actualización</span>
-                  <span className="hint">/update</span>
-                </button>
-                <details open>
-                  <summary>Tema</summary>
-                  <ThemePicker
-                    current={snap.theme}
-                    themes={snap.themes ?? THEMES}
-                    onPick={(id) => void call("setTheme", { theme: id })}
-                  />
-                </details>
-                <details>
-                  <summary>Layouts</summary>
-                  {(snap.presets ?? []).map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className="gear-hit"
-                      onClick={() => void call("applyPreset", { id: preset.id })}
-                    >
-                      <Columns size={12} color="var(--muted)" />
-                      <span>{preset.name}</span>
-                      <span className="hint">{preset.hint}</span>
-                    </button>
-                  ))}
-                </details>
-                <details>
-                  <summary>Al abrir</summary>
-                  {(snap.startup ?? []).map((cmd) => (
-                    <button
-                      key={cmd.program}
-                      type="button"
-                      className="gear-hit on"
-                      title="quitar"
-                      onClick={() => void call("removeStartup", { program: cmd.program })}
-                    >
-                      {cmd.program}
-                      <span className="hint">quitar</span>
-                    </button>
-                  ))}
-                  {snap.run_clis
-                    .filter(
-                      (cli) =>
-                        cli.available && !(snap.startup ?? []).some((cmd) => cmd.program === cli.name),
-                    )
-                    .map((cli) => (
-                      <button
-                        key={cli.name}
-                        type="button"
-                        className="gear-hit"
-                        onClick={() => void call("addStartup", { program: cli.name, args: [] })}
-                      >
-                        + {cli.name}
-                      </button>
-                    ))}
-                </details>
-                <details>
-                  <summary>Entorno</summary>
-                  {(snap.env ?? []).map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className="gear-hit on"
-                      title="quitar"
-                      onClick={() => void call("removeEnv", { key: item.key })}
-                    >
-                      {item.key}
-                      <span className="hint">quitar</span>
-                    </button>
-                  ))}
-                  <form
-                    className="env-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const key = envKey.trim();
-                      if (!key) return;
-                      void call("setEnv", { key, value: envVal }).then(() => {
-                        setEnvKey("");
-                        setEnvVal("");
-                      });
-                    }}
-                  >
-                    <input
-                      value={envKey}
-                      onChange={(event) => setEnvKey(event.target.value)}
-                      placeholder="NOMBRE"
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    <input
-                      value={envVal}
-                      onChange={(event) => setEnvVal(event.target.value)}
-                      placeholder="valor"
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    <button type="submit" className="open-folder-btn" disabled={!envKey.trim()}>
-                      Guardar
-                    </button>
-                  </form>
-                </details>
-                <details>
-                  <summary>Proyecto</summary>
-                  <div className="meta-chips">
-                    {(snap.meta?.stack ?? []).map((item) => (
-                      <span key={item} className="meta-chip">
-                        {item}
-                      </span>
-                    ))}
-                    {snap.meta?.git_remote && <span className="meta-chip">{snap.meta.git_remote}</span>}
-                  </div>
-                  <form
-                    className="env-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void call("setNotes", { notes: wsNotes });
-                    }}
-                  >
-                    <textarea
-                      value={wsNotes}
-                      onChange={(event) => setWsNotes(event.target.value)}
-                      placeholder="nota (sin secretos)"
-                      rows={2}
-                      spellCheck={false}
-                    />
-                    <button
-                      type="submit"
-                      className="open-folder-btn"
-                      disabled={wsNotes.trim() === (snap.meta?.notes ?? "")}
-                    >
-                      Guardar nota
-                    </button>
-                  </form>
-                </details>
-                <details>
-                  <summary>HTTP LAN</summary>
-                  <p className="hint">opt-in · password en data_dir · sin TLS · puerto 47832</p>
-                  <form
-                    className="env-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void call("setHttp", { enabled: true, password: httpPass });
-                    }}
-                  >
-                    <input
-                      type="password"
-                      value={httpPass}
-                      placeholder="password ≥ 8"
-                      onChange={(e) => setHttpPass(e.target.value)}
-                    />
-                    <button type="submit" className="open-folder-btn">
-                      {snap.http?.enabled ? "actualizar" : "activar"}
-                    </button>
-                  </form>
-                  <button type="button" className="gear-hit" onClick={() => void call("setHttp", { enabled: false })}>
-                    desactivar HTTP
-                  </button>
-                </details>
-                <details>
-                  <summary>Instalar agentes</summary>
-                  {(snap.agent_tools ?? []).map((tool) => (
-                    <button
-                      key={tool.name}
-                      type="button"
-                      className="gear-hit"
-                      onClick={() => void call("installAgent", { name: tool.name })}
-                    >
-                      <Sparkles size={12} color="var(--muted)" />
-                      <span>{tool.name}</span>
-                      <span className="hint">
-                        {tool.available ? tool.version ?? "instalado" : "install en PTY"}
-                      </span>
-                    </button>
-                  ))}
-                </details>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className={modal?.kind === "settings" ? "wm-btn on" : "wm-btn"}
+            title="Ajustes"
+            onClick={() => setModal({ kind: "settings", tab: "look" })}
+          >
+            <GearIcon size={12} />
+          </button>
           <button type="button" className="wm-btn" title="Minimizar" onClick={() => void window.lolterm.window.minimize()}>
             <Minus size={12} />
           </button>
@@ -1118,91 +868,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {activity === "git" && (
-              <>
-                <div className="git-branch-bar">
-                  <GitBranch size={12} color="var(--muted)" />
-                  <span className="branch-name">{snap.git?.branch ?? "sin repo"}</span>
-                  {snap.git && (
-                    <>
-                      <span className="diff-chip diff-add">+{gitAdds}</span>
-                      <span className="diff-chip diff-del">−{gitDels}</span>
-                    </>
-                  )}
-                  <button type="button" className="lazygit-btn" onClick={() => void call("run", { program: "lazygit", args: [] })}>
-                    lazygit
-                  </button>
-                </div>
-                <div className="sidebar-content">
-                  <div className="section-label">Working tree</div>
-                  {(snap.git_files ?? []).length === 0 && <p className="hint">limpio</p>}
-                  {(snap.git_files ?? []).map((file) => (
-                    <div key={file.path} className="git-file-row">
-                      <button type="button" className="git-file-name" onClick={() => void call("openFile", { rel: file.path })}>
-                        <span className={`tree-badge ${badgeClass(file.untracked ? "?" : "M")}`}>{file.mark}</span>
-                        {file.path}
-                      </button>
-                      {file.untracked || file.unstaged ? (
-                        <button type="button" title="stage" onClick={() => void call("gitOp", { op: "stage", path: file.path })}>
-                          +
-                        </button>
-                      ) : null}
-                      {file.staged ? (
-                        <button type="button" title="unstage" onClick={() => void call("gitOp", { op: "unstage", path: file.path })}>
-                          −
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-                  <form
-                    className="env-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!gitMsg.trim()) return;
-                      void call("gitOp", { op: "commit", message: gitMsg }).then(() => setGitMsg(""));
-                    }}
-                  >
-                    <input value={gitMsg} placeholder="mensaje de commit" onChange={(e) => setGitMsg(e.target.value)} />
-                    <button type="submit" className="open-folder-btn" disabled={!gitMsg.trim()}>
-                      commit
-                    </button>
-                  </form>
-                  <div className="git-actions">
-                    <button type="button" onClick={() => void call("gitOp", { op: "fetch" })}>
-                      fetch
-                    </button>
-                    <button type="button" onClick={() => void call("gitOp", { op: "pull" })}>
-                      pull --ff-only
-                    </button>
-                  </div>
-                  <div className="section-label">Ramas</div>
-                  {(snap.git_branches ?? []).slice(0, 12).map((branch) => (
-                    <button
-                      key={branch}
-                      type="button"
-                      className="cli-item"
-                      onClick={() => void call("gitOp", { op: "checkout", path: branch })}
-                    >
-                      {branch}
-                    </button>
-                  ))}
-                  <div className="section-label">Log</div>
-                  {snap.git_log.map((line) => {
-                    const sha = line.slice(0, 7);
-                    const msg = line.slice(8);
-                    return (
-                      <div key={line} className="git-log-sidebar-item">
-                        <GitCommitHorizontal size={11} color="var(--ok)" />
-                        <span className="git-sha">{sha}</span>
-                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {msg || line}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+            {activity === "git" && <GitPanel snap={snap} call={call} />}
             {activity === "run" && (
               <div className="sidebar-content" style={{ paddingTop: 8 }}>
                 {snap.run_clis.map((cli) => (
@@ -1633,19 +1299,20 @@ export default function App() {
           />
         </div>
       )}
-      {modal?.kind === "theme" && (
+      {modal?.kind === "settings" && (
         <div className="modal" onClick={() => setModal(null)}>
-          <div className="card" onClick={(e) => e.stopPropagation()}>
-            <h2>tema</h2>
-            <ThemePicker
-              current={snap.theme}
-              themes={snap.themes ?? THEMES}
-              onPick={(id) => {
-                setModal(null);
-                void call("setTheme", { theme: id });
-              }}
-            />
-          </div>
+          <Settings
+            snap={snap}
+            tab={modal.tab}
+            onTab={(tab) => setModal({ kind: "settings", tab })}
+            call={call}
+            onClose={() => setModal(null)}
+            onOpenCommands={() => setModal({ kind: "commands" })}
+            onUpdate={() => {
+              setModal(null);
+              void runBound("app.update");
+            }}
+          />
         </div>
       )}
       {modal?.kind === "copyOnSelect" && (

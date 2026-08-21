@@ -316,6 +316,15 @@ export function Volume2(p: IconProps) {
   );
 }
 
+export function RotateCcw(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <polyline points="1 4 1 10 7 10" />
+      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+    </Icon>
+  );
+}
+
 export function Settings(p: IconProps) {
   return (
     <Icon {...p}>

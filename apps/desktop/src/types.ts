@@ -68,7 +68,22 @@ export type Snapshot = {
   tree: TreeRow[];
   tailscale: unknown;
   run_clis: RunCli[];
-  agent_tools?: { name: string; available: boolean; version?: string | null; install: string }[];
+  tools?: {
+    name: string;
+    kind?: "agent" | "cli";
+    hint?: string;
+    available: boolean;
+    version?: string | null;
+    install: string;
+  }[];
+  agent_tools?: {
+    name: string;
+    kind?: "agent" | "cli";
+    hint?: string;
+    available: boolean;
+    version?: string | null;
+    install: string;
+  }[];
   http?: { enabled: boolean; bind: string };
   notice: string | null;
   theme: string;

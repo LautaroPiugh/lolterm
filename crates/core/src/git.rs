@@ -294,12 +294,20 @@ pub fn run_op(
     match op {
         "init" => git_ok(dir, &["init"])?,
         "stage" => {
-            let path = path_arg(path)?;
-            git_ok(dir, &["add", "--", path])?;
+            if optional_path(path)?.is_none() {
+                git_ok(dir, &["add", "-A"])?;
+            } else {
+                let path = path_arg(path)?;
+                git_ok(dir, &["add", "--", path])?;
+            }
         }
         "unstage" => {
-            let path = path_arg(path)?;
-            git_ok(dir, &["restore", "--staged", "--", path])?;
+            if optional_path(path)?.is_none() {
+                git_ok(dir, &["restore", "--staged", "."])?;
+            } else {
+                let path = path_arg(path)?;
+                git_ok(dir, &["restore", "--staged", "--", path])?;
+            }
         }
         "discard" => {
             let path = path_arg(path)?;
@@ -327,6 +335,13 @@ pub fn run_op(
         other => return Err(format!("git op desconocida: {other}")),
     }
     Ok(())
+}
+
+fn optional_path(path: Option<&str>) -> Result<Option<&str>, String> {
+    match path.map(str::trim).filter(|p| !p.is_empty()) {
+        None => Ok(None),
+        Some(path) => path_arg(Some(path)).map(Some),
+    }
 }
 
 fn path_arg(path: Option<&str>) -> Result<&str, String> {
@@ -447,6 +462,18 @@ mod tests {
         let git = status(root).expect("lolterm should be a git checkout");
         assert!(!git.branch.is_empty());
         assert!(!git.branch.contains('\n'));
+    }
+
+    #[test]
+    fn optional_path_empty_means_all_files() {
+        assert_eq!(optional_path(None).unwrap(), None);
+        assert_eq!(optional_path(Some("")).unwrap(), None);
+        assert_eq!(optional_path(Some("  ")).unwrap(), None);
+        assert_eq!(
+            optional_path(Some("src/git.rs")).unwrap(),
+            Some("src/git.rs")
+        );
+        assert!(optional_path(Some("../secret")).is_err());
     }
 
     #[test]

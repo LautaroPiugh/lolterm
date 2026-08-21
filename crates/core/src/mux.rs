@@ -19,7 +19,8 @@ use crate::session::{self, SavedTab, SavedWorkspace, Session};
 use crate::ssh;
 
 pub const RUN_CLIS: &[&str] = &[
-    "nvim", "lazygit", "btop", "yazi", "codex", "claude", "opencode", "gemini", "cline", "copilot",
+    "nvim", "lazygit", "btop", "yazi", "fzf", "gh", "tmux", "rg", "delta", "codex", "claude",
+    "opencode", "gemini", "cline", "copilot",
 ];
 
 #[derive(Serialize)]
@@ -36,7 +37,7 @@ pub struct Snapshot {
     pub tree: Vec<files::TreeRow>,
     pub tailscale: crate::tailscale::Status,
     pub run_clis: Vec<RunCli>,
-    pub agent_tools: Vec<crate::registry::ToolInfo>,
+    pub tools: Vec<crate::registry::ToolInfo>,
     pub http: HttpSnap,
     pub notice: Option<String>,
     pub theme: String,
@@ -514,7 +515,7 @@ impl Mux {
                     })
                     .collect()
             },
-            agent_tools: crate::registry::listing(),
+            tools: crate::registry::listing(),
             http: self.http_snap(),
             notice: self.notice.clone(),
             theme: self.theme.clone(),
@@ -1279,7 +1280,8 @@ impl Mux {
 
     pub fn install_agent(&mut self, name: &str) -> Result<u64> {
         let cmd = crate::registry::install_cmd(name)
-            .ok_or_else(|| eyre!("agente desconocido: {name}"))?;
+            .ok_or_else(|| eyre!("herramienta desconocida: {name}"))?;
+        crate::registry::invalidate();
         self.notice = Some(format!("instalando {name}"));
         self.new_tab(Some("bash"), None, &["-lc".into(), cmd.to_string()], false)
     }
