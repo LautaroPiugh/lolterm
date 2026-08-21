@@ -2,6 +2,22 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.11.0](https://github.com/LautaroPiugh/lolterm/compare/v0.10.0...v0.11.0) (2026-08-21)
+
+### Features
+
+* barra de estado con puertos, procesos y atención de agentes; temas Claro, Oscuro, Contraste, Tide y Ember en todo el chrome
+* overlay para leer/guardar un archivo del workspace; REST client para `.http`/`.rest` (secretos desde `.env` local)
+* HTTP LAN opt-in (password en data_dir, sin TLS propio)
+* vista Git tipo SCM: staged/changes, commit, fetch, pull `--ff-only` (sin merge ni force-push); lazygit sigue disponible
+* panel de Ajustes (temas, layouts, entorno, HTTP) e instalación de CLIs conocidas en un PTY
+* abrir nvim, lazygit, btop, yazi, agentes y el resto del catálogo desde paleta, Inicio o Ajustes → Abrir
+* `gh` y `rg` se instalan desde Ajustes; no aparecen en el `+` (no son una tab vacía)
+* cuota de GitHub Copilot y copiar al seleccionar en la terminal (`/copy-select`)
+* barra táctil de teclas de terminal cuando el chrome es estrecho
+
+## [Unreleased]
+
 ## [0.10.0](https://github.com/LautaroPiugh/lolterm/compare/v0.9.0...v0.10.0) (2026-08-20)
 
 
@@ -13,16 +29,6 @@ Los cambios versionados los escribe [Release Please](https://github.com/googleap
 * **ssh:** keep sessions alive and read Include from ssh config ([db8202f](https://github.com/LautaroPiugh/lolterm/commit/db8202f0dfc3c3aaa2829755ea9bc126d6dfe1b7))
 * **ssh:** reconnect once and restore keepalives; remember window size ([cd76c16](https://github.com/LautaroPiugh/lolterm/commit/cd76c16975397aa1e54cd3c331c7c79af5f94e90))
 * **ui:** replace paired palettes with four independent themes ([81f59e3](https://github.com/LautaroPiugh/lolterm/commit/81f59e3d8f867198c1f55aad766d4493e66fae28))
-
-## [Unreleased]
-
-### Features
-
-* Desktop comprueba la última GitHub Release y puede instalar el `.deb` de Ubuntu tras verificar `SHA256SUMS.txt` (`/update`)
-* el pack de tags `v*` genera sólo `.deb` (AppImage queda para más adelante)
-* el `.desktop` se llama `lolterm.desktop` para que GNOME use el icono del prompt `>` / panes mint
-* README de producto, licencia MIT, `.gitignore` de carpetas de IA y el updater ya no lee `gh auth token`
-* el árbol público ya no incluye `AGENTS.md`, el brief de Figma ni copias extra del icono
 
 ## [0.9.0](https://github.com/LautaroPiugh/lolterm/compare/v0.8.0...v0.9.0) (2026-08-17)
 

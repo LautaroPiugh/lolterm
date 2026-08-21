@@ -14,11 +14,12 @@ LoLTerm **organiza** herramientas que ya existen. No las reemplaza.
 
 | LoLTerm no es… | Lo que hace en su lugar |
 | --- | --- |
-| un IDE ni un editor propio | abre nvim, Helix o `$EDITOR` en un panel |
-| un cliente Git | conoce la rama y puede abrir lazygit |
-| un chat o runtime de IA | abre Codex, Claude Code, OpenCode, … en una terminal |
+| un IDE ni un editor propio | overlay para leer/guardar un archivo; el default sigue siendo nvim / `$EDITOR` en un PTY |
+| un cliente Git completo | vista tipo SCM (stage, commit, fetch, pull --ff-only); lazygit para el resto. Sin merge UI ni force-push |
+| un chat o runtime de IA | abre Codex, Claude Code, OpenCode, Gemini, Cline, Copilot en una terminal (worktree + contexto) |
 | un fork de tmux | usa tmux en remoto para no perder la sesión |
 | un cliente SSH distinto | usa el `ssh` del sistema (y Tailscale si lo tenés) |
+| una tienda de software | Ajustes instala CLIs conocidas corriendo el comando oficial en un PTY |
 
 Adentro, cada panel es un **PTY**: el programa cree que está en una terminal de verdad (colores, nvim, fzf, resize). Varios paneles y pestañas conviven en la misma ventana.
 
@@ -41,7 +42,7 @@ Todo corre **en tu máquina**. No hay cuenta, ni nube de LoLTerm, ni backend obl
 
 Hay tres piezas que el usuario ve como “LoLTerm”:
 
-1. **La ventana** — pestañas, splits, paleta, explorer, temas.
+1. **La ventana** — pestañas, splits, paleta, explorer, Git, Ajustes, temas.
 2. **El core** — crea las terminales, guarda el layout, habla con SSH y con la CLI.
 3. **El comando `lolterm`** — el mismo sistema, desde otra terminal: abrir un proyecto, listar workspaces, preguntar el contexto.
 
@@ -50,7 +51,9 @@ Un **workspace** es un entorno recuperable: carpeta del proyecto, pestañas, pan
 **Local:** panel → terminal en esta PC.  
 **Remoto:** panel → `ssh` → (opcional) tmux en la otra máquina, para que nvim no se muera si se corta la red.
 
-La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`). El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
+La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`, Copilot vía `gh`, OpenCode Go, ClinePass). El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
+
+La barra de estado muestra rama, puertos, procesos y atención de agentes. En ventanas estrechas hay una **barra táctil** (Esc, Ctrl-C, flechas) para la terminal.
 
 Podés sumar comandos, atajos, temas y ganchos con archivos TOML locales. No hay plugins de JavaScript.
 
@@ -76,10 +79,16 @@ Para actualizar: paleta `/update`, o el aviso cuando hay versión nueva. Se desc
 | Partir el panel | `Ctrl-Alt-v` (derecha), `Ctrl-Alt-s` (abajo) |
 | Workspaces | clic en el nombre, o `Ctrl-Alt-[` `]` |
 | Reiniciar el panel | `Ctrl-Alt-r` |
+| Ajustes (temas, CLIs, HTTP) | engranaje, `/settings` o `/theme` |
 | Comandos y atajos | `Ctrl-Alt-,` o `/commands` |
-| Archivo (explorer) | abre **tu nvim** (`$EDITOR`); la pestaña sigue el nombre / `[+]` de nvim. `Ctrl+S` guarda con `:update`. Autosave: `[editor] autowrite = true` en `config.toml` |
+| Git (SCM) | rail Git: staged / changes, commit (Ctrl+Enter), fetch, pull `--ff-only` |
+| Archivo (explorer) | overlay para leer/guardar, o **nvim** (`$EDITOR`). `Ctrl+S` guarda. Autosave: `[editor] autowrite = true` en `config.toml` |
+| REST | `+` → REST, o paleta `/rest`: archivos `.http` / `.rest` del repo; secretos desde `.env` local |
+| Copiar al seleccionar | `/copy-select` (también Ctrl+Shift+C) |
 
-El `+` pregunta qué abrir (shell, SSH, agentes). Arrastrá una pestaña al borde para partir el layout.
+El `+` pregunta qué abrir (shell, SSH, nvim, lazygit, btop, yazi, agentes). `gh` y `rg` se instalan desde Ajustes; no salen en el `+` porque no son una tab vacía. Arrastrá una pestaña al borde para partir el layout.
+
+Desde Ajustes → **Herramientas** podés instalar o abrir CLIs conocidas (el comando corre en un PTY: apt, npm, cargo, go). Si ya está en PATH, **Abrir** lanza un panel. Paleta: `/nvim`, `/lazygit`, `/codex`, `/claude`, …
 
 Desde otra terminal, el mismo workspace:
 
@@ -110,6 +119,8 @@ kind = "tailscale"
 ```
 
 Si el enlace se corta, LoLTerm intenta reconectar **una vez** (tmux `-A` recupera la sesión remota).
+
+HTTP LAN es **opt-in** (Ajustes → Red): vista web del mismo core en LAN/VPN, password en `data_dir`, sin TLS propio. Remoto de verdad sigue siendo SSH + tmux.
 
 ## Configuración
 
