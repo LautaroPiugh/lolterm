@@ -156,13 +156,26 @@ struct Cache {
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 
 pub fn listing() -> Vec<ToolInfo> {
+    listing_inner(false)
+}
+
+/// Completa `--version` en segundo plano. El snapshot de arranque no debe esperar eso.
+pub fn refresh_versions() {
+    let _ = listing_inner(true);
+}
+
+fn listing_inner(want_versions: bool) -> Vec<ToolInfo> {
     if let Ok(guard) = CACHE.lock()
         && let Some(cache) = guard.as_ref()
         && cache.at.elapsed() < Duration::from_secs(45)
+        && (!want_versions || cache.rows.iter().any(|row| row.version.is_some()))
     {
         return cache.rows.clone();
     }
-    let rows: Vec<ToolInfo> = TOOLS.iter().map(probe).collect();
+    let rows: Vec<ToolInfo> = TOOLS
+        .iter()
+        .map(|tool| probe(tool, want_versions))
+        .collect();
     if let Ok(mut guard) = CACHE.lock() {
         *guard = Some(Cache {
             at: Instant::now(),
@@ -199,9 +212,9 @@ pub fn version_of(name: &str) -> Option<String> {
     None
 }
 
-fn probe(tool: &Tool) -> ToolInfo {
+fn probe(tool: &Tool, versions: bool) -> ToolInfo {
     let available = files::command_on_path(tool.name);
-    let version = available.then(|| read_version(tool.name, tool.version_flag));
+    let version = (versions && available).then(|| read_version(tool.name, tool.version_flag));
     ToolInfo {
         name: tool.name.into(),
         kind: tool.kind,

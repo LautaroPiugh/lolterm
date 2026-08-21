@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld("lolterm", {
   onEvent: (cb) => {
     const listener = (_e, msg) => cb(msg);
     ipcRenderer.on("core-event", listener);
+    ipcRenderer.invoke("core-hello").then((params) => {
+      if (params && typeof params === "object") cb({ event: "ready", params });
+    }).catch(() => {});
     return () => ipcRenderer.removeListener("core-event", listener);
   },
   onChord: (cb) => {

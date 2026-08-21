@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -327,25 +328,44 @@ pub fn resolve_command(name: &str) -> Option<PathBuf> {
 const PATH_TTL: Duration = Duration::from_secs(120);
 
 static CACHE_PATH: Mutex<Option<(Instant, Vec<PathBuf>)>> = Mutex::new(None);
+static PATH_WARMING: AtomicBool = AtomicBool::new(false);
 
 pub fn invalidate_path() {
+    PATH_WARMING.store(false, Ordering::SeqCst);
     if let Ok(mut slot) = CACHE_PATH.lock() {
         *slot = None;
     }
 }
 
 fn path_dirs() -> Vec<PathBuf> {
-    if let Ok(mut slot) = CACHE_PATH.lock() {
-        if let Some((at, dirs)) = slot.as_ref()
-            && at.elapsed() < PATH_TTL
-        {
-            return dirs.clone();
-        }
-        let dirs = collect_path_dirs();
-        *slot = Some((Instant::now(), dirs.clone()));
-        return dirs;
+    if let Ok(slot) = CACHE_PATH.lock()
+        && let Some((at, dirs)) = slot.as_ref()
+        && at.elapsed() < PATH_TTL
+    {
+        return dirs.clone();
     }
-    collect_path_dirs()
+    let dirs = collect_path_dirs();
+    if let Ok(mut slot) = CACHE_PATH.lock() {
+        *slot = Some((Instant::now(), dirs.clone()));
+    }
+    if !PATH_WARMING.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(|| {
+            let extra = login_path_dirs();
+            if !extra.is_empty()
+                && let Ok(mut slot) = CACHE_PATH.lock()
+            {
+                let mut merged = slot.as_ref().map(|item| item.1.clone()).unwrap_or_default();
+                for dir in extra {
+                    if !dir.as_os_str().is_empty() && !merged.contains(&dir) {
+                        merged.push(dir);
+                    }
+                }
+                *slot = Some((Instant::now(), merged));
+            }
+            PATH_WARMING.store(false, Ordering::SeqCst);
+        });
+    }
+    dirs
 }
 
 fn collect_path_dirs() -> Vec<PathBuf> {
@@ -354,7 +374,7 @@ fn collect_path_dirs() -> Vec<PathBuf> {
     let from_env = std::env::var_os("PATH")
         .map(|raw| std::env::split_paths(&raw).collect::<Vec<_>>())
         .unwrap_or_default();
-    for dir in from_env.into_iter().chain(login_path_dirs()) {
+    for dir in from_env {
         if dir.as_os_str().is_empty() || !seen.insert(dir.clone()) {
             continue;
         }
@@ -364,21 +384,49 @@ fn collect_path_dirs() -> Vec<PathBuf> {
 }
 
 fn login_path_dirs() -> Vec<PathBuf> {
-    let Ok(output) = std::process::Command::new(user_shell())
+    let mut child = match Command::new(user_shell())
         .args(["-lc", r#"printf %s "$PATH""#])
-        .output()
-    else {
-        return Vec::new();
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return Vec::new(),
     };
-    if !output.status.success() {
-        return Vec::new();
+    let stdout = child.stdout.take();
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stdout {
+            let _ = std::io::Read::read_to_end(&mut pipe, &mut buf);
+        }
+        buf
+    });
+    let deadline = Instant::now() + Duration::from_millis(800);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let buf = reader.join().unwrap_or_default();
+                if !status.success() {
+                    return Vec::new();
+                }
+                let Ok(text) = String::from_utf8(buf) else {
+                    return Vec::new();
+                };
+                return std::env::split_paths(text.trim())
+                    .filter(|dir| !dir.as_os_str().is_empty())
+                    .collect();
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Vec::new();
+            }
+        }
     }
-    let Ok(text) = String::from_utf8(output.stdout) else {
-        return Vec::new();
-    };
-    std::env::split_paths(text.trim())
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .collect()
 }
 
 fn lookup_in_path(name: &str) -> Option<PathBuf> {

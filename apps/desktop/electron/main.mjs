@@ -10,7 +10,15 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
 const repoRoot = path.join(appRoot, "..", "..");
 const INVOKE_MS = 8000;
+const BOOT_MS = 25000;
 const MAX_RESTARTS = 2;
+const THEME_FILL = {
+  claro: "#f3f3f3",
+  oscuro: "#141414",
+  contraste: "#0a0a0a",
+  tide: "#071c28",
+  ember: "#fcf0e0",
+};
 
 process.env.CHROME_DESKTOP = app.isPackaged ? "lolterm.desktop" : "lolterm-dev.desktop";
 
@@ -23,6 +31,38 @@ let quitting = false;
 let restarting = false;
 let restarts = 0;
 let lastOpen;
+let coreReady = false;
+const waitingReady = [];
+let lastReady = null;
+
+function markCoreReady() {
+  coreReady = true;
+  for (const item of waitingReady.splice(0)) {
+    clearTimeout(item.timer);
+    item.resolve();
+  }
+}
+
+function failWaitingReady(err) {
+  coreReady = false;
+  for (const item of waitingReady.splice(0)) {
+    clearTimeout(item.timer);
+    item.reject(err);
+  }
+}
+
+function waitCoreReady() {
+  if (coreReady) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const item = { resolve, reject, timer: null };
+    item.timer = setTimeout(() => {
+      const at = waitingReady.indexOf(item);
+      if (at >= 0) waitingReady.splice(at, 1);
+      reject(new Error("core timeout"));
+    }, BOOT_MS);
+    waitingReady.push(item);
+  });
+}
 
 function isFile(file) {
   try {
@@ -111,6 +151,10 @@ function startCore(openPath) {
       }
       if (msg.event === "ready") {
         restarts = 0;
+        lastReady = msg.params ?? null;
+        markCoreReady();
+        const theme = msg.params?.theme;
+        if (typeof theme === "string" && theme) saveThemeFill(theme);
       }
       if (msg.id != null && pending.has(msg.id)) {
         const { resolve, reject, timer } = pending.get(msg.id);
@@ -125,6 +169,8 @@ function startCore(openPath) {
   });
   child.on("exit", () => {
     child = null;
+    coreReady = false;
+    failWaitingReady(new Error("core exited"));
     flushPending(new Error("core exited"));
     if (quitting || restarting) return;
     if (restarts >= MAX_RESTARTS) {
@@ -141,7 +187,8 @@ function startCore(openPath) {
   });
 }
 
-function invoke(method, params) {
+async function invoke(method, params) {
+  await waitCoreReady();
   return new Promise((resolve, reject) => {
     if (!child?.stdin) {
       reject(new Error("core down"));
@@ -171,6 +218,29 @@ function appIconPath() {
 
 function windowStatePath() {
   return path.join(app.getPath("userData"), "window.json");
+}
+
+function themeStatePath() {
+  return path.join(app.getPath("userData"), "theme.json");
+}
+
+function loadThemeFill() {
+  try {
+    const raw = JSON.parse(readFileSync(themeStatePath(), "utf8"));
+    if (typeof raw.fill === "string" && raw.fill.startsWith("#")) return raw.fill;
+    return THEME_FILL[raw.theme] || THEME_FILL.claro;
+  } catch {
+    return THEME_FILL.claro;
+  }
+}
+
+function saveThemeFill(theme) {
+  const fill = THEME_FILL[theme] || THEME_FILL.claro;
+  try {
+    writeFileSync(themeStatePath(), JSON.stringify({ theme, fill }));
+  } catch {
+    // estado local; no bloquear el arranque
+  }
 }
 
 function loadWindowState() {
@@ -215,7 +285,7 @@ function createWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    backgroundColor: "#ECF2EC",
+    backgroundColor: loadThemeFill(),
     title: `LoLTerm v${app.getVersion()}`,
     icon: iconFile,
     frame: false,
@@ -299,6 +369,7 @@ if (!gotLock) {
     }
     startCore(openDirArg());
     ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
+    ipcMain.handle("core-hello", () => lastReady);
     ipcMain.handle("win-minimize", () => {
       win?.minimize();
     });

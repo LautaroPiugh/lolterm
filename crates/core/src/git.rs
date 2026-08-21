@@ -95,7 +95,15 @@ pub fn status(dir: &Path) -> Option<Status> {
 }
 
 pub fn branch_label(dir: &Path) -> Option<String> {
-    status(dir).map(|status| status.badge())
+    if !dir.exists() {
+        return None;
+    }
+    let abbrev = git_output(dir, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if abbrev == "HEAD" {
+        git_output(dir, &["rev-parse", "--short", "HEAD"]).map(|sha| format!("detached@{sha}"))
+    } else {
+        Some(abbrev)
+    }
 }
 
 pub fn oneline(dir: &Path, limit: usize) -> Vec<String> {

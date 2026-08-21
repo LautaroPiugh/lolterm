@@ -54,8 +54,17 @@ fn main() -> Result<()> {
 
     emit(
         &out,
-        json!({ "event": "ready", "params": mux.lock().expect("mux").snapshot() }),
+        json!({ "event": "ready", "params": mux.lock().expect("mux").snapshot_shell() }),
     );
+    {
+        let mux = Arc::clone(&mux);
+        let out = Arc::clone(&out);
+        std::thread::spawn(move || {
+            let snap = mux.lock().expect("mux").snapshot();
+            emit(&out, json!({ "event": "ready", "params": snap }));
+            lolterm_core::registry::refresh_versions();
+        });
+    }
 
     let stdin = BufReader::new(std::io::stdin());
     for line in stdin.lines() {

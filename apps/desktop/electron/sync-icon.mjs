@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +19,17 @@ export function syncAppIcon(appRoot, { installDesktop = false } = {}) {
   copyFileSync(iconSrc, path.join(appRoot, "build", "icon.png"));
   copyFileSync(iconSrc, path.join(iconDir, "icon.png"));
   const magick = magickBin();
-  if (magick) {
+  const dest256 = path.join(iconDir, "256x256.png");
+  let needResize = true;
+  try {
+    needResize = !(existsSync(dest256) && statSync(dest256).mtimeMs >= statSync(iconSrc).mtimeMs);
+  } catch {
+    needResize = true;
+  }
+  if (magick && needResize) {
     for (const size of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
       spawnSync(magick, [iconSrc, "-resize", `${size}x${size}`, path.join(iconDir, `${size}x${size}.png`)], {
-        stdio: "inherit",
+        stdio: "ignore",
       });
     }
   }

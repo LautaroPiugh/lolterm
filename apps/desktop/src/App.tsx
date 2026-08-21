@@ -24,6 +24,7 @@ import {
   Settings as GearIcon,
 } from "./icons";
 import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes, setPaneTitleHandler } from "./TerminalPane";
+import { BootScreen } from "./BootScreen";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
 import { ExplorerPanel } from "./ExplorerPanel";
@@ -383,6 +384,7 @@ export default function App() {
         apply(msg.params);
         setBootErr(null);
         setBanner(null);
+        void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
       }
       if (msg.event === "core-down") {
         setBanner(msg.params?.error ?? "lolterm-core se cayó");
@@ -395,10 +397,11 @@ export default function App() {
         void call("snapshot");
       }
     });
-    void call("snapshot").catch((err: unknown) => {
-      setBootErr(err instanceof Error ? err.message : String(err));
-    });
-    void window.lolterm.invoke("projects").then((list) => setProjects((list as string[]) ?? []));
+    void call("snapshot")
+      .then(() => setBootErr(null))
+      .catch((err: unknown) => {
+        setBootErr((prev) => prev ?? (err instanceof Error ? err.message : String(err)));
+      });
     const timer = window.setTimeout(() => {
       void window.lolterm.update
         .check()
@@ -417,7 +420,7 @@ export default function App() {
     if (snap) return;
     const timer = window.setTimeout(() => {
       setBootErr((prev) => prev ?? "el core no respondió");
-    }, 8000);
+    }, 12000);
     return () => window.clearTimeout(timer);
   }, [snap]);
 
@@ -599,6 +602,13 @@ export default function App() {
       }
     }
     applyXtermTheme(snap.theme, builtin ? undefined : pack?.vars);
+    try {
+      const fill = getComputedStyle(document.documentElement).getPropertyValue("--fill").trim();
+      if (fill) localStorage.setItem("lolterm.fill", fill);
+      if (!builtin) localStorage.setItem("lolterm.theme", "custom");
+    } catch {
+      // ignore
+    }
   }, [snap]);
 
   const tab = snap?.tabs[snap.active_tab];
@@ -629,15 +639,11 @@ export default function App() {
     return `${user}@${host}`;
   }
 
-  if (!snap) {
-    return (
-      <div className="boot">
-        {bootErr ? `LoLTerm · no arrancó (${bootErr})` : "LoLTerm · abriendo PTY…"}
-      </div>
-    );
-  }
+  const splash = !snap;
 
   return (
+    <>
+      {snap ? (
     <div className="shell">
       <header className="titlebar">
         <button type="button" className="titlebar-wordmark" onClick={() => setActivity("home")}>
@@ -1451,5 +1457,8 @@ export default function App() {
         </div>
       )}
     </div>
+      ) : null}
+      {splash ? <BootScreen error={bootErr} /> : null}
+    </>
   );
 }

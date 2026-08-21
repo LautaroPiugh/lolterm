@@ -5,9 +5,95 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>lolterm</title>
     <link rel="icon" type="image/png" href="./icon.png" />
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+      }
+      .boot-html {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      .boot-html img {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+      }
+      .boot-html p {
+        margin: 0;
+      }
+      .boot-html .word {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.4px;
+      }
+      .boot-html .status {
+        font-size: 12px;
+        opacity: 0.65;
+      }
+    </style>
+    <script>
+      (function () {
+        var fills = {
+          claro: "#f3f3f3",
+          oscuro: "#141414",
+          contraste: "#0a0a0a",
+          tide: "#071c28",
+          ember: "#fcf0e0",
+        };
+        var texts = {
+          claro: "#141414",
+          oscuro: "#f0f0f0",
+          contraste: "#f0f0f0",
+          tide: "#c4e4ea",
+          ember: "#382012",
+        };
+        var brands = {
+          claro: "#2778c1",
+          oscuro: "#81a1c1",
+          contraste: "#88c0d0",
+          tide: "#6cb0c2",
+          ember: "#c48e52",
+        };
+        var theme = "claro";
+        var fill = fills.claro;
+        try {
+          theme = localStorage.getItem("lolterm.theme") || theme;
+          fill = localStorage.getItem("lolterm.fill") || fills[theme] || fill;
+        } catch (err) {}
+        var text = texts[theme] || texts.claro;
+        var brand = brands[theme] || brands.claro;
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.background = fill;
+        document.documentElement.style.colorScheme =
+          theme === "claro" || theme === "ember" ? "light" : "dark";
+        document.write(
+          "<style>html,body,#root,.boot-html{background:" +
+            fill +
+            ";color:" +
+            text +
+            "}.boot-html .lol{color:" +
+            brand +
+            "}</style>",
+        );
+      })();
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-html">
+        <img src="./icon.png" alt="" width="72" height="72" />
+        <p class="word"><span class="lol">lol</span>term</p>
+        <p class="status">abriendo workspace…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

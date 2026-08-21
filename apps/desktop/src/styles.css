@@ -236,7 +236,6 @@ button {
   text-align: left;
 }
 
-.boot,
 .shell {
   height: 100%;
   display: flex;
@@ -244,6 +243,78 @@ button {
   overflow: hidden;
   background: var(--fill);
   position: relative;
+}
+
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--fill, #f3f3f3);
+  color: var(--text, #141414);
+  -webkit-app-region: drag;
+}
+
+.boot-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+}
+
+.boot-word {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+
+.boot-word .lol {
+  color: var(--brand, #2778c1);
+}
+
+.boot-word .mark {
+  color: var(--text, #141414);
+}
+
+.boot-status {
+  margin: 0;
+  color: var(--muted, #14141499);
+  font-size: 12px;
+}
+
+.boot-status.is-err {
+  color: var(--err, #be1744);
+}
+
+.boot-bar {
+  width: 120px;
+  height: 2px;
+  margin-top: 8px;
+  border-radius: 1px;
+  background: var(--border, #1414141f);
+  overflow: hidden;
+}
+
+.boot-bar::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--brand, #2778c1);
+  animation: boot-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes boot-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .titlebar {

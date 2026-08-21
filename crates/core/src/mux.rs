@@ -68,6 +68,8 @@ pub struct Snapshot {
     /// Panes con PTY vivo (workspace actual + estacionados). El renderer
     /// no debe `dispose` estos xterm al cambiar de proyecto.
     pub held_panes: Vec<u64>,
+    /// `false` en el primer `ready` (solo chrome/PTYs). `true` cuando git, árbol y CLIs ya están.
+    pub booted: bool,
 }
 
 #[derive(Serialize)]
@@ -469,7 +471,21 @@ impl Mux {
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        let marks = git::path_marks(&self.root);
+        self.build_snapshot(true)
+    }
+
+    /// Tabs, panes y chrome. Git, árbol y versiones de CLIs van en el
+    /// `snapshot` completo (`booted: true`) para no bloquear el primer `ready`.
+    pub fn snapshot_shell(&self) -> Snapshot {
+        self.build_snapshot(false)
+    }
+
+    fn build_snapshot(&self, heavy: bool) -> Snapshot {
+        let marks = if heavy {
+            git::path_marks(&self.root)
+        } else {
+            HashMap::new()
+        };
         Snapshot {
             root: self.root.clone(),
             name: self.name.clone(),
@@ -501,13 +517,33 @@ impl Mux {
                         .collect(),
                 })
                 .collect(),
-            git: git::status_cached(&self.root),
-            git_files: git::working_files_cached(&self.root),
-            git_branches: git::branches_cached(&self.root),
-            git_log: git::oneline_cached(&self.root, 8),
-            tree: files::visible_tree(&self.root, &self.expanded, &marks),
-            tailscale: crate::tailscale::probe_cached(),
-            run_clis: {
+            git: heavy.then(|| git::status_cached(&self.root)).flatten(),
+            git_files: if heavy {
+                git::working_files_cached(&self.root)
+            } else {
+                Vec::new()
+            },
+            git_branches: if heavy {
+                git::branches_cached(&self.root)
+            } else {
+                Vec::new()
+            },
+            git_log: if heavy {
+                git::oneline_cached(&self.root, 8)
+            } else {
+                Vec::new()
+            },
+            tree: if heavy {
+                files::visible_tree(&self.root, &self.expanded, &marks)
+            } else {
+                Vec::new()
+            },
+            tailscale: if heavy {
+                crate::tailscale::probe_cached()
+            } else {
+                crate::tailscale::Status::Missing
+            },
+            run_clis: if heavy {
                 let running = self.process_names();
                 crate::registry::TOOLS
                     .iter()
@@ -521,8 +557,14 @@ impl Mux {
                         }
                     })
                     .collect()
+            } else {
+                Vec::new()
             },
-            tools: crate::registry::listing(),
+            tools: if heavy {
+                crate::registry::listing()
+            } else {
+                Vec::new()
+            },
             http: self.http_snap(),
             notice: self.notice.clone(),
             theme: self.theme.clone(),
@@ -537,20 +579,29 @@ impl Mux {
             env: self.env.clone(),
             meta: ProjectMeta {
                 stack: files::detect_stack(&self.root),
-                git_remote: git::origin_label(&self.root),
+                git_remote: heavy.then(|| git::origin_label(&self.root)).flatten(),
                 notes: self.notes.clone(),
             },
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
             agents: self.agent_snaps(),
-            agent_log: crate::agents::recent_sessions(8),
+            agent_log: if heavy {
+                crate::agents::recent_sessions(8)
+            } else {
+                Vec::new()
+            },
             themes: crate::ext::all_themes(),
             extensions: crate::ext::load().extensions,
-            status_ext: crate::ext::status_items(&self.root),
+            status_ext: if heavy {
+                crate::ext::status_items(&self.root)
+            } else {
+                Vec::new()
+            },
             ext_commands: crate::ext::user_commands(),
             commands_path: crate::ext::commands_path(),
             keybindings_path: keys::keybindings_path(),
             held_panes: self.held_pane_ids(),
+            booted: heavy,
         }
     }
 

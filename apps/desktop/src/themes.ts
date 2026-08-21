@@ -142,6 +142,39 @@ export function parseTheme(value: string | null | undefined): string {
   return "claro";
 }
 
+const THEME_STORE = "lolterm.theme";
+const FILL_STORE = "lolterm.fill";
+
+const THEME_FILL: Record<string, string> = {
+  claro: "#f3f3f3",
+  oscuro: "#141414",
+  contraste: "#0a0a0a",
+  tide: "#071c28",
+  ember: "#fcf0e0",
+};
+
+export function chromeFill(id: string): string {
+  return THEME_FILL[parseTheme(id)] ?? THEME_FILL.claro;
+}
+
+export function rememberedTheme(): string {
+  try {
+    return parseTheme(localStorage.getItem(THEME_STORE));
+  } catch {
+    return "claro";
+  }
+}
+
+function persistChrome(id: string) {
+  const key = parseTheme(id);
+  try {
+    localStorage.setItem(THEME_STORE, key);
+    localStorage.setItem(FILL_STORE, chromeFill(key));
+  } catch {
+    // storage lleno o bloqueado; el siguiente arranque usa claro
+  }
+}
+
 function rgbToHex(triplet: string): string {
   const [r, g, b] = triplet.split(/\s+/).map(Number);
   return `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
@@ -201,6 +234,7 @@ export function applyDocumentTheme(id: string) {
   for (const step of STEPS) {
     root.style.setProperty(`--n-${step}`, pal.n[step]);
   }
+  persistChrome(key);
 }
 
 export function xtermTheme(id: ThemeId): ITheme {

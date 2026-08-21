@@ -108,6 +108,8 @@ export type Snapshot = {
   commands_path?: string;
   keybindings_path?: string;
   held_panes?: number[];
+  /** false = splash; true = git/árbol/CLIs listos. Si falta, se trata como listo. */
+  booted?: boolean;
 };
 
 export type QuotaBar = {
