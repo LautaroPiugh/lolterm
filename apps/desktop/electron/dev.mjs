@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { installDevDesktopEntry } from "./linux-desktop.mjs";
+import { syncAppIcon } from "./sync-icon.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
@@ -48,6 +49,7 @@ cargo.on("exit", async (code) => {
   await server.listen();
   const target = process.env.CARGO_TARGET_DIR || path.join(repoRoot, "target");
   const electronBin = path.join(appRoot, "node_modules", "electron", "dist", "electron");
+  syncAppIcon(appRoot, { installDesktop: true });
   installDevDesktopEntry({
     electronBin,
     appRoot,

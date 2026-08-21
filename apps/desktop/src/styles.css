@@ -550,7 +550,8 @@ button {
 }
 
 .stab {
-  flex: 1;
+  flex: 0 0 auto;
+  padding: 0 10px;
   height: 28px;
   display: flex;
   align-items: center;
@@ -558,6 +559,29 @@ button {
   font-size: 11px;
   color: var(--muted);
   border-bottom: 2px solid transparent;
+}
+
+.stab-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  gap: 2px;
+}
+
+.stab-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.stab-icon:hover {
+  background: var(--fill);
+  color: var(--text);
 }
 
 .stab.on {
@@ -616,6 +640,57 @@ button {
 
 .tree-item:hover {
   background: var(--fill);
+}
+
+.tree-item.on {
+  background: var(--focus);
+}
+
+.tree-create {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  padding: 3px 6px;
+  border: 1px solid var(--brand);
+  border-radius: 4px;
+  background: var(--pane);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.tree-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--pane);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.tree-menu button:hover {
+  background: var(--fill);
+}
+
+.tree-menu button.danger {
+  color: var(--err);
 }
 
 .tree-item.hidden .tree-name {
@@ -796,8 +871,10 @@ button {
   font-weight: 500;
 }
 
-.tab-pill.remote {
-  box-shadow: inset 2px 0 0 var(--brand);
+.tab-pill.dirty span:nth-of-type(1)::after {
+  content: " ●";
+  color: var(--brand);
+  font-size: 9px;
 }
 
 .tab-close {
@@ -2693,6 +2770,22 @@ button {
 .doc-bar .hint {
   color: var(--muted);
   margin-right: auto;
+}
+
+.doc-dirty {
+  color: var(--brand);
+  font-size: 11px;
+}
+
+.doc-cm {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.doc-cm .cm-theme,
+.doc-cm .cm-editor {
+  height: 100%;
 }
 
 .doc-bar button {

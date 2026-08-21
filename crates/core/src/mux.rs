@@ -1255,8 +1255,98 @@ impl Mux {
 
     pub fn write_file(&mut self, rel: &str, text: &str) -> Result<(), String> {
         files::write_text(&self.root, rel, text)?;
+        git::invalidate_cache();
         self.notice = Some(format!("guardado {rel}"));
         Ok(())
+    }
+
+    /// Crear / renombrar / borrar dentro del workspace. `rel` es el padre (create)
+    /// o el path actual (rename/delete).
+    pub fn fs_op(&mut self, op: &str, rel: &str, name: Option<&str>) -> Result<(), String> {
+        match op {
+            "createFile" | "createDir" => {
+                let name = name.ok_or_else(|| "falta nombre".to_string())?;
+                let created = files::create_entry(&self.root, rel, name, op == "createDir")?;
+                if !rel.is_empty() {
+                    self.expanded.insert(rel.to_string());
+                }
+                git::invalidate_cache();
+                self.notice = Some(format!("creado {created}"));
+                if op == "createFile" {
+                    let _ = self.open_file(&created);
+                }
+                Ok(())
+            }
+            "rename" => {
+                let name = name.ok_or_else(|| "falta nombre".to_string())?;
+                let dest = files::rename_entry(&self.root, rel, name)?;
+                self.retarget_docs(rel, Some(&dest));
+                git::invalidate_cache();
+                self.notice = Some(format!("{rel} → {dest}"));
+                Ok(())
+            }
+            "delete" => {
+                files::delete_entry(&self.root, rel)?;
+                self.retarget_docs(rel, None);
+                git::invalidate_cache();
+                self.notice = Some(format!("borrado {rel}"));
+                Ok(())
+            }
+            "refresh" => {
+                git::invalidate_cache();
+                self.notice = Some("árbol actualizado".into());
+                Ok(())
+            }
+            _ => Err("operación desconocida".into()),
+        }
+    }
+
+    fn retarget_docs(&mut self, from: &str, to: Option<&str>) {
+        let mut expanded = HashSet::new();
+        for rel in &self.expanded {
+            if !files::under_rel(rel, from) {
+                expanded.insert(rel.clone());
+                continue;
+            }
+            if let Some(dest) = to {
+                let mapped = if rel == from {
+                    dest.to_string()
+                } else {
+                    format!("{dest}{}", &rel[from.len()..])
+                };
+                expanded.insert(mapped);
+            }
+        }
+        self.expanded = expanded;
+        let mut drop = Vec::new();
+        for (index, tab) in self.tabs.iter_mut().enumerate() {
+            if tab.kind != "file" && tab.kind != "rest" {
+                continue;
+            }
+            let Some(rel) = tab.rel.as_deref() else {
+                continue;
+            };
+            if !files::under_rel(rel, from) {
+                continue;
+            }
+            match to {
+                None => drop.push(index),
+                Some(dest) => {
+                    let next = if rel == from {
+                        dest.to_string()
+                    } else {
+                        format!("{dest}{}", &rel[from.len()..])
+                    };
+                    if rel == from {
+                        tab.name = Some(files::file_tab_name(Path::new(&next)));
+                    }
+                    tab.rel = Some(next);
+                }
+            }
+        }
+        for index in drop.into_iter().rev() {
+            let _ = self.close_tab(index);
+        }
     }
 
     pub fn git_op(

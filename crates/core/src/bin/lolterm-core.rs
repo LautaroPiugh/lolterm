@@ -313,6 +313,15 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             .map_err(|err| color_eyre::eyre::eyre!(err))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "fsOp" => {
+            mux.fs_op(
+                params["op"].as_str().unwrap_or(""),
+                params["rel"].as_str().unwrap_or(""),
+                params["name"].as_str(),
+            )
+            .map_err(|err| color_eyre::eyre::eyre!(err))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "gitOp" => {
             mux.git_op(
                 params["op"].as_str().unwrap_or(""),

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, lazy, Suspense } from "react";
 import { SplitView } from "./SplitView";
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Cloud,
   Columns,
@@ -24,11 +23,10 @@ import {
   X,
   Settings as GearIcon,
 } from "./icons";
-import { FileTypeIcon, FolderTypeIcon } from "./fileIcons";
 import { applyXtermTheme, disposeTerm, refitAllTerminals, retainPanes, setPaneTitleHandler } from "./TerminalPane";
 import { Welcome } from "./Welcome";
 import { NewTabPicker } from "./NewTabPicker";
-import { FileEditor } from "./FileEditor";
+import { ExplorerPanel } from "./ExplorerPanel";
 import { GitPanel } from "./GitPanel";
 import { CommandsEditor } from "./CommandsEditor";
 import { Settings, type SettingsTab } from "./Settings";
@@ -47,7 +45,9 @@ import {
   takePendingCopy,
   writeClipboard,
 } from "./copyOnSelect";
-import type { CommandHit, HostItem, Hud, Peer, Snapshot, TabSnap, TreeRow } from "./types";
+import type { CommandHit, HostItem, Hud, Peer, Snapshot, TabSnap } from "./types";
+
+const FileEditor = lazy(() => import("./FileEditor").then((mod) => ({ default: mod.FileEditor })));
 
 type Activity = "home" | "files" | "git" | "run" | "remote";
 type Modal =
@@ -94,18 +94,6 @@ function tabIcon(tab: TabSnap): IconFn {
   if (key.includes("lazygit") || key.includes("git")) return GitBranch;
   if (key.includes("ssh")) return Server;
   return Terminal;
-}
-
-function fileGlyph(row: TreeRow) {
-  if (row.is_dir) return <FolderTypeIcon open={row.expanded} size={16} />;
-  return <FileTypeIcon lang={row.lang} size={16} />;
-}
-
-function badgeClass(mark: string | null) {
-  if (mark === "M") return "m";
-  if (mark === "A") return "a";
-  if (mark === "?") return "u";
-  return "u";
 }
 
 function projectName(path: string) {
@@ -170,6 +158,18 @@ export default function App() {
   const mediaRef = useRef<HTMLDivElement>(null);
   const newTabRef = useRef<HTMLDivElement>(null);
   const hudHoldUntil = useRef(0);
+  const dirtyFiles = useRef<Record<string, boolean>>({});
+  const [, setDirtyTick] = useState(0);
+
+  const markFileDirty = useCallback((rel: string, dirty: boolean) => {
+    const was = dirtyFiles.current[rel] === true;
+    if (was === dirty) return;
+    const next = { ...dirtyFiles.current };
+    if (dirty) next[rel] = true;
+    else delete next[rel];
+    dirtyFiles.current = next;
+    setDirtyTick((n) => n + 1);
+  }, []);
 
   const apply = useCallback((value: unknown) => {
     if (value && typeof value === "object" && "tabs" in value) {
@@ -184,6 +184,19 @@ export default function App() {
       return result;
     },
     [apply],
+  );
+
+  const closeTabAt = useCallback(
+    async (index: number) => {
+      const item = snap?.tabs[index];
+      const rel = item?.rel;
+      if (item?.kind === "file" && rel && dirtyFiles.current[rel]) {
+        if (!window.confirm(`¿Cerrar ${item.name} sin guardar?`)) return;
+      }
+      if (rel) markFileDirty(rel, false);
+      await call("closeTab", { index });
+    },
+    [call, markFileDirty, snap?.tabs],
   );
 
   const chooseCopyOnSelect = useCallback((on: boolean) => {
@@ -348,9 +361,13 @@ export default function App() {
         }
         return;
       }
+      if (key === "tab.close" || key === "tab-close") {
+        await closeTabAt(snap?.active_tab ?? 0);
+        return;
+      }
       await call("dispatch", { id: key });
     },
-    [call, launchKind, musicAction, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
+    [call, closeTabAt, launchKind, musicAction, snap?.active_tab, snap?.new_tab, snap?.tabs, sshUser],
   );
 
   useEffect(() => {
@@ -829,45 +846,12 @@ export default function App() {
               </div>
             )}
             {activity === "files" && (
-              <>
-                <div className="sidebar-tabs">
-                  <span className="stab on">Files</span>
-                  <button type="button" className="stab" onClick={() => setModal({ kind: "files", query: "" })}>
-                    Search
-                  </button>
-                </div>
-                <div className="sidebar-content">
-                  {snap.tree.map((row) => (
-                    <button
-                      key={row.rel || "/"}
-                      type="button"
-                      className={row.hidden ? "tree-item hidden" : "tree-item"}
-                      title={row.hidden ? `${row.name} (oculto)` : (row.lang ?? undefined)}
-                      style={{ paddingLeft: 8 + row.depth * 16 }}
-                      onClick={() =>
-                        row.is_dir
-                          ? void call("toggleExpand", { rel: row.rel })
-                          : void call("openFile", { rel: row.rel })
-                      }
-                    >
-                      {row.is_dir ? (
-                        row.expanded ? (
-                          <ChevronDown size={10} color="var(--muted)" />
-                        ) : (
-                          <ChevronRight size={10} color="var(--muted)" />
-                        )
-                      ) : (
-                        <span style={{ width: 10, flexShrink: 0 }} />
-                      )}
-                      <span style={{ marginLeft: 4, flexShrink: 0 }}>{fileGlyph(row)}</span>
-                      <span className="tree-name" style={{ marginLeft: 5 }}>
-                        {row.name}
-                      </span>
-                      {row.mark && <span className={`tree-badge ${badgeClass(row.mark)}`}>{row.mark}</span>}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <ExplorerPanel
+                tree={snap.tree}
+                activeRel={tab?.rel}
+                onSearch={() => setModal({ kind: "files", query: "" })}
+                call={call}
+              />
             )}
             {activity === "git" && <GitPanel snap={snap} call={call} />}
             {activity === "run" && (
@@ -1068,7 +1052,7 @@ export default function App() {
                 <button
                   key={`${item.name}-${index}`}
                   type="button"
-                  className={`${on ? "tab-pill on" : "tab-pill"}${remote ? " remote" : ""}`}
+                  className={`${on ? "tab-pill on" : "tab-pill"}${remote ? " remote" : ""}${item.kind === "file" && item.rel && dirtyFiles.current[item.rel] ? " dirty" : ""}`}
                   draggable
                   onClick={() => void call("selectTab", { index })}
                   onDoubleClick={(e) => {
@@ -1099,7 +1083,7 @@ export default function App() {
                     className="tab-close"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void call("closeTab", { index });
+                      void closeTabAt(index);
                     }}
                   >
                     <X size={10} />
@@ -1195,7 +1179,15 @@ export default function App() {
             ) : (
               tab &&
               (tab.kind === "file" && tab.rel ? (
-                <FileEditor rel={tab.rel} onOpenNvim={() => void call("openInNvim", { rel: tab.rel })} />
+                <Suspense fallback={<div className="doc-view" />}>
+                <FileEditor
+                  rel={tab.rel}
+                  theme={snap.theme}
+                  onOpenNvim={() => void call("openInNvim", { rel: tab.rel })}
+                  onDirtyChange={markFileDirty}
+                  onSaved={() => void call("snapshot")}
+                />
+                </Suspense>
               ) : tab.kind === "rest" && tab.rel ? (
                 <RestClient rel={tab.rel} />
               ) : (

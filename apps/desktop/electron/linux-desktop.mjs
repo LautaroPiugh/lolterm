@@ -12,9 +12,11 @@ export function installDevDesktopEntry({ electronBin, appRoot, iconFile }) {
   const dataHome = process.env.XDG_DATA_HOME || path.join(homedir(), ".local/share");
   const appsDir = path.join(dataHome, "applications");
   const hicolor = path.join(dataHome, "icons/hicolor/256x256/apps");
+  const sized256 = path.join(appRoot, "build", "icons", "256x256.png");
+  const icon256 = existsSync(sized256) ? sized256 : iconFile;
   mkdirSync(appsDir, { recursive: true });
   mkdirSync(hicolor, { recursive: true });
-  copyFileSync(iconFile, path.join(hicolor, "lolterm.png"));
+  copyFileSync(icon256, path.join(hicolor, "lolterm.png"));
   const body = `[Desktop Entry]
 Type=Application
 Name=LoLTerm

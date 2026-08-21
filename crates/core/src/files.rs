@@ -541,6 +541,85 @@ pub fn write_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     fs::write(path, text).map_err(|err| err.to_string())
 }
 
+/// Nombre de un hijo inmediato: sin `/`, `..` ni control chars.
+pub fn entry_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("nombre inválido".into());
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err("nombre inválido".into());
+    }
+    Ok(name)
+}
+
+fn child_rel(parent: &str, name: &str) -> Result<String, String> {
+    let name = entry_name(name)?;
+    let parent = parent.trim().trim_start_matches('/');
+    if parent.is_empty() {
+        Ok(name.to_string())
+    } else {
+        Ok(format!("{parent}/{name}"))
+    }
+}
+
+pub fn create_entry(root: &Path, parent: &str, name: &str, is_dir: bool) -> Result<String, String> {
+    let rel = child_rel(parent, name)?;
+    let path = confined(root, &rel)?;
+    if path.exists() {
+        return Err("ya existe".into());
+    }
+    if is_dir {
+        fs::create_dir_all(&path).map_err(|err| err.to_string())?;
+    } else {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|err| err.to_string())?;
+        }
+        fs::write(&path, "").map_err(|err| err.to_string())?;
+    }
+    Ok(rel.replace('\\', "/"))
+}
+
+pub fn rename_entry(root: &Path, from: &str, new_name: &str) -> Result<String, String> {
+    let from = from.trim().trim_start_matches('/');
+    if from.is_empty() {
+        return Err("no se puede renombrar la raíz".into());
+    }
+    let parent = from.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let dest_rel = child_rel(parent, new_name)?;
+    let src = confined(root, from)?;
+    let dest = confined(root, &dest_rel)?;
+    if dest.exists() {
+        return Err("ya existe".into());
+    }
+    fs::rename(&src, &dest).map_err(|err| err.to_string())?;
+    Ok(dest_rel.replace('\\', "/"))
+}
+
+pub fn delete_entry(root: &Path, rel: &str) -> Result<(), String> {
+    let rel = rel.trim().trim_start_matches('/');
+    if rel.is_empty() {
+        return Err("no se puede borrar la raíz".into());
+    }
+    let path = confined(root, rel)?;
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|err| err.to_string())
+    } else {
+        fs::remove_file(path).map_err(|err| err.to_string())
+    }
+}
+
+/// `rel` es un path o un prefijo de directorio (`src` cubre `src/main.rs`).
+pub fn under_rel(rel: &str, prefix: &str) -> bool {
+    if rel == prefix {
+        return true;
+    }
+    if prefix.is_empty() {
+        return true;
+    }
+    rel.starts_with(prefix) && rel.as_bytes().get(prefix.len()) == Some(&b'/')
+}
+
 pub fn join_root(root: &Path, rel: &str) -> PathBuf {
     if rel.is_empty() {
         root.to_path_buf()
@@ -819,6 +898,52 @@ mod tests {
         ];
         assert_eq!(editor_file_arg(&args), Some("/tmp/App.tsx"));
         assert_eq!(file_tab_name(Path::new("/tmp/App.tsx")), "App.tsx");
+    }
+
+    #[test]
+    fn entry_name_rejects_traversal() {
+        assert!(entry_name("main.rs").is_ok());
+        assert!(entry_name("..").is_err());
+        assert!(entry_name("a/b").is_err());
+        assert!(entry_name("").is_err());
+    }
+
+    #[test]
+    fn create_rename_delete_stay_in_root() {
+        let root = std::env::temp_dir().join(format!(
+            "lolterm-fs-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("root");
+        let file = create_entry(&root, "", "notes.md", false).expect("file");
+        assert_eq!(file, "notes.md");
+        assert!(root.join("notes.md").is_file());
+        let dir = create_entry(&root, "", "src", true).expect("dir");
+        assert_eq!(dir, "src");
+        let nested = create_entry(&root, "src", "lib.rs", false).expect("nested");
+        assert_eq!(nested, "src/lib.rs");
+        let renamed = rename_entry(&root, "src/lib.rs", "main.rs").expect("rename");
+        assert_eq!(renamed, "src/main.rs");
+        assert!(!root.join("src/lib.rs").exists());
+        delete_entry(&root, "src/main.rs").expect("delete file");
+        delete_entry(&root, "src").expect("delete dir");
+        assert!(!root.join("src").exists());
+        assert!(delete_entry(&root, "").is_err());
+        assert!(rename_entry(&root, "", "x").is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn under_rel_matches_prefix() {
+        assert!(under_rel("src/main.rs", "src"));
+        assert!(under_rel("src", "src"));
+        assert!(!under_rel("src2/a", "src"));
+        assert!(!under_rel("readme", "src"));
     }
 
     #[test]
