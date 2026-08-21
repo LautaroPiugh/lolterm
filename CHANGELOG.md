@@ -2,6 +2,13 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.12.0](https://github.com/LautaroPiugh/lolterm/compare/v0.11.0...v0.12.0) (2026-08-21)
+
+
+### Features
+
+* add a CodeMirror file overlay, workspace fs ops, and icon sync ([c960097](https://github.com/LautaroPiugh/lolterm/commit/c9600977cb1e8f30a6bde8cbb086893eb639ed74))
+
 ## [0.11.0](https://github.com/LautaroPiugh/lolterm/compare/v0.10.0...v0.11.0) (2026-08-21)
 
 ### Features
