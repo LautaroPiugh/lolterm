@@ -2,6 +2,18 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.13.0](https://github.com/LautaroPiugh/lolterm/compare/v0.12.0...v0.13.0) (2026-08-21)
+
+
+### Features
+
+* tighten quota, local diagnostics, and theme previews ([b105d28](https://github.com/LautaroPiugh/lolterm/commit/b105d285133b5470a0b40a473572ddc28d58842f))
+
+
+### Bug Fixes
+
+* show a themed splash and survive a missed core ready event ([1f9864e](https://github.com/LautaroPiugh/lolterm/commit/1f9864e450456706b7d5e0edd99e4cf1c7e01def))
+
 ## [0.12.0](https://github.com/LautaroPiugh/lolterm/compare/v0.11.0...v0.12.0) (2026-08-21)
 
 
