@@ -49,7 +49,7 @@
       "target": [
         "deb"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icons",
       "category": "Development",
       "executableName": "lolterm",
       "syncDesktopName": true,

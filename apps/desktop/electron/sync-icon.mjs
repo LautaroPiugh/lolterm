@@ -3,10 +3,18 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
-export function magickBin() {
-  const which = spawnSync("bash", ["-lc", "command -v magick || command -v convert"], { encoding: "utf8" });
-  return which.status === 0 ? which.stdout.trim().split("\n")[0] : "";
+const require = createRequire(import.meta.url);
+const hereDir = path.dirname(fileURLToPath(import.meta.url));
+
+/** Binario de Electron (dependencia del proyecto); evita depender de ImageMagick. */
+export function electronBin() {
+  try {
+    return require("electron");
+  } catch {
+    return "";
+  }
 }
 
 /** Copia `public/icon.png` a `build/` y genera tamaños para el `.desktop`/hicolor. */
@@ -18,7 +26,7 @@ export function syncAppIcon(appRoot, { installDesktop = false } = {}) {
   mkdirSync(iconDir, { recursive: true });
   copyFileSync(iconSrc, path.join(appRoot, "build", "icon.png"));
   copyFileSync(iconSrc, path.join(iconDir, "icon.png"));
-  const magick = magickBin();
+
   const dest256 = path.join(iconDir, "256x256.png");
   let needResize = true;
   try {
@@ -26,19 +34,22 @@ export function syncAppIcon(appRoot, { installDesktop = false } = {}) {
   } catch {
     needResize = true;
   }
-  if (magick && needResize) {
-    for (const size of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
-      spawnSync(magick, [iconSrc, "-resize", `${size}x${size}`, path.join(iconDir, `${size}x${size}.png`)], {
-        stdio: "ignore",
-      });
+  if (needResize) {
+    // Fallar ruidosamente: un ícono desactualizado en el .deb es peor que cortar el pack.
+    const electron = electronBin();
+    if (!electron) throw new Error("no se encontró el binario de Electron para regenerar íconos");
+    const script = path.join(hereDir, "resize-icon.mjs");
+    const result = spawnSync(electron, [script, iconSrc, iconDir], {
+      stdio: "inherit",
+      env: { ...process.env, ELECTRON_DISABLE_SANDBOX: "1" },
+    });
+    if (result.status !== 0) {
+      throw new Error(`resize-icon falló con código ${result.status}`);
     }
   }
-  const sized512 = existsSync(path.join(iconDir, "512x512.png"))
-    ? path.join(iconDir, "512x512.png")
-    : iconSrc;
-  const sized256 = existsSync(path.join(iconDir, "256x256.png"))
-    ? path.join(iconDir, "256x256.png")
-    : sized512;
+
+  const sized512 = path.join(iconDir, "512x512.png");
+  const sized256 = path.join(iconDir, "256x256.png");
   copyFileSync(sized512, path.join(iconDir, "lolterm.png"));
   if (installDesktop && process.platform === "linux") {
     const dataHome = process.env.XDG_DATA_HOME || path.join(homedir(), ".local/share");
@@ -56,9 +67,8 @@ export function syncAppIcon(appRoot, { installDesktop = false } = {}) {
   }
 }
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(here, "sync-icon.mjs")) {
-  const appRoot = path.join(here, "..");
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(hereDir, "sync-icon.mjs")) {
+  const appRoot = path.join(hereDir, "..");
   syncAppIcon(appRoot, { installDesktop: true });
   console.log("icono sincronizado desde public/icon.png");
 }
