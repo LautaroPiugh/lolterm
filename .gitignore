@@ -37,3 +37,4 @@ apps/desktop/figma-prompt.txt
 AGENTS.md
 .*.swp
 apps/desktop/build/icons/
+apps/desktop/build/metainfo/
