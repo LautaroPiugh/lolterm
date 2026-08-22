@@ -329,7 +329,8 @@ process.env.GTK_OVERLAY_SCROLLING = "0";
 app.setName("LoLTerm");
 app.setDesktopName("lolterm.desktop");
 app.commandLine.appendSwitch("class", "LoLTerm");
-app.commandLine.appendSwitch("no-sandbox");
+// En dev el binario de electron no viaja con chrome-sandbox SUID usable; empaquetado sí.
+if (!app.isPackaged) app.commandLine.appendSwitch("no-sandbox");
 app.commandLine.appendSwitch("disable-features", "OverlayScrollbar,FluentOverlayScrollbar");
 app.commandLine.appendSwitch("disable-blink-features", "OverlayScrollbars");
 app.commandLine.appendSwitch("log-level", "3");
@@ -344,7 +345,13 @@ function focusWindow() {
 function consumePendingLaunch() {
   invoke("consumePending")
     .then((snap) => {
-      if (snap && win) win.webContents.send("core-event", { event: "ready", params: snap });
+      if (snap && win && !win.isDestroyed()) {
+        try {
+          win.webContents.send("core-event", { event: "ready", params: snap });
+        } catch {
+          // el frame pudo morir entre el check y el send; no es fatal
+        }
+      }
     })
     .catch(() => {});
 }

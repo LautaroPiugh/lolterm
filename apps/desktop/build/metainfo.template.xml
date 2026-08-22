@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.lolterm.desktop</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>LoLTerm</name>
+  <summary>Multiplexor gráfico de terminales</summary>
+  <description>
+    <p>
+      LoLTerm es un terminal workspace local-first: terminales, proyectos,
+      herramientas CLI y máquinas remotas como ciudadanos de primera clase.
+      La terminal es el runtime principal del producto.
+    </p>
+    <p>
+      Incluye splits y tabs estilo multiplexor, command palette, explorer,
+      overlay de Git, editor embebido para archivos puntuales y conexión a
+      máquinas remotas vía SSH. Los procesos corren en PTYs reales atendidos
+      por un core escrito en Rust.
+    </p>
+  </description>
+  <launchable type="desktop-id">lolterm.desktop</launchable>
+  <url type="homepage">https://github.com/LautaroPiugh/lolterm</url>
+  <url type="bugtracker">https://github.com/LautaroPiugh/lolterm/issues</url>
+  <developer>
+    <name translatable="no">LoLTerm authors</name>
+  </developer>
+  <categories>
+    <category>Development</category>
+    <category>TerminalEmulator</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+  <icon type="stock">lolterm</icon>
+  <releases>
+    <release version="{{VERSION}}" date="{{DATE}}" />
+  </releases>
+</component>

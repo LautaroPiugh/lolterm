@@ -23,6 +23,7 @@
       "buildResources": "build",
       "output": "release"
     },
+    "afterPack": "electron/after-pack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -63,6 +64,15 @@
       },
       "maintainer": "LoLTerm <lolterm@users.noreply.github.com>",
       "artifactName": "LoLTerm-${version}-linux-${arch}.${ext}"
+    },
+    "deb": {
+      "fpm": [
+        "--deb-user",
+        "root",
+        "--deb-group",
+        "root",
+        "build/metainfo/lolterm.metainfo.xml=/usr/share/metainfo/lolterm.metainfo.xml"
+      ]
     }
   },
   "dependencies": {

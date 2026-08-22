@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { syncAppIcon } from "./sync-icon.mjs";
@@ -33,6 +33,16 @@ copyFileSync(core, sidecar);
 chmodSync(sidecar, 0o755);
 
 syncAppIcon(appRoot, { installDesktop: false });
+
+const pkg = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8"));
+const metainfoDir = path.join(appRoot, "build", "metainfo");
+mkdirSync(metainfoDir, { recursive: true });
+writeFileSync(
+  path.join(metainfoDir, "lolterm.metainfo.xml"),
+  readFileSync(path.join(appRoot, "build", "metainfo.template.xml"), "utf8")
+    .replaceAll("{{VERSION}}", pkg.version)
+    .replaceAll("{{DATE}}", new Date().toISOString().slice(0, 10)),
+);
 
 await run("npx", ["vite", "build"], appRoot);
 await run("npx", ["electron-builder", "--linux", "deb"], appRoot);
