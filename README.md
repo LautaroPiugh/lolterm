@@ -51,7 +51,7 @@ Un **workspace** es un entorno recuperable: carpeta del proyecto, pestañas, pan
 **Local:** panel → terminal en esta PC.  
 **Remoto:** panel → `ssh` → (opcional) tmux en la otra máquina, para que nvim no se muera si se corta la red.
 
-La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`, Copilot vía `gh`, OpenCode Go, ClinePass). El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
+La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`, Antigravity vía su API local mientras corre, Copilot vía `gh`, OpenCode Go, ClinePass). Hermes usa la configuración de provider/modelo que tenga el usuario y se abre como una CLI normal. El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
 
 La barra de estado muestra rama, puertos, procesos y atención de agentes. En ventanas estrechas hay una **barra táctil** (Esc, Ctrl-C, flechas) para la terminal.
 

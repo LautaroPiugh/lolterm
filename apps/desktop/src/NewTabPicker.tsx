@@ -1,7 +1,7 @@
 import { Cloud, GitBranch, Server, Sparkles, Terminal } from "./icons";
 import type { Snapshot } from "./types";
 
-const AGENTS = new Set(["codex", "claude", "opencode", "gemini", "cline", "copilot"]);
+const AGENTS = new Set(["codex", "claude", "opencode", "hermes", "goose", "aider", "crush", "qwen", "openhands", "agy", "cline", "copilot"]);
 /** CLIs del catálogo que no se abren como tab vacía (viven en el shell / Ajustes). */
 const NOT_A_TAB = new Set(["gh", "rg"]);
 
@@ -21,7 +21,13 @@ const HINT: Record<string, string> = {
   codex: "worktree + contexto",
   claude: "worktree + contexto",
   opencode: "worktree + contexto",
-  gemini: "worktree + contexto",
+  hermes: "worktree + contexto",
+  goose: "worktree + contexto",
+  aider: "worktree + contexto",
+  crush: "worktree + contexto",
+  qwen: "worktree + contexto",
+  openhands: "worktree + contexto",
+  agy: "worktree + contexto",
   cline: "worktree + contexto",
   copilot: "worktree + contexto",
 };

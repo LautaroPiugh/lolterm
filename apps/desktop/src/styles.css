@@ -2834,12 +2834,29 @@ button {
   top: auto;
   right: 0;
   width: 280px;
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
   z-index: 40;
   background: var(--pane);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 10px 12px 12px;
+}
+
+.quota-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.quota-menu::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+
+.quota-menu::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .quota-head {
@@ -2868,12 +2885,16 @@ button {
 }
 
 .quota-agent-title {
+  position: sticky;
+  top: -10px;
   display: flex;
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 6px;
+  padding: 4px 0;
+  background: var(--pane);
 }
 
 .quota-note {

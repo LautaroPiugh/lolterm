@@ -28,6 +28,7 @@ fn main() -> Result<()> {
     let mux = Arc::new(Mutex::new(Mux::boot(open, tx)?));
     lolterm_core::ctl::serve(Arc::clone(&mux));
     lolterm_core::http::serve(Arc::clone(&mux));
+    lolterm_core::quota::warm_up();
     let out = Arc::new(Mutex::new(std::io::stdout()));
 
     {

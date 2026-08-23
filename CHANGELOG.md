@@ -10,6 +10,10 @@ Los cambios versionados los escribe [Release Please](https://github.com/googleap
 * **desktop:** regenerate icon sizes with electron and ship all hicolor sizes in the deb ([2ad6f60](https://github.com/LautaroPiugh/lolterm/commit/2ad6f60406177a61e310ca5d118eda1debb7826f))
 * **desktop:** ship suid chrome-sandbox, root-owned deb, and appstream metainfo ([fb5fc4b](https://github.com/LautaroPiugh/lolterm/commit/fb5fc4b49e602f9f2edc137699c75129a8b6c708))
 
+* add Hermes, Goose, Aider, Crush, Qwen Code, and OpenHands agent launchers
+* restore Copilot quota visibility and warm quota workers at sidecar startup
+* make the quota menu scrollable and prioritize installed CLIs
+
 ## [0.13.0](https://github.com/LautaroPiugh/lolterm/compare/v0.12.0...v0.13.0) (2026-08-21)
 
 

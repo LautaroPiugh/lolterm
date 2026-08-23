@@ -9,7 +9,20 @@ use crate::config;
 use crate::git;
 use crate::workspaces;
 
-pub const NAMES: &[&str] = &["codex", "claude", "opencode", "gemini", "cline", "copilot"];
+pub const NAMES: &[&str] = &[
+    "codex",
+    "claude",
+    "opencode",
+    "hermes",
+    "goose",
+    "aider",
+    "crush",
+    "qwen",
+    "openhands",
+    "agy",
+    "cline",
+    "copilot",
+];
 
 const HISTORY_CAP: usize = 40;
 
@@ -155,6 +168,8 @@ mod tests {
     #[test]
     fn known_agent_names() {
         assert!(is_agent(Some("opencode")));
+        assert!(is_agent(Some("hermes")));
+        assert!(is_agent(Some("goose")));
         assert!(is_agent(Some("codex")));
         assert!(is_agent(Some("copilot")));
         assert!(parse_children("1 2").contains(&1));

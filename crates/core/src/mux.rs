@@ -19,8 +19,27 @@ use crate::session::{self, SavedTab, SavedWorkspace, Session};
 use crate::ssh;
 
 pub const RUN_CLIS: &[&str] = &[
-    "nvim", "lazygit", "btop", "yazi", "fzf", "gh", "tmux", "rg", "delta", "codex", "claude",
-    "opencode", "gemini", "cline", "copilot",
+    "nvim",
+    "lazygit",
+    "btop",
+    "yazi",
+    "fzf",
+    "gh",
+    "tmux",
+    "rg",
+    "delta",
+    "codex",
+    "claude",
+    "opencode",
+    "hermes",
+    "goose",
+    "aider",
+    "crush",
+    "qwen",
+    "openhands",
+    "agy",
+    "cline",
+    "copilot",
 ];
 
 fn is_run_cli(name: &str) -> bool {
@@ -545,7 +564,7 @@ impl Mux {
             },
             run_clis: if heavy {
                 let running = self.process_names();
-                crate::registry::TOOLS
+                let mut run_clis: Vec<RunCli> = crate::registry::TOOLS
                     .iter()
                     .map(|tool| {
                         let name = tool.name;
@@ -556,7 +575,11 @@ impl Mux {
                             version: crate::registry::version_of(name),
                         }
                     })
-                    .collect()
+                    .collect();
+                // Mantiene el orden del catálogo dentro de cada grupo, pero
+                // pone primero las CLIs que el usuario puede abrir ahora.
+                run_clis.sort_by_key(|cli| !cli.available);
+                run_clis
             } else {
                 Vec::new()
             },
@@ -1549,6 +1572,10 @@ impl Mux {
         git::invalidate_cache();
         let next = canonicalize(path);
         if next == self.root && !self.tabs.is_empty() {
+            self.notice = Some(format!(
+                "{} ya es el workspace activo",
+                crate::workspaces::compact_root(&self.root)
+            ));
             return Ok(());
         }
         self.stash_current();

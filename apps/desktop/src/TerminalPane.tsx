@@ -204,9 +204,16 @@ function paintTermScroll(term: Terminal, track: HTMLElement) {
   thumb.style.transform = `translateY(${Math.max(0, top)}px)`;
 }
 
+function reportsMouse(term: Terminal): boolean {
+  return term.modes.mouseTrackingMode !== "none";
+}
+
 function wireNvimWheel(term: Terminal, host: HTMLElement, pane: number): () => void {
   const onWheel = (ev: WheelEvent) => {
-    if (!isAltScreen(term)) return;
+    // Sin pantalla alternada el scrollback de xterm maneja la rueda.
+    // Si el programa reporta mouse (CLIs de IA con UI), la rueda es del programa:
+    // xterm la traduce a botones SGR y va al PTY; no se intercepta.
+    if (!isAltScreen(term) || reportsMouse(term)) return;
     ev.preventDefault();
     ev.stopPropagation();
     const raw =
@@ -216,7 +223,7 @@ function wireNvimWheel(term: Terminal, host: HTMLElement, pane: number): () => v
     void window.lolterm.invoke("write", { pane, b64: b64encode(bytes) });
   };
   host.addEventListener("wheel", onWheel, { passive: false, capture: true });
-  term.attachCustomWheelEventHandler(() => !isAltScreen(term));
+  term.attachCustomWheelEventHandler(() => !isAltScreen(term) || reportsMouse(term));
   return () => {
     host.removeEventListener("wheel", onWheel, { capture: true } as AddEventListenerOptions);
   };

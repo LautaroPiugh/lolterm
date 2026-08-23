@@ -196,9 +196,45 @@ pub const REGISTRY: &[CommandSpec] = &[
         kind: CommandKind::Core,
     },
     CommandSpec {
-        id: "run.gemini",
-        slash: "gemini",
-        hint: "abrir Gemini CLI (worktree + contexto)",
+        id: "run.hermes",
+        slash: "hermes",
+        hint: "abrir Hermes Agent (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.goose",
+        slash: "goose",
+        hint: "abrir Goose (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.aider",
+        slash: "aider",
+        hint: "abrir Aider (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.crush",
+        slash: "crush",
+        hint: "abrir Crush (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.qwen",
+        slash: "qwen",
+        hint: "abrir Qwen Code (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.openhands",
+        slash: "openhands",
+        hint: "abrir OpenHands (worktree + contexto)",
+        kind: CommandKind::Core,
+    },
+    CommandSpec {
+        id: "run.agy",
+        slash: "agy",
+        hint: "abrir Antigravity (worktree + contexto)",
         kind: CommandKind::Core,
     },
     CommandSpec {
@@ -393,6 +429,8 @@ mod tests {
         assert_eq!(lookup("tab-prev").map(|s| s.id), Some("tab.prev"));
         assert_eq!(lookup("/zoom").map(|s| s.id), Some("pane.zoom"));
         assert_eq!(lookup("opencode").map(|s| s.id), Some("run.opencode"));
+        assert_eq!(lookup("hermes").map(|s| s.id), Some("run.hermes"));
+        assert_eq!(lookup("goose").map(|s| s.id), Some("run.goose"));
         assert_eq!(lookup("nvim").map(|s| s.id), Some("run.nvim"));
         assert_eq!(lookup("lazygit").map(|s| s.id), Some("run.lazygit"));
         assert_eq!(lookup("copilot").map(|s| s.id), Some("run.copilot"));

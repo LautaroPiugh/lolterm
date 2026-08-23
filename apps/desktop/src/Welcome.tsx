@@ -27,13 +27,19 @@ const CLI_HINT: Record<string, string> = {
   codex: "agente",
   claude: "agente",
   opencode: "agente",
-  gemini: "agente",
+  hermes: "agente",
+  goose: "agente",
+  aider: "agente",
+  crush: "agente",
+  qwen: "agente",
+  openhands: "agente",
+  agy: "agente",
   cline: "agente",
   copilot: "agente",
 };
 
 const DAILY = ["nvim", "lazygit", "btop", "yazi", "fzf"];
-const AGENTS = ["codex", "claude", "opencode", "gemini", "cline", "copilot"];
+const AGENTS = ["codex", "claude", "opencode", "hermes", "goose", "aider", "crush", "qwen", "openhands", "agy", "cline", "copilot"];
 
 function CliIcon({ name }: { name: string }) {
   if (name === "lazygit") return <GitBranch size={14} />;
