@@ -2,6 +2,10 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.13.2](https://github.com/LautaroPiugh/lolterm/compare/v0.13.1...v0.13.2) (2026-08-23)
+
+* agent catalog expansion and quota handling improvements
+
 ## [0.13.1](https://github.com/LautaroPiugh/lolterm/compare/v0.13.0...v0.13.1) (2026-08-22)
 
 
