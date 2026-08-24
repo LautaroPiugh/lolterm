@@ -2,6 +2,13 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.13.3](https://github.com/LautaroPiugh/lolterm/compare/v0.13.2...v0.13.3) (2026-08-24)
+
+### Bug Fixes
+
+* conservar el resultado de instalaciones de herramientas después de cerrar su PTY
+* hacer visible el worktree de agentes e integrar su rama solo mediante fast-forward seguro
+
 ## [0.13.2](https://github.com/LautaroPiugh/lolterm/compare/v0.13.1...v0.13.2) (2026-08-23)
 
 * agent catalog expansion and quota handling improvements
