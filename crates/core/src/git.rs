@@ -17,6 +17,16 @@ pub struct Status {
     pub behind: u32,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct Worktree {
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub commit: String,
+    pub detached: bool,
+    pub current: bool,
+    pub dirty: bool,
+}
+
 impl Status {
     pub fn dirty(&self) -> bool {
         self.staged > 0 || self.unstaged > 0 || self.untracked > 0
@@ -291,6 +301,56 @@ pub fn branches(dir: &Path) -> Vec<String> {
         .collect()
 }
 
+pub fn worktrees(repo: &Path) -> Vec<Worktree> {
+    let stdout = git_output(repo, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    let root = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    let mut out = Vec::new();
+    let mut path = None;
+    let mut commit = None;
+    let mut branch = None;
+    let mut detached = false;
+
+    let mut push = |path: &mut Option<PathBuf>,
+                    commit: &mut Option<String>,
+                    branch: &mut Option<String>,
+                    detached: &mut bool| {
+        let Some(path_value) = path.take() else {
+            return;
+        };
+        let commit_value = commit.take().unwrap_or_default();
+        let branch_value = branch.take();
+        let canonical = std::fs::canonicalize(&path_value).unwrap_or_else(|_| path_value.clone());
+        let status = status(&canonical);
+        out.push(Worktree {
+            current: canonical == root,
+            path: path_value,
+            branch: branch_value,
+            commit: commit_value,
+            detached: *detached,
+            dirty: status.is_some_and(|value| value.dirty()),
+        });
+        *detached = false;
+    };
+
+    for line in stdout.lines() {
+        if line.is_empty() {
+            push(&mut path, &mut commit, &mut branch, &mut detached);
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("worktree ") {
+            path = Some(PathBuf::from(value));
+        } else if let Some(value) = line.strip_prefix("HEAD ") {
+            commit = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("branch refs/heads/") {
+            branch = Some(value.to_string());
+        } else if line == "detached" {
+            detached = true;
+        }
+    }
+    push(&mut path, &mut commit, &mut branch, &mut detached);
+    out
+}
+
 /// Operaciones de trabajo. Nunca `--force` ni push con lease saltado.
 pub fn run_op(
     dir: &Path,
@@ -340,6 +400,17 @@ pub fn run_op(
             }
             git_ok(dir, &["checkout", branch])?;
         }
+        "merge" => {
+            let branch = path_arg(path)?;
+            if !branch
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/'))
+            {
+                return Err("rama inválida".into());
+            }
+            // Nunca crea un merge commit ni resuelve conflictos automáticamente.
+            git_ok(dir, &["merge", "--ff-only", branch])?;
+        }
         other => return Err(format!("git op desconocida: {other}")),
     }
     Ok(())
@@ -384,6 +455,10 @@ pub fn branches_cached(dir: &Path) -> Vec<String> {
     git_side_cache(dir).branches
 }
 
+pub fn worktrees_cached(dir: &Path) -> Vec<Worktree> {
+    git_side_cache(dir).worktrees
+}
+
 pub fn oneline_cached(dir: &Path, limit: usize) -> Vec<String> {
     let _ = limit;
     git_side_cache(dir).log
@@ -395,6 +470,7 @@ struct Side {
     files: Vec<WorkingFile>,
     branches: Vec<String>,
     log: Vec<String>,
+    worktrees: Vec<Worktree>,
 }
 
 pub fn status_cached(dir: &Path) -> Option<Status> {
@@ -422,6 +498,7 @@ fn git_side_cache(dir: &Path) -> Side {
         files: working_files(dir),
         branches: branches(dir),
         log: oneline(dir, 8),
+        worktrees: worktrees(dir),
     };
     if let Ok(mut slot) = GIT_SIDE.lock() {
         *slot = Some((dir.to_path_buf(), Instant::now(), side.clone()));
@@ -577,6 +654,18 @@ mod tests {
         let wt = root.join("agent-wt");
         worktree_add(&root, &wt, "lolterm/test/1").expect("worktree add");
         assert!(wt.join("README").is_file());
+        let listed = worktrees(&root);
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .any(|item| item.current && item.branch.is_some())
+        );
+        assert!(
+            listed
+                .iter()
+                .any(|item| item.path == wt && item.branch.as_deref() == Some("lolterm/test/1"))
+        );
         let _ = git(&["worktree", "remove", "--force", &wt.to_string_lossy()]);
         let _ = std::fs::remove_dir_all(&root);
     }

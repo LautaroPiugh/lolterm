@@ -11,6 +11,7 @@ pub struct BytePty {
     child: Box<dyn Child + Send + Sync>,
     writer: Box<dyn Write + Send>,
     child_exited: bool,
+    exit_code: Option<u32>,
 }
 
 impl BytePty {
@@ -85,6 +86,7 @@ impl BytePty {
             child,
             writer,
             child_exited: false,
+            exit_code: None,
         })
     }
 
@@ -120,6 +122,10 @@ impl BytePty {
         self.child_exited
     }
 
+    pub fn exit_code(&self) -> Option<u32> {
+        self.exit_code
+    }
+
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
     }
@@ -133,7 +139,11 @@ impl BytePty {
             return Ok(());
         }
         match self.child.try_wait() {
-            Ok(Some(_)) | Err(_) => self.child_exited = true,
+            Ok(Some(status)) => {
+                self.exit_code = Some(status.exit_code());
+                self.child_exited = true;
+            }
+            Err(_) => self.child_exited = true,
             Ok(None) => {}
         }
         Ok(())

@@ -2211,6 +2211,66 @@ button {
   color: var(--muted);
 }
 
+.settings-installs {
+  margin-top: 16px;
+}
+
+.install-task {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--fill);
+}
+
+.install-task summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.install-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.install-state.running {
+  color: var(--brand);
+}
+
+.install-state.installed {
+  color: var(--ok);
+}
+
+.install-state.failed {
+  color: var(--err);
+}
+
+.install-task > code,
+.install-task pre {
+  display: block;
+  margin: 0 8px 8px;
+  overflow: auto;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.install-task > code {
+  color: var(--muted);
+}
+
+.install-task pre {
+  max-height: 180px;
+  padding: 7px;
+  background: var(--pane);
+  border-radius: 4px;
+}
+
 .theme-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3336,6 +3396,83 @@ button {
 
 .git-branch-hit.current {
   color: var(--brand);
+}
+
+.git-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: calc(100% - 8px);
+  margin: 1px 4px;
+  border-radius: 4px;
+}
+
+.git-worktree-row.current {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.git-worktree-open {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px 5px 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.git-worktree-open:hover {
+  background: var(--fill);
+}
+
+.git-worktree-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.git-worktree-name,
+.git-worktree-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-worktree-name {
+  font-size: 12px;
+}
+
+.git-worktree-branch,
+.git-worktree-state {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.git-worktree-state.dirty {
+  color: var(--warn);
+}
+
+.git-worktree-integrate {
+  margin-right: 4px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--focus);
+  color: var(--brand);
+  font: inherit;
+  font-size: 10px;
+}
+
+.git-worktree-integrate:hover {
+  background: var(--brand);
+  color: white;
 }
 
 .git-log-msg {

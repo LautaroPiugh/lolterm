@@ -635,10 +635,12 @@ export default function App() {
 
   const tab = snap?.tabs[snap.active_tab];
   const remoteHost = tab ? tabRemote(tab) : null;
+  const activeWorktree = tab?.panes.find((pane) => pane.id === tab.focused)?.worktree;
   const crumbs = useMemo(() => {
     if (!snap) return ["lolterm"];
-    return snap.branch ? [snap.name, snap.branch] : [snap.name];
-  }, [snap]);
+    const base = snap.branch ? [snap.name, snap.branch] : [snap.name];
+    return activeWorktree ? [...base, `worktree: ${projectName(activeWorktree)}`] : base;
+  }, [activeWorktree, snap]);
 
   async function runCommand(slash: string) {
     setModal(null);

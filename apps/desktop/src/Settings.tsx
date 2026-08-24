@@ -131,6 +131,7 @@ export function Settings({
                 onClose();
               }}
             />
+            <InstallHistory installs={snap.installs ?? []} />
           </>
         )}
         {tab === "workspace" && (
@@ -288,6 +289,26 @@ export function Settings({
         )}
       </div>
     </div>
+  );
+}
+
+function InstallHistory({ installs }: { installs: NonNullable<Snapshot["installs"]> }) {
+  if (installs.length === 0) return null;
+  return (
+    <section className="settings-installs">
+      <h3 className="settings-h">Instalaciones</h3>
+      {installs.map((install) => (
+        <details key={install.pane} className="install-task" open={install.state === "running"}>
+          <summary>
+            <strong>{install.tool}</strong>
+            <span className={`install-state ${install.state}`}>{install.state === "running" ? "instalando" : install.state === "installed" ? "instalado" : "falló"}</span>
+            {install.exit_code != null ? <span className="hint">exit {install.exit_code}</span> : null}
+          </summary>
+          <code>{install.command}</code>
+          <pre>{install.output || "esperando salida…"}</pre>
+        </details>
+      ))}
+    </section>
   );
 }
 

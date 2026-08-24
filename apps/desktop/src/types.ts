@@ -13,6 +13,7 @@ export type PaneSnap = {
   title: string;
   program: string | null;
   remote: string | null;
+  worktree?: string | null;
 };
 
 export type TabSnap = {
@@ -53,6 +54,15 @@ export type GitStatus = {
   behind: number;
 };
 
+export type GitWorktree = {
+  path: string;
+  branch: string | null;
+  commit: string;
+  detached: boolean;
+  current: boolean;
+  dirty: boolean;
+};
+
 export type RunCli = { name: string; available: boolean; version?: string | null };
 
 export type Snapshot = {
@@ -65,6 +75,7 @@ export type Snapshot = {
   git_files?: GitFile[];
   git_branches?: string[];
   git_log: string[];
+  git_worktrees?: GitWorktree[];
   tree: TreeRow[];
   tailscale: unknown;
   run_clis: RunCli[];
@@ -101,6 +112,7 @@ export type Snapshot = {
   new_tab: string;
   agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean; attention?: boolean }[];
   agent_log?: { ts: number; workspace: string; program: string; worktree?: string | null }[];
+  installs?: { pane: number; tool: string; command: string; state: string; exit_code?: number | null; output: string }[];
   themes?: { id: string; label: string; hint: string; vars: Record<string, string> }[];
   extensions?: string[];
   status_ext?: { id: string; text: string }[];

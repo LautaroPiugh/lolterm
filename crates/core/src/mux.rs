@@ -57,6 +57,7 @@ pub struct Snapshot {
     pub git_files: Vec<git::WorkingFile>,
     pub git_branches: Vec<String>,
     pub git_log: Vec<String>,
+    pub git_worktrees: Vec<git::Worktree>,
     pub tree: Vec<files::TreeRow>,
     pub tailscale: crate::tailscale::Status,
     pub run_clis: Vec<RunCli>,
@@ -71,6 +72,7 @@ pub struct Snapshot {
     pub version: String,
     pub presets: Vec<crate::presets::Preset>,
     pub workspaces: Vec<WorkspaceSnap>,
+    pub active_projects: Vec<ProjectSnap>,
     pub startup: Vec<session::StartupCmd>,
     pub env: Vec<session::EnvVar>,
     pub meta: ProjectMeta,
@@ -78,6 +80,7 @@ pub struct Snapshot {
     pub new_tab: String,
     pub agents: Vec<AgentSnap>,
     pub agent_log: Vec<crate::agents::SessionRecord>,
+    pub installs: Vec<InstallSnap>,
     pub themes: Vec<crate::ext::ThemePack>,
     pub extensions: Vec<String>,
     pub status_ext: Vec<crate::ext::StatusItem>,
@@ -117,6 +120,29 @@ pub struct WorkspaceSnap {
     pub current: bool,
 }
 
+/// Un root con trabajo vivo. Puede ser el proyecto mostrado, uno estacionado
+/// con PTYs todavía en ejecución, o un worktree usado por un agente.
+#[derive(Serialize)]
+pub struct ProjectSnap {
+    pub name: String,
+    pub root: PathBuf,
+    pub branch: Option<String>,
+    pub current: bool,
+    pub tabs: usize,
+    pub agents: usize,
+}
+
+#[derive(Clone, Serialize)]
+pub struct InstallSnap {
+    pub pane: u64,
+    pub tool: String,
+    pub command: String,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<u32>,
+    pub output: String,
+}
+
 #[derive(Serialize)]
 pub struct TabSnap {
     pub name: String,
@@ -135,6 +161,8 @@ pub struct PaneSnap {
     pub title: String,
     pub program: Option<String>,
     pub remote: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -158,6 +186,16 @@ struct LivePane {
     pty: BytePty,
     worktree: Option<PathBuf>,
     opened_path: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+struct InstallTask {
+    pane: u64,
+    tool: String,
+    command: String,
+    state: String,
+    exit_code: Option<u32>,
+    output: String,
 }
 
 struct Tab {
@@ -207,6 +245,7 @@ pub struct Mux {
     theme: String,
     new_tab: String,
     agent_worktrees: bool,
+    installs: Vec<InstallTask>,
     editor_autowrite: bool,
     ssh_fail: HashMap<String, u8>,
 }
@@ -245,6 +284,7 @@ impl Mux {
             },
             new_tab: sanitize_new_tab(&cfg.new_tab),
             agent_worktrees: cfg.agent_worktrees,
+            installs: Vec::new(),
             editor_autowrite: cfg.editor_autowrite,
             ssh_fail: HashMap::new(),
         };
@@ -531,6 +571,10 @@ impl Mux {
                                 title: pane.title.clone(),
                                 program: pane.program.clone(),
                                 remote: pane_remote(pane.program.as_deref(), &pane.args),
+                                worktree: pane
+                                    .worktree
+                                    .as_ref()
+                                    .map(|path| crate::workspaces::compact_root(path)),
                             })
                         })
                         .collect(),
@@ -549,6 +593,11 @@ impl Mux {
             },
             git_log: if heavy {
                 git::oneline_cached(&self.root, 8)
+            } else {
+                Vec::new()
+            },
+            git_worktrees: if heavy {
+                git::worktrees_cached(&self.root)
             } else {
                 Vec::new()
             },
@@ -598,6 +647,7 @@ impl Mux {
             version: crate::VERSION.to_string(),
             presets: crate::presets::summaries(),
             workspaces: self.workspace_snaps(),
+            active_projects: self.active_project_snaps(),
             startup: self.startup.clone(),
             env: self.env.clone(),
             meta: ProjectMeta {
@@ -613,6 +663,19 @@ impl Mux {
             } else {
                 Vec::new()
             },
+            installs: self
+                .installs
+                .iter()
+                .rev()
+                .map(|task| InstallSnap {
+                    pane: task.pane,
+                    tool: task.tool.clone(),
+                    command: task.command.clone(),
+                    state: task.state.clone(),
+                    exit_code: task.exit_code,
+                    output: task.output.clone(),
+                })
+                .collect(),
             themes: crate::ext::all_themes(),
             extensions: crate::ext::load().extensions,
             status_ext: if heavy {
@@ -825,6 +888,29 @@ impl Mux {
                 }
             })
             .collect()
+    }
+
+    fn active_project_snaps(&self) -> Vec<ProjectSnap> {
+        let mut projects = Vec::new();
+        push_project_snap(&mut projects, &self.root, &self.name, true, &self.tabs);
+        for root in self.parked_order.iter().rev() {
+            let Some(parked) = self.parked.get(root) else {
+                continue;
+            };
+            push_project_snap(&mut projects, root, &parked.name, false, &parked.tabs);
+        }
+
+        // Cada worktree de agente es también un proyecto activo, aunque su PTY
+        // pertenezca al workspace que se está mostrando actualmente.
+        for tab in &self.tabs {
+            push_agent_worktrees(&mut projects, &tab.panes);
+        }
+        for parked in self.parked.values() {
+            for tab in &parked.tabs {
+                push_agent_worktrees(&mut projects, &tab.panes);
+            }
+        }
+        projects
     }
 
     fn capture_workspace(&self) -> SavedWorkspace {
@@ -1454,7 +1540,36 @@ impl Mux {
             .ok_or_else(|| eyre!("herramienta desconocida: {name}"))?;
         crate::registry::invalidate();
         self.notice = Some(format!("instalando {name}"));
-        self.new_tab(Some("bash"), None, &["-lc".into(), cmd.to_string()], false)
+        let id = self.new_tab(Some("bash"), None, &["-lc".into(), cmd.to_string()], false)?;
+        self.installs.push(InstallTask {
+            pane: id,
+            tool: name.to_string(),
+            command: cmd.to_string(),
+            state: "running".into(),
+            exit_code: None,
+            output: String::new(),
+        });
+        if self.installs.len() > 12 {
+            self.installs.remove(0);
+        }
+        Ok(id)
+    }
+
+    pub fn record_output(&mut self, pane: u64, bytes: &[u8]) {
+        let Some(task) = self.installs.iter_mut().find(|task| task.pane == pane) else {
+            return;
+        };
+        task.output.push_str(&String::from_utf8_lossy(bytes));
+        const OUTPUT_LIMIT: usize = 24_000;
+        if task.output.len() > OUTPUT_LIMIT {
+            let start = task.output.len() - OUTPUT_LIMIT;
+            let start = task
+                .output
+                .char_indices()
+                .find_map(|(index, _)| (index >= start).then_some(index))
+                .unwrap_or(0);
+            task.output.drain(..start);
+        }
     }
 
     pub fn set_http(&mut self, enabled: bool, password: Option<&str>) -> Result<(), String> {
@@ -2333,6 +2448,7 @@ impl Mux {
                     index,
                     *id,
                     pane.pty.child_exited(),
+                    pane.pty.exit_code(),
                     pane.program.clone(),
                     pane.args.clone(),
                 ));
@@ -2342,7 +2458,7 @@ impl Mux {
         let mut ended = Vec::new();
         let mut restart_ssh = Vec::new();
         let mut dead = Vec::new();
-        for (index, id, exited, program, args) in poll {
+        for (index, id, exited, exit_code, program, args) in poll {
             if !exited {
                 if program.as_deref() == Some("ssh")
                     && let Some(dest) = ssh::ssh_dest_from_args(&args)
@@ -2365,6 +2481,7 @@ impl Mux {
             {
                 ended.push(name);
             }
+            self.finish_install(id, exit_code);
             dead.push((index, id));
         }
         for (index, id) in dead {
@@ -2415,9 +2532,25 @@ impl Mux {
     }
 
     fn reap_parked(&mut self) {
+        let mut finished = Vec::new();
         for parked in self.parked.values_mut() {
-            drop_exited_in_tabs(&mut parked.tabs);
+            finished.extend(drop_exited_in_tabs(&mut parked.tabs));
         }
+        for (pane, exit_code) in finished {
+            self.finish_install(pane, exit_code);
+        }
+    }
+
+    fn finish_install(&mut self, pane: u64, exit_code: Option<u32>) {
+        let Some(task) = self.installs.iter_mut().find(|task| task.pane == pane) else {
+            return;
+        };
+        task.exit_code = exit_code;
+        task.state = if exit_code == Some(0) {
+            "installed".into()
+        } else {
+            "failed".into()
+        };
     }
 
     fn refresh_live_context(&self) {
@@ -2441,19 +2574,23 @@ fn drop_panes_not_in_layout(tab: &mut Tab) {
     }
 }
 
-fn drop_exited_in_tabs(tabs: &mut Vec<Tab>) {
+fn drop_exited_in_tabs(tabs: &mut Vec<Tab>) -> Vec<(u64, Option<u32>)> {
     let mut empty_tabs = Vec::new();
+    let mut finished = Vec::new();
     for (index, tab) in tabs.iter_mut().enumerate() {
         drop_panes_not_in_layout(tab);
-        let dead: Vec<u64> = tab
+        let dead: Vec<(u64, Option<u32>)> = tab
             .panes
             .iter_mut()
             .filter_map(|(id, pane)| {
                 let _ = pane.pty.poll_exit();
-                pane.pty.child_exited().then_some(*id)
+                pane.pty
+                    .child_exited()
+                    .then_some((*id, pane.pty.exit_code()))
             })
             .collect();
-        for id in dead {
+        for (id, exit_code) in dead {
+            finished.push((id, exit_code));
             tab.panes.remove(&id);
             tab.layout.remove_pane(id);
             tab.focused = tab.layout.first_leaf().unwrap_or(id);
@@ -2468,6 +2605,7 @@ fn drop_exited_in_tabs(tabs: &mut Vec<Tab>) {
     for index in empty_tabs.into_iter().rev() {
         tabs.remove(index);
     }
+    finished
 }
 
 fn pane_ids_in(tabs: &[Tab]) -> Vec<u64> {
@@ -2508,6 +2646,59 @@ fn collect_process_names(tabs: &[Tab], names: &mut Vec<String>) {
                 }
             }
         }
+    }
+}
+
+fn push_project_snap(
+    projects: &mut Vec<ProjectSnap>,
+    root: &Path,
+    name: &str,
+    current: bool,
+    tabs: &[Tab],
+) {
+    let root = canonicalize(root);
+    let agents = tabs
+        .iter()
+        .flat_map(|tab| tab.panes.values())
+        .filter(|pane| crate::agents::is_agent(pane.program.as_deref()))
+        .count();
+    if let Some(project) = projects.iter_mut().find(|project| project.root == root) {
+        project.current |= current;
+        project.tabs += tabs.len();
+        project.agents += agents;
+        return;
+    }
+    projects.push(ProjectSnap {
+        name: name.to_string(),
+        branch: git::branch_label(&root),
+        root,
+        current,
+        tabs: tabs.len(),
+        agents,
+    });
+}
+
+fn push_agent_worktrees(projects: &mut Vec<ProjectSnap>, panes: &HashMap<u64, LivePane>) {
+    for pane in panes.values() {
+        if !crate::agents::is_agent(pane.program.as_deref()) {
+            continue;
+        }
+        let Some(worktree) = pane.worktree.as_deref() else {
+            continue;
+        };
+        let root = canonicalize(worktree);
+        if let Some(project) = projects.iter_mut().find(|project| project.root == root) {
+            project.agents += 1;
+            continue;
+        }
+        projects.push(ProjectSnap {
+            name: workspace_name(&root),
+            branch: git::branch_label(&root),
+            root,
+            current: false,
+            tabs: 0,
+            agents: 1,
+        });
     }
 }
 

@@ -33,8 +33,12 @@ fn main() -> Result<()> {
 
     {
         let out = Arc::clone(&out);
+        let mux = Arc::clone(&mux);
         std::thread::spawn(move || {
             while let Ok((pane, bytes)) = rx.recv() {
+                if !bytes.is_empty() {
+                    mux.lock().expect("mux").record_output(pane, &bytes);
+                }
                 let line = if bytes.is_empty() {
                     json!({ "event": "exit", "params": { "pane": pane } })
                 } else {

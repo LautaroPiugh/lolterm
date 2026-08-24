@@ -9,7 +9,7 @@ import {
   Plus,
   RotateCcw,
 } from "./icons";
-import type { GitFile, Snapshot } from "./types";
+import type { GitFile, GitWorktree, Snapshot } from "./types";
 
 type Call = (method: string, params?: unknown) => Promise<unknown>;
 
@@ -19,7 +19,7 @@ export function GitPanel({ snap, call }: { snap: Snapshot; call: Call }) {
   const changes = files.filter((file) => file.unstaged || file.untracked);
   const git = snap.git;
   const [message, setMessage] = useState("");
-  const [open, setOpen] = useState({ staged: true, changes: true, branches: false, log: true });
+  const [open, setOpen] = useState({ staged: true, changes: true, worktrees: true, branches: false, log: true });
 
   const canCommit = message.trim().length > 0 && staged.length > 0;
 
@@ -167,6 +167,26 @@ export function GitPanel({ snap, call }: { snap: Snapshot; call: Call }) {
               ))}
             </GitSection>
 
+            <GitSection
+              title="Worktrees"
+              count={snap.git_worktrees?.length ?? 0}
+              open={open.worktrees}
+              onToggle={() => toggle("worktrees")}
+            >
+              {(snap.git_worktrees ?? []).map((worktree) => (
+                <WorktreeRow
+                  key={worktree.path}
+                  worktree={worktree}
+                  onOpen={() => void call("openProject", { path: worktree.path })}
+                  onIntegrate={() => {
+                    if (!worktree.branch) return;
+                    if (!window.confirm(`¿Aplicar ${worktree.branch} sobre la rama actual? Solo se hará un fast-forward seguro.`)) return;
+                    void call("gitOp", { op: "merge", path: worktree.branch });
+                  }}
+                />
+              ))}
+            </GitSection>
+
             <GitSection title="Commits" count={snap.git_log.length} open={open.log} onToggle={() => toggle("log")}>
               {snap.git_log.map((line) => {
                 const sha = line.slice(0, 7);
@@ -184,6 +204,29 @@ export function GitPanel({ snap, call }: { snap: Snapshot; call: Call }) {
         )}
       </div>
     </>
+  );
+}
+
+function WorktreeRow({ worktree, onOpen, onIntegrate }: { worktree: GitWorktree; onOpen: () => void; onIntegrate: () => void }) {
+  const name = worktree.path.split("/").filter(Boolean).pop() ?? worktree.path;
+  const branch = worktree.branch ?? (worktree.detached ? `detached@${worktree.commit.slice(0, 7)}` : "sin rama");
+  return (
+    <div className={worktree.current ? "git-worktree-row current" : "git-worktree-row"}>
+      <button type="button" className="git-worktree-open" onClick={onOpen} title={worktree.path}>
+        <span className="git-worktree-main">
+          <span className="git-worktree-name">{name}</span>
+          <span className="git-worktree-branch">{branch}</span>
+        </span>
+        <span className={worktree.dirty ? "git-worktree-state dirty" : "git-worktree-state"}>
+          {worktree.current ? "actual" : worktree.dirty ? "cambios" : "limpio"}
+        </span>
+      </button>
+      {!worktree.current && worktree.branch ? (
+        <button type="button" className="git-worktree-integrate" onClick={onIntegrate} title="Aplicar con git merge --ff-only">
+          aplicar
+        </button>
+      ) : null}
+    </div>
   );
 }
 
