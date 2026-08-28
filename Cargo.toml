@@ -3,7 +3,7 @@ members = ["crates/core"]
 resolver = "2"
 
 [workspace.package]
-version = "0.13.3"
+version = "0.13.4"
 edition = "2024"
 description = "Local-first terminal workspace and graphical terminal multiplexer"
 license = "MIT"

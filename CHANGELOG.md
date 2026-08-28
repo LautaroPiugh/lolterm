@@ -2,6 +2,14 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.13.4](https://github.com/LautaroPiugh/lolterm/compare/v0.13.3...v0.13.4) (2026-08-28)
+
+### Bug Fixes
+
+* harden HTTP LAN config parsing, password handling, workspace path confinement, and live context refresh
+* prevent implicit Electron Builder publishing during CI packaging
+* block OSC 52 clipboard readback and tighten Desktop external URL handling
+
 ## [0.13.3](https://github.com/LautaroPiugh/lolterm/compare/v0.13.2...v0.13.3) (2026-08-24)
 
 ### Bug Fixes
