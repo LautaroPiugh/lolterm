@@ -218,13 +218,13 @@ mod tests {
 
     #[test]
     fn tilde_expands_and_compacts_against_home() {
-        let home = Path::new("/home/lauta");
+        let home = Path::new("/home/example");
         assert_eq!(
             expand_root_with("~/dev/api", Some(home)),
-            PathBuf::from("/home/lauta/dev/api")
+            PathBuf::from("/home/example/dev/api")
         );
         assert_eq!(
-            compact_root_with(Path::new("/home/lauta/dev/api"), Some(home)),
+            compact_root_with(Path::new("/home/example/dev/api"), Some(home)),
             "~/dev/api"
         );
         assert_eq!(
@@ -243,7 +243,7 @@ mod tests {
         let mut session = Session {
             workspaces: vec![SavedWorkspace {
                 name: "folder".into(),
-                root: PathBuf::from("/home/lauta/dev/api"),
+                root: PathBuf::from("/home/example/dev/api"),
                 active_tab: 1,
                 tabs: vec![],
                 startup: vec![],
@@ -265,7 +265,7 @@ mod tests {
                 notes: String::new(),
             }],
         };
-        merge_into_session_with(&mut session, &catalog, Some(Path::new("/home/lauta")));
+        merge_into_session_with(&mut session, &catalog, Some(Path::new("/home/example")));
         assert_eq!(session.workspaces.len(), 1);
         assert_eq!(session.workspaces[0].name, "API");
         assert_eq!(session.workspaces[0].startup[0].program, "nvim");

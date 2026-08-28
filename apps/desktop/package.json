@@ -4,11 +4,19 @@
   "private": true,
   "type": "module",
   "description": "LoLTerm — multiplexor gráfico de terminales",
+  "license": "MIT",
   "author": {
     "name": "LoLTerm",
     "email": "lolterm@users.noreply.github.com"
   },
   "homepage": "https://github.com/LautaroPiugh/lolterm",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LautaroPiugh/lolterm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LautaroPiugh/lolterm/issues"
+  },
   "desktopName": "lolterm.desktop",
   "main": "electron/main.mjs",
   "scripts": {

@@ -1,6 +1,6 @@
 import type { ITheme } from "@xterm/xterm";
 
-/** Escala Orquester: 50 texto → 950 fondo (se invierte en oscuro). */
+/** Escala interna: 50 texto → 950 fondo (se invierte en oscuro). */
 type Scale = {
   "50": string;
   "100": string;

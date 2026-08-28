@@ -34,6 +34,16 @@ function save(rows: DiagEntry[]) {
   }
 }
 
+function redactPath(raw?: string): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "?";
+  const normalized = text.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  const name = parts.at(-1);
+  return name ? `…/${name}` : "…";
+}
+
+
 export function readDiag(): DiagEntry[] {
   return load();
 }
@@ -64,7 +74,7 @@ export function formatReport(
   const header = [
     `LoLTerm ${meta.version ?? "?"}`,
     `tema: ${meta.theme ?? "?"}`,
-    `root: ${meta.root ?? "?"}`,
+    `root: ${redactPath(meta.root)}`,
     `ua: ${navigator.userAgent}`,
     "",
     "errores recientes (sin secretos ni salida de PTY):",

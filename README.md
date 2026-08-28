@@ -1,100 +1,119 @@
 # LoLTerm
 
-LoLTerm es un **workspace de terminales**. La unidad de trabajo no es el archivo: es el proceso que corre en una terminal real (bash, nvim, lazygit, ssh, Codex, lo que uses).
+LoLTerm es un **workspace local-first de terminales**: una aplicación desktop para organizar proyectos, panes, pestañas, shells, editores, Git, SSH/tmux y agentes CLI sin reemplazarlos.
 
-> LoLTerm es el entorno desde el que trabajo, no la herramienta con la que hago cada trabajo.
+> LoLTerm es el entorno desde el que trabajás; las herramientas siguen siendo las herramientas.
 
-No nació para ser “otra terminal bonita”. La idea es instalarlo en una máquina y usarlo como sitio desde el que abrís proyectos, CLIs, editores, Git, agentes de IA y otras computadoras.
+Hoy el paquete oficial es un **`.deb` para Ubuntu/Debian**. Linux es la plataforma principal. macOS, Windows, AppImage, apt repo y firmas GPG quedan para una etapa posterior.
 
-Hoy el paquete oficial es un **`.deb` para Ubuntu**.
+## Qué hace
 
-## Qué hace (y qué no)
+- Abre procesos reales dentro de **PTYs**: `bash`, `nvim`, `lazygit`, `btop`, `fzf`, `yazi`, `ssh`, `tmux`, Codex, Claude Code, OpenCode y otras CLIs.
+- Organiza esos procesos en pestañas, panes y workspaces.
+- Expone contexto local con `lolterm context` y `LOLTERM_CONTEXT`.
+- Usa el `ssh` del sistema y puede recuperar sesiones remotas con `tmux`.
+- Incluye overlays de conveniencia: explorer/editor simple, Git básico, REST client, Ajustes, temas, comandos y atajos.
+- Mantiene la configuración en archivos locales TOML.
 
-LoLTerm **organiza** herramientas que ya existen. No las reemplaza.
+## Qué no es
+
+LoLTerm **organiza** herramientas existentes. No las reemplaza.
 
 | LoLTerm no es… | Lo que hace en su lugar |
 | --- | --- |
-| un IDE ni un editor propio | overlay para leer/guardar un archivo; el default sigue siendo nvim / `$EDITOR` en un PTY |
-| un cliente Git completo | vista tipo SCM (stage, commit, fetch, pull --ff-only); lazygit para el resto. Sin merge UI ni force-push |
-| un chat o runtime de IA | abre Codex, Claude Code, OpenCode, Gemini, Cline, Copilot en una terminal (worktree + contexto) |
-| un fork de tmux | usa tmux en remoto para no perder la sesión |
-| un cliente SSH distinto | usa el `ssh` del sistema (y Tailscale si lo tenés) |
-| una tienda de software | Ajustes instala CLIs conocidas corriendo el comando oficial en un PTY |
+| un IDE tradicional | overlay para leer/guardar archivos; el editor serio sigue siendo `nvim` / `$EDITOR` en un PTY |
+| un cliente Git completo | vista tipo SCM para stage/commit/fetch/pull `--ff-only`; `lazygit` sigue disponible |
+| un chat o runtime de IA | abre agentes CLI en terminales, con contexto y worktrees cuando aplica |
+| un fork de tmux | puede usar tmux en remoto para no perder sesiones |
+| un cliente SSH propio | usa `ssh`, claves y agent del sistema |
+| un marketplace | Ajustes ejecuta comandos oficiales de instalación en un PTY |
 
-Adentro, cada panel es un **PTY**: el programa cree que está en una terminal de verdad (colores, nvim, fzf, resize). Varios paneles y pestañas conviven en la misma ventana.
+## Estado
+
+| Área | Estado actual |
+| --- | --- |
+| Terminal/PTY | usable con procesos interactivos reales; sigue siendo el centro del producto |
+| Multiplexer | pestañas, splits, resize, foco y comandos básicos |
+| Workspaces | raíz, layouts, startup commands y contexto local |
+| Remote | SSH/Tailscale/tmux en desarrollo activo |
+| CLI | `lolterm`, `context`, `panes`, `processes`, `workspace`, `ssh`, `run` |
+| Distribución | `.deb` Linux en GitHub Releases |
+| Updates | `/update` descarga `.deb` latest y verifica SHA256 |
+| Seguridad | local-first; HTTP LAN es opt-in y sin TLS propio |
+
+## Arquitectura corta
 
 ```text
-                LoLTerm
-                   │
-       ┌───────────┼────────────┐
-       │           │            │
-    proyectos   máquinas     contexto
-       │           │            │
-       ↓           ↓            ↓
-    terminales   SSH/tmux    agentes CLI
-       │
-  nvim / lazygit / shell / …
+teclado/mouse
+    ↓
+React + xterm.js
+    ↓
+preload IPC
+    ↓
+Electron main
+    ↓
+JSON line protocol
+    ↓
+lolterm-core (Rust)
+    ↓
+PTY real
+    ↓
+proceso CLI
 ```
 
-Todo corre **en tu máquina**. No hay cuenta, ni nube de LoLTerm, ni backend obligatorio. La config portable vive en `~/.config/lolterm/`.
+Tres piezas se ven como “LoLTerm”:
 
-## Cómo está armado
+1. **Desktop** — ventana, tabs, splits, explorer, Git, REST, Ajustes, temas.
+2. **Core Rust** — crea PTYs, controla procesos, mantiene mux/sesión/workspaces, SSH y contexto.
+3. **CLI `lolterm`** — abre workspaces/comandos y consulta contexto desde otra terminal.
 
-Hay tres piezas que el usuario ve como “LoLTerm”:
+Un **PTY** (*pseudo terminal*) hace que un proceso interactivo crea que está conectado a una terminal real. Por eso importan resize, raw mode, alternate screen, mouse events, Unicode y secuencias ANSI/VT.
 
-1. **La ventana** — pestañas, splits, paleta, explorer, Git, Ajustes, temas.
-2. **El core** — crea las terminales, guarda el layout, habla con SSH y con la CLI.
-3. **El comando `lolterm`** — el mismo sistema, desde otra terminal: abrir un proyecto, listar workspaces, preguntar el contexto.
+Más detalle: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-Un **workspace** es un entorno recuperable: carpeta del proyecto, pestañas, paneles, a veces una máquina remota. Podés tener varios y ciclarlos. Si cerrás todas las pestañas, volvés a Inicio (proyectos, CLIs, máquinas).
-
-**Local:** panel → terminal en esta PC.  
-**Remoto:** panel → `ssh` → (opcional) tmux en la otra máquina, para que nvim no se muera si se corta la red.
-
-La CLI `lolterm context` (y el archivo que ven los PTYs en `LOLTERM_CONTEXT`) expone carpeta, rama, procesos y, si nvim tiene un archivo abierto, `focused_file`. LoLTerm no llama a Anthropic ni OpenAI: **Quota** lee las CLIs instaladas (Codex `app-server`, `claude --print /usage`, Antigravity vía su API local mientras corre, Copilot vía `gh`, OpenCode Go, ClinePass). Hermes usa la configuración de provider/modelo que tenga el usuario y se abre como una CLI normal. El chip de media usa **playerctl** (MPRIS), no un clon de Spotify.
-
-La barra de estado muestra rama, puertos, procesos y atención de agentes. En ventanas estrechas hay una **barra táctil** (Esc, Ctrl-C, flechas) para la terminal.
-
-Podés sumar comandos, atajos, temas y ganchos con archivos TOML locales. No hay plugins de JavaScript.
-
-## Instalar (Ubuntu)
+## Instalar en Ubuntu/Debian
 
 1. Bajá el `.deb` de la [última release](https://github.com/LautaroPiugh/lolterm/releases/latest).
-2. Instalálo:
+2. Instalalo:
 
 ```bash
 sudo apt install ./LoLTerm-*-linux-amd64.deb
 ```
 
-Queda en el menú de aplicaciones (icono del prompt `>`) y `lolterm` en el PATH.
+Queda en el menú de aplicaciones y deja `lolterm` en el PATH.
 
-Para actualizar: paleta `/update`, o el aviso cuando hay versión nueva. Se descarga el `.deb` de **esa** release, se comprueba el SHA256 y recién ahí se instala. No hace falta un token de GitHub.
+Actualizar:
 
-## Uso
+- desde la paleta: `/update`;
+- o desde el aviso cuando hay una versión nueva.
 
-| Qué | Cómo |
+El updater baja el `.deb` de la release latest, verifica `SHA256SUMS.txt` y recién después instala. No hay apt repo ni firma GPG todavía. Detalles: [`docs/RELEASE.md`](docs/RELEASE.md) y [`SECURITY.md`](SECURITY.md).
+
+## Uso básico
+
+| Acción | Cómo |
 | --- | --- |
 | Paleta | `Ctrl-b` o `Ctrl-p` |
 | Cambiar de tab | `Ctrl-Tab` / `Ctrl-Shift-Tab` |
-| Partir el panel | `Ctrl-Alt-v` (derecha), `Ctrl-Alt-s` (abajo) |
-| Workspaces | clic en el nombre, o `Ctrl-Alt-[` `]` |
-| Reiniciar el panel | `Ctrl-Alt-r` |
-| Ajustes (temas, CLIs, HTTP) | engranaje, `/settings` o `/theme` |
+| Split derecha | `Ctrl-Alt-v` |
+| Split abajo | `Ctrl-Alt-s` |
+| Workspaces | clic en el nombre, o `Ctrl-Alt-[` / `Ctrl-Alt-]` |
+| Reiniciar pane | `Ctrl-Alt-r` |
+| Ajustes | engranaje, `/settings` o `/theme` |
 | Comandos y atajos | `Ctrl-Alt-,` o `/commands` |
-| Git (SCM) | rail Git: staged / changes, commit (Ctrl+Enter), fetch, pull `--ff-only` |
-| Archivo (explorer) | overlay para leer/guardar, o **nvim** (`$EDITOR`). `Ctrl+S` guarda. Autosave: `[editor] autowrite = true` en `config.toml` |
-| REST | `+` → REST, o paleta `/rest`: archivos `.http` / `.rest` del repo; secretos desde `.env` local |
-| Copiar al seleccionar | `/copy-select` (también Ctrl+Shift+C) |
+| Git | rail Git: staged/changes, commit con `Ctrl+Enter`, fetch, pull `--ff-only` |
+| Archivo | explorer + overlay, o `nvim` / `$EDITOR` |
+| REST | `+` → REST, o `/rest`; secretos desde `.env` local |
+| Copiar al seleccionar | `/copy-select` o `Ctrl-Shift-C` |
 
-El `+` pregunta qué abrir (shell, SSH, nvim, lazygit, btop, yazi, agentes). `gh` y `rg` se instalan desde Ajustes; no salen en el `+` porque no son una tab vacía. Arrastrá una pestaña al borde para partir el layout.
+El botón `+` permite abrir shells, SSH, nvim, lazygit, btop, yazi, agentes y otras CLIs conocidas.
 
-Desde Ajustes → **Herramientas** podés instalar o abrir CLIs conocidas (el comando corre en un PTY: apt, npm, cargo, go). Si ya está en PATH, **Abrir** lanza un panel. Paleta: `/nvim`, `/lazygit`, `/codex`, `/claude`, …
-
-Desde otra terminal, el mismo workspace:
+## CLI
 
 ```bash
 lolterm .
 lolterm workspace list
+lolterm workspace open <nombre>
 lolterm ssh home
 lolterm run nvim
 lolterm context
@@ -102,9 +121,13 @@ lolterm panes
 lolterm processes
 ```
 
+`lolterm context` expone una foto del workspace: carpeta, rama Git, procesos, panes y archivo enfocado cuando se puede detectar. No debe incluir valores completos de variables de entorno ni claves que parezcan secretos.
+
 ## Máquinas remotas
 
-La contraseña la pide `ssh` en el panel. Ejemplo en `~/.config/lolterm/config.toml`:
+LoLTerm usa el `ssh` del sistema. Las contraseñas/passphrases las pide `ssh` dentro del PTY.
+
+Ejemplo de `~/.config/lolterm/config.toml`:
 
 ```toml
 [remote]
@@ -118,19 +141,56 @@ user = "dev"
 kind = "tailscale"
 ```
 
-Si el enlace se corta, LoLTerm intenta reconectar **una vez** (tmux `-A` recupera la sesión remota).
-
-HTTP LAN es **opt-in** (Ajustes → Red): vista web del mismo core en LAN/VPN, password en `data_dir`, sin TLS propio. Remoto de verdad sigue siendo SSH + tmux.
+Si el enlace se corta, LoLTerm intenta reconectar una vez. Con `tmux -A`, la sesión remota puede sobrevivir al corte.
 
 ## Configuración
 
-| Dónde | Qué |
+| Ruta | Qué contiene |
 | --- | --- |
-| `~/.config/lolterm/` | temas, atajos, comandos, workspaces, extensiones TOML |
-| `$XDG_RUNTIME_DIR/lolterm/` | estado vivo (socket de contexto); no hace falta sincronizarlo |
+| `~/.config/lolterm/` | config portable: temas, atajos, comandos, workspaces, extensiones TOML |
+| `$XDG_RUNTIME_DIR/lolterm/` | estado vivo: socket del mux y contexto temporal |
+| `$XDG_DATA_HOME/lolterm/` | estado local: worktrees, historial local, password HTTP |
 
-SSH usa las claves y el agent del sistema. No guardes secretos en archivos que copies entre PCs.
+No guardes secretos en archivos sincronizables. Para REST, publicá sólo `.env.example`; tu `.env` real queda ignorado por Git.
+
+## Seguridad y privacidad
+
+- No hay cuenta ni backend cloud de LoLTerm.
+- No hay telemetría automática.
+- HTTP LAN es opt-in, usa password local y no trae TLS propio.
+- Los diagnósticos son locales; revisalos antes de pegarlos en un issue.
+- Las CLIs externas que abras pueden usar su propia red/autenticación.
+
+Leer:
+
+- [`SECURITY.md`](SECURITY.md)
+- [`PRIVACY.md`](PRIVACY.md)
+- [`docs/PUBLICATION_CHECKLIST.md`](docs/PUBLICATION_CHECKLIST.md)
+
+## Desarrollo
+
+```bash
+# Rust, desde la raíz
+cargo fmt --all -- --check
+cargo clippy -p lolterm-core --all-targets -- -D warnings
+cargo test --workspace
+
+# Desktop
+cd apps/desktop
+npm ci
+npm run build
+npm run dev
+```
+
+Guía completa: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+Contribuciones: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Release
+
+Release Please mantiene versiones y changelog. Los tags `v*` empaquetan Linux `.deb` y adjuntan `SHA256SUMS.txt` a GitHub Releases.
+
+Ver [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ## Licencia
 
-[MIT](LICENSE). Podés usar, copiar, modificar y redistribuir el software; el archivo `LICENSE` es el texto legal.
+[MIT](LICENSE).

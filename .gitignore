@@ -14,8 +14,18 @@ apps/desktop/sidecar
 .env.*
 !.env.example
 *.pem
+*.key
+*.p12
+*.pfx
+.npmrc
 id_rsa
 id_rsa.pub
+id_dsa
+id_dsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
 session.toml
 
 # herramientas de IA / IDE (no son el producto)

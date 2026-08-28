@@ -361,7 +361,7 @@ export default function App() {
           } else {
             setUpdate(null);
             if (info.reason === "github-404") {
-              setBanner("GitHub 404: el repo es privado o no hay release latest. En dev se usa `gh auth`; el .deb público necesita el repo público.");
+              setBanner("GitHub no devolvió una release latest pública para buscar actualizaciones.");
             } else if (info.reason === "github-403") {
               setBanner("GitHub 403: rate limit o sin permiso para leer releases.");
             } else if (info.reason === "no-deb") {

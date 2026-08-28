@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn machine_target_rejects_spaces_and_urls() {
-        assert!(machine_target_ok("chae.tailnet.ts.net"));
+        assert!(machine_target_ok("box.tailnet.test"));
         assert!(machine_target_ok("me@pi"));
         assert!(!machine_target_ok(""));
         assert!(!machine_target_ok("host name"));
@@ -398,11 +398,11 @@ mod tests {
     fn machine_dest_uses_kind() {
         let ts = Machine {
             name: "box".into(),
-            target: "box.tailnet.ts.net".into(),
+            target: "box.tailnet.test".into(),
             user: None,
             kind: MachineKind::Tailscale,
         };
-        assert_eq!(ts.dest(Some("me")), "me@box.tailnet.ts.net");
+        assert_eq!(ts.dest(Some("me")), "me@box.tailnet.test");
         let ssh = Machine {
             name: "pi".into(),
             target: "pi".into(),
@@ -437,17 +437,17 @@ mod tests {
     #[test]
     fn machines_toml_roundtrip_skips_passwords() {
         let parsed: FileConfig = toml::from_str(
-            "[[machines]]\nname = \"chae\"\ntarget = \"chae.ts.net\"\nuser = \"lauta\"\nkind = \"tailscale\"\n",
+            "[[machines]]\nname = \"box\"\ntarget = \"box.tailnet.test\"\nuser = \"dev\"\nkind = \"tailscale\"\n",
         )
         .expect("toml");
-        assert_eq!(parsed.machines[0].name, "chae");
+        assert_eq!(parsed.machines[0].name, "box");
         assert_eq!(parsed.machines[0].kind.as_deref(), Some("tailscale"));
     }
 
     #[test]
     fn host_label_uses_first_dns_label() {
-        assert_eq!(host_label("chae.tailnet.ts.net"), "chae");
-        assert_eq!(host_label("lauta@pi"), "pi");
+        assert_eq!(host_label("box.tailnet.test"), "box");
+        assert_eq!(host_label("dev@pi"), "pi");
         assert_eq!(host_label("pi"), "pi");
     }
 

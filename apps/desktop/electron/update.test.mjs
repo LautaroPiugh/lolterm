@@ -31,7 +31,7 @@ test("sha256ForName lee el formato de sha256sum", () => {
 
 test("githubAuthHeaders no manda Authorization vacío", () => {
   assert.deepEqual(githubAuthHeaders(""), {});
-  assert.equal(githubAuthHeaders("ghp_x").Authorization, "Bearer ghp_x");
+  assert.equal(githubAuthHeaders("fixture-token").Authorization, "Bearer fixture-token");
 });
 
 test("checkLinuxDebUpdate trata 404 como sin update", async () => {

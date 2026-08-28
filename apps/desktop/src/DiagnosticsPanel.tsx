@@ -54,7 +54,7 @@ export function DiagnosticsPanel({
       </header>
       <p className="settings-lead">
         LoLTerm guarda avisos del sidecar y de IPC en este equipo. Copiá el informe o abrí un issue en GitHub; no hay
-        telemetría.
+        telemetría. Revisá el texto antes de publicarlo.
       </p>
       <div className="settings-row-actions diag-actions">
         <button type="button" className="settings-ghost" onClick={() => void copy()}>

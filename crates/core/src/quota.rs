@@ -1,4 +1,4 @@
-//! Cuotas de agentes (criterio Orquester: solo instalados con ventanas reales).
+//! Cuotas de agentes: solo herramientas instaladas con ventanas reales.
 //!
 //! LoLTerm **no** guarda tokens ni pega a APIs con credenciales propias.
 //! Usa la sesión que ya dejó cada CLI en el disco del usuario:
@@ -16,7 +16,7 @@
 //! - Copilot CLI: `GET https://api.github.com/copilot_internal/user` con el
 //!   token de `gh auth` (o `GH_TOKEN`). LoLTerm no guarda el token.
 //!
-//! `QuotaBar.percent` es **% usado**, como en Orquester.
+//! `QuotaBar.percent` es **% usado**.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -1385,8 +1385,8 @@ pub fn parse_antigravity_quota(root: &Value) -> Vec<QuotaBar> {
     }
 }
 
-/// Grupos igual que `/usage` en el propio `agy`: los modelos comparten pool,
-/// así que por grupo se reporta la ventana peor parada (criterio Orquester).
+/// Grupos por familia de modelo: varios modelos pueden compartir pool,
+/// así que por grupo se reporta la ventana peor parada.
 const AGY_GROUPS: &[(&str, &[&str])] =
     &[("Gemini", &["gemini"]), ("Claude/GPT", &["claude", "gpt"])];
 const AGY_WINDOWS: &[&str] = &["5-hour limit", "Weekly limit"];
@@ -1633,8 +1633,8 @@ fn agy_window_label(map: &serde_json::Map<String, Value>, path: &str) -> String 
     if lower.contains("monthly") {
         return "Monthly limit".into();
     }
-    // La API local solo expone la ventana rolling (~5 h) sin nombre;
-    // verificado contra GetUserStatus real.
+    // La API local observada solo expone la ventana rolling (~5 h) sin
+    // nombre estable.
     "5-hour limit".into()
 }
 
@@ -2307,7 +2307,7 @@ mod tests {
     #[test]
     fn claude_bars_are_used_percent() {
         let root = json!({
-            "oauthAccount": { "accessToken": "sk-ant-secret" },
+            "oauthAccount": { "accessToken": "claude-fixture-secret" },
             "cachedUsageUtilization": {
                 "utilization": {
                     "five_hour": { "utilization": 0.55, "resets_at": "2026-08-20T21:00:00Z" },
@@ -2320,7 +2320,11 @@ mod tests {
         assert_eq!(bars[0].percent, 55);
         assert_eq!(bars[1].percent, 12);
         assert_eq!(bars[0].label, "5-hour limit");
-        assert!(!serde_json::to_string(&bars).unwrap().contains("sk-ant"));
+        assert!(
+            !serde_json::to_string(&bars)
+                .unwrap()
+                .contains("claude-fixture-secret")
+        );
     }
 
     #[test]
@@ -2475,8 +2479,8 @@ Current week (all models): 40% used · Resets Aug 24
             }
         });
         let bars = parse_antigravity_quota(&root);
-        // Dos pools como en /usage. Este fixture trae Weekly explícito;
-        // la API real solo manda la rolling de ~5 h sin nombre.
+        // Dos pools compartidos. Este fixture trae Weekly explícito; la API
+        // local también puede mandar solo la rolling de ~5 h sin nombre.
         assert_eq!(bars.len(), 3);
         assert_eq!(bars[0].label, "Gemini 5-hour limit");
         assert_eq!(bars[0].percent, 44); // peor caso: Pro 44 vs Flash 10
@@ -2513,16 +2517,16 @@ Current week (all models): 40% used · Resets Aug 24
         assert!(parse_antigravity_quota(&json!({ "code": 7 })).is_empty());
     }
 
-    /// Shape real de `GetUserStatus` (verificado en vivo): quotaInfo directo
-    /// por modelo, sin nombre de ventana; es la rolling de ~5 horas.
+    /// Shape observado de `GetUserStatus`: quotaInfo directo por modelo,
+    /// sin nombre de ventana; es la rolling de ~5 horas.
     #[test]
     fn parse_antigravity_real_get_user_status_shape() {
         let root = json!({
             "userStatus": {
-                "name": "Lautaro",
+                "name": "Fixture User",
                 "planStatus": {
                     "availablePromptCredits": 500,
-                    "planInfo": { "planName": "Pro", "monthlyPromptCredits": 50000 }
+                    "planInfo": { "planName": "Fixture Plan", "monthlyPromptCredits": 123456 }
                 },
                 "cascadeModelConfigData": {
                     "clientModelConfigs": [
@@ -2554,9 +2558,9 @@ Current week (all models): 40% used · Resets Aug 24
         assert_eq!(bars[0].reset.as_deref(), Some("reset 21:54 UTC"));
         assert_eq!(bars[1].label, "Claude/GPT 5-hour limit");
         assert_eq!(bars[1].percent, 50); // peor caso: Opus 50 vs Sonnet 25
-        // El plan no filtra datos sensibles.
+        // Los datos de cuenta del provider no salen en las barras públicas.
         let serialized = serde_json::to_string(&bars).unwrap();
-        assert!(!serialized.contains("Lautaro") && !serialized.contains("50000"));
+        assert!(!serialized.contains("Fixture User") && !serialized.contains("Fixture Plan"));
     }
 
     #[test]
@@ -2629,19 +2633,19 @@ Current week (all models): 40% used · Resets Aug 24
     #[test]
     fn opencode_auth_picks_go_key() {
         let root = json!({
-            "anthropic": { "type": "api", "key": "sk-ant-other" },
-            "opencode-go": { "type": "api", "key": "sk-opencode-go" }
+            "anthropic": { "type": "api", "key": "anthropic-fixture-key" },
+            "opencode-go": { "type": "api", "key": "opencode-go-fixture-key" }
         });
         assert_eq!(
             opencode_key_from_value(&root).as_deref(),
-            Some("sk-opencode-go")
+            Some("opencode-go-fixture-key")
         );
     }
 
     #[test]
     fn cline_settings_picks_account_key() {
         let root = json!({
-            "openai": { "apiKey": "sk-openai" },
+            "openai": { "apiKey": "openai-fixture-key" },
             "cline": { "apiKey": "cline-pass-key", "auth": { "accessToken": "tok" } }
         });
         assert_eq!(
