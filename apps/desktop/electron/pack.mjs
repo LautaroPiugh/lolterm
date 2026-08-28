@@ -45,6 +45,6 @@ writeFileSync(
 );
 
 await run("npx", ["vite", "build"], appRoot);
-await run("npx", ["electron-builder", "--linux", "deb"], appRoot);
+await run("npx", ["electron-builder", "--linux", "deb", "--publish", "never"], appRoot);
 
 console.log("paquetes en apps/desktop/release/");

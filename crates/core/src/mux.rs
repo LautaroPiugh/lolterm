@@ -374,6 +374,7 @@ impl Mux {
         let (id, live) = self.spawn_live(cwd, program, args)?;
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.panes.insert(id, live);
+            self.refresh_live_context();
             return Ok(id);
         }
         let mut panes = HashMap::new();
@@ -389,6 +390,7 @@ impl Mux {
             title_locked: false,
         });
         self.active = self.tabs.len() - 1;
+        self.refresh_live_context();
         Ok(id)
     }
 
@@ -783,11 +785,10 @@ impl Mux {
     }
 
     fn http_snap(&self) -> HttpSnap {
-        let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
-        let enabled = text.contains("[http]") && text.contains("enabled = true");
+        let cfg = crate::http::load_config();
         HttpSnap {
-            enabled,
-            bind: "127.0.0.1:47832".into(),
+            enabled: cfg.enabled,
+            bind: cfg.bind(),
         }
     }
 
@@ -1147,6 +1148,12 @@ impl Mux {
         args: &[String],
         _shell_ok: bool,
     ) -> Result<u64> {
+        if let Some(name) = program
+            && !files::program_ok(name)
+        {
+            self.notice = Some(format!("programa inválido: {name}"));
+            return Ok(0);
+        }
         let cwd = cwd.unwrap_or(&self.root).to_path_buf();
         let (id, live) = self.spawn_live(&cwd, program, args)?;
         let mut panes = HashMap::new();
@@ -1162,6 +1169,7 @@ impl Mux {
             title_locked: false,
         });
         self.active = self.tabs.len() - 1;
+        self.refresh_live_context();
         Ok(id)
     }
 
@@ -1233,7 +1241,9 @@ impl Mux {
                 .and_then(|id| src.layout.ids().iter().position(|pane| *pane == id)),
             tree: session::SavedNode::from_layout(&src.layout, &keep, &specs),
         };
-        self.restore_one(&saved)
+        self.restore_one(&saved)?;
+        self.refresh_live_context();
+        Ok(())
     }
 
     pub fn split(&mut self, dir: SplitDir, program: Option<&str>, args: &[String]) -> Result<u64> {
@@ -1258,6 +1268,7 @@ impl Mux {
         if tab.layout.split_pane(focused, dir, id) {
             tab.focused = id;
         }
+        self.refresh_live_context();
         Ok(id)
     }
 
@@ -1291,6 +1302,7 @@ impl Mux {
             self.notice = Some(format!("{name} cerró"));
             self.refresh_live_context();
         }
+        self.refresh_live_context();
         Ok(())
     }
 
@@ -1323,7 +1335,7 @@ impl Mux {
     }
 
     pub fn open_in_nvim(&mut self, rel: &str) -> Result<u64> {
-        let path = files::join_root(&self.root, rel);
+        let path = files::confined(&self.root, rel).map_err(|err| eyre!(err))?;
         if path.is_dir() {
             return Ok(0);
         }
@@ -1573,7 +1585,9 @@ impl Mux {
     }
 
     pub fn set_http(&mut self, enabled: bool, password: Option<&str>) -> Result<(), String> {
-        if let Some(password) = password.filter(|p| !p.is_empty()) {
+        if enabled {
+            crate::http::set_password(password.unwrap_or(""))?;
+        } else if let Some(password) = password.filter(|p| !p.is_empty()) {
             crate::http::set_password(password)?;
         }
         let mut text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
@@ -1686,6 +1700,9 @@ impl Mux {
     pub fn open_project(&mut self, path: &Path) -> Result<()> {
         git::invalidate_cache();
         let next = canonicalize(path);
+        if !next.is_dir() {
+            return Err(eyre!("workspace no es directorio: {}", next.display()));
+        }
         if next == self.root && !self.tabs.is_empty() {
             self.notice = Some(format!(
                 "{} ya es el workspace activo",
@@ -1731,6 +1748,7 @@ impl Mux {
         }
         self.notes = crate::workspaces::notes_for(&self.root);
         self.apply_startup()?;
+        self.refresh_live_context();
         self.run_hooks("workspace.open")?;
         session::push_unique_path(&mut self.recent_projects, self.root.clone(), 12);
         self.persist();
@@ -1837,6 +1855,10 @@ impl Mux {
             self.notice = Some("nombre de variable inválido (letras, números y _)".into());
             return Ok(());
         }
+        if crate::context::looks_secret(key) {
+            self.notice = Some("esa variable parece secreta; usá .env local o el shell".into());
+            return Ok(());
+        }
         if let Some(existing) = self.env.iter_mut().find(|item| item.key == key) {
             existing.value = value.to_string();
         } else {
@@ -1883,6 +1905,7 @@ impl Mux {
             false,
         )?;
         self.name_active_tab(tab_name_from_dest(dest));
+        self.refresh_live_context();
         Ok(id)
     }
 
@@ -1917,6 +1940,7 @@ impl Mux {
         session::push_unique(&mut self.recents, dest.clone(), 12);
         let id = self.new_tab(Some("ssh"), None, &args, false)?;
         self.name_active_tab(tab_name_from_dest(&dest));
+        self.refresh_live_context();
         Ok(id)
     }
 

@@ -54,11 +54,11 @@ document.getElementById('send').onclick=async()=>{
 </script></html>"#;
 
 pub fn serve(mux: Arc<Mutex<Mux>>) {
-    let cfg = load_http();
+    let cfg = load_config();
     if !cfg.enabled {
         return;
     }
-    let bind = format!("{}:{}", cfg.host, cfg.port);
+    let bind = cfg.bind();
     let Ok(listener) = TcpListener::bind(&bind) else {
         return;
     };
@@ -74,18 +74,30 @@ pub fn serve(mux: Arc<Mutex<Mux>>) {
 }
 
 #[derive(Clone)]
-struct HttpCfg {
-    enabled: bool,
-    host: String,
-    port: u16,
+pub struct HttpCfg {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
 }
 
-fn load_http() -> HttpCfg {
+impl HttpCfg {
+    pub fn bind(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+pub fn load_config() -> HttpCfg {
     let path = config::config_dir().join("config.toml");
     let text = std::fs::read_to_string(path).unwrap_or_default();
-    let enabled = text.contains("enabled = true") && text.contains("[http]");
-    let host = extract(&text, "host").unwrap_or_else(|| "127.0.0.1".into());
-    let port = extract(&text, "port")
+    parse_config(&text)
+}
+
+fn parse_config(text: &str) -> HttpCfg {
+    let enabled = extract(text, "enabled")
+        .map(|value| value == "true")
+        .unwrap_or(false);
+    let host = extract(text, "host").unwrap_or_else(|| "127.0.0.1".into());
+    let port = extract(text, "port")
         .and_then(|value| value.parse().ok())
         .unwrap_or(47832);
     HttpCfg {
@@ -269,4 +281,35 @@ fn decode_b64(text: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_config;
+
+    #[test]
+    fn http_enabled_is_scoped_to_http_section() {
+        let cfg = parse_config(
+            r#"
+[http]
+enabled = false
+host = "0.0.0.0"
+port = 48123
+
+[other]
+enabled = true
+"#,
+        );
+
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.bind(), "0.0.0.0:48123");
+    }
+
+    #[test]
+    fn http_defaults_when_section_is_missing() {
+        let cfg = parse_config("[other]\nenabled = true\n");
+
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.bind(), "127.0.0.1:47832");
+    }
 }
