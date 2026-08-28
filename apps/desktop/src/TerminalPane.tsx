@@ -101,9 +101,9 @@ function wireOsc52(term: Terminal) {
     const sel = sep >= 0 ? data.slice(0, sep) : data;
     const payload = sep >= 0 ? data.slice(sep + 1) : "";
     if (payload === "?") {
-      void window.lolterm.clipboard.read().then((text) => {
-        term.input(`\x1b]52;${sel};${utf8ToB64(text)}\x07`, false);
-      });
+      // OSC 52 clipboard reads can leak the local clipboard to a remote PTY
+      // (for example through ssh). Keep copy-to-clipboard support, but never
+      // answer readback queries.
       return true;
     }
     try {

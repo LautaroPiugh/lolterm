@@ -34,6 +34,7 @@ let lastOpen;
 let coreReady = false;
 const waitingReady = [];
 let lastReady = null;
+let rendererReady = false;
 
 function markCoreReady() {
   coreReady = true;
@@ -110,7 +111,7 @@ function openDirArg() {
 }
 
 function sendEvent(msg) {
-  if (win && !win.isDestroyed()) {
+  if (win && !win.isDestroyed() && rendererReady) {
     win.webContents.send("core-event", msg);
   } else {
     queued.push(msg);
@@ -132,7 +133,11 @@ function startCore(openPath) {
   const cwd = app.isPackaged ? app.getPath("home") : undefined;
   child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"], cwd });
   child.on("error", (err) => {
+    const wrapped = new Error(`lolterm-core no arrancó: ${err.message}`);
     console.error("lolterm-core:", bin, err);
+    failWaitingReady(wrapped);
+    flushPending(wrapped);
+    sendEvent({ event: "core-down", params: { error: wrapped.message } });
   });
   let buf = "";
   child.stdout.setEncoding("utf8");
@@ -277,7 +282,17 @@ function saveWindowState() {
   }
 }
 
+function isLoltermGithubUrl(raw) {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && url.hostname === "github.com" && url.pathname.startsWith("/LautaroPiugh/lolterm");
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
+  rendererReady = false;
   const iconFile = appIconPath();
   const state = loadWindowState();
   win = new BrowserWindow({
@@ -304,6 +319,7 @@ function createWindow() {
     win.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
   }
   win.webContents.on("did-finish-load", () => {
+    rendererReady = true;
     for (const msg of queued) win.webContents.send("core-event", msg);
     queued.length = 0;
   });
@@ -378,7 +394,7 @@ if (!gotLock) {
     ipcMain.handle("core", (_e, { method, params }) => invoke(method, params));
     ipcMain.handle("core-hello", () => lastReady);
     ipcMain.handle("open-external", (_e, url) => {
-      if (typeof url !== "string" || !url.startsWith("https://github.com/LautaroPiugh/lolterm")) return;
+      if (typeof url !== "string" || !isLoltermGithubUrl(url)) return;
       return shell.openExternal(url);
     });
     ipcMain.handle("win-minimize", () => {
