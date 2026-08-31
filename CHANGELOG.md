@@ -2,6 +2,21 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.14.0](https://github.com/LautaroPiugh/lolterm/compare/v0.13.4...v0.14.0) (2026-08-31)
+
+### Features
+
+* empaquetar `.rpm` para Fedora junto al `.deb` y subir `SHA256SUMS.txt` en cada release
+* auto-update detecta la distro y actualiza `.deb` o `.rpm` (apt/dnf) verificando SHA256
+* guardar API keys de agentes machine-local (`secrets.json`, solo se inyectan en panes de agente)
+* agregar agentes pi, omp y omh al catálogo
+* preferencia de abrir agentes en worktree o directorio real, editable desde Ajustes
+* botón para cerrar un pane desde el chrome de la terminal
+
+### Build System
+
+* migrar npm a pnpm (`pnpm-lock.yaml` y `pnpm-workspace.yaml`)
+
 ## [0.13.4](https://github.com/LautaroPiugh/lolterm/compare/v0.13.3...v0.13.4) (2026-08-28)
 
 ### Bug Fixes
