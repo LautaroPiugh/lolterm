@@ -4,7 +4,7 @@ LoLTerm es un **workspace local-first de terminales**: una aplicación desktop p
 
 > LoLTerm es el entorno desde el que trabajás; las herramientas siguen siendo las herramientas.
 
-Hoy el paquete oficial es un **`.deb` para Ubuntu/Debian** y un **`.rpm` para Fedora**. Linux es la plataforma principal. macOS, Windows, AppImage, apt repo y firmas GPG quedan para una etapa posterior.
+Hoy el paquete oficial es un **`.deb` para Ubuntu/Debian**, un **`.rpm` para Fedora** y un **`.AppImage` portable**. Linux es la plataforma principal. macOS, Windows, apt repo y firmas GPG quedan para una etapa posterior.
 
 ## Qué hace
 
@@ -37,8 +37,8 @@ LoLTerm **organiza** herramientas existentes. No las reemplaza.
 | Workspaces | raíz, layouts, startup commands y contexto local |
 | Remote | SSH/Tailscale/tmux en desarrollo activo |
 | CLI | `lolterm`, `context`, `panes`, `processes`, `workspace`, `ssh`, `run` |
-| Distribución | `.deb` (Ubuntu/Debian) y `.rpm` (Fedora) en GitHub Releases |
-| Updates | `/update` detecta distro (deb/rpm) y verifica SHA256 |
+| Distribución | `.deb` (Ubuntu/Debian), `.rpm` (Fedora) y `.AppImage` (portable) en GitHub Releases |
+| Updates | `/update` detecta distro (deb/rpm) o AppImage y verifica SHA256 |
 | Seguridad | local-first; HTTP LAN es opt-in y sin TLS propio |
 
 ## Arquitectura corta
@@ -99,6 +99,18 @@ sudo dnf install ./LoLTerm-*-linux-x86_64.rpm
 ```
 
 Queda en el menú de aplicaciones y deja `lolterm` en el PATH. Después podés actualizar desde la paleta (`/update`) o desde el aviso cuando hay versión nueva.
+
+## Instalar como AppImage (portable)
+
+1. Bajá el `.AppImage` de la [última release](https://github.com/LautaroPiugh/lolterm/releases/latest).
+2. Hacelo ejecutable y corrélo:
+
+```bash
+chmod +x LoLTerm-*-linux-x86_64.AppImage
+./LoLTerm-*-linux-x86_64.AppImage
+```
+
+No se instala; es un archivo auto-contenido. Para integrarlo al menú podés usar [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) o `appimaged`. El auto-update reemplaza el archivo y reinicia la app.
 
 ## Uso básico
 
@@ -198,7 +210,7 @@ Contribuciones: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Release
 
-Release Please mantiene versiones y changelog. Los tags `v*` empaquetan Linux `.deb` y `.rpm`, y adjuntan `SHA256SUMS.txt` a GitHub Releases.
+Release Please mantiene versiones y changelog. Los tags `v*` empaquetan Linux `.deb`, `.rpm` y `.AppImage`, y adjuntan `SHA256SUMS.txt` a GitHub Releases.
 
 Ver [`docs/RELEASE.md`](docs/RELEASE.md).
 

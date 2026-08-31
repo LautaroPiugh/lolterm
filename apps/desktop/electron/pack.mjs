@@ -45,6 +45,6 @@ writeFileSync(
 );
 
 await run("pnpm", ["exec", "vite", "build"], appRoot);
-await run("pnpm", ["exec", "electron-builder", "--linux", "deb", "rpm", "--publish", "never"], appRoot);
+await run("pnpm", ["exec", "electron-builder", "--linux", "deb", "rpm", "AppImage", "--publish", "never"], appRoot);
 
 console.log("paquetes en apps/desktop/release/");

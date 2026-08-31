@@ -199,7 +199,7 @@ declare global {
           latest?: string;
           notes?: string;
           reason?: string;
-          packageType?: "deb" | "rpm";
+          packageType?: "deb" | "rpm" | "appimage";
         }>;
         install: () => Promise<{ ok: boolean; version?: string; method?: string }>;
         relaunch: () => Promise<void>;

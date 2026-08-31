@@ -141,7 +141,7 @@ export default function App() {
   const [copiedFlash, setCopiedFlash] = useState(0);
   const [update, setUpdate] = useState<
     | null
-    | { kind: "available"; latest: string; packageType: "deb" | "rpm" }
+    | { kind: "available"; latest: string; packageType: "deb" | "rpm" | "appimage" }
     | { kind: "busy"; label: string }
     | { kind: "done"; latest: string; method: string }
     | { kind: "error"; error: string }
@@ -357,7 +357,7 @@ export default function App() {
         try {
           const info = await window.lolterm.update.check();
           if (info.available && info.latest) {
-            setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : "deb" });
+            setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : info.packageType === "appimage" ? "appimage" : "deb" });
           } else {
             setUpdate(null);
             if (info.reason === "github-404") {
@@ -428,7 +428,7 @@ export default function App() {
       void window.lolterm.update
         .check()
         .then((info) => {
-          if (info.available && info.latest) setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : "deb" });
+          if (info.available && info.latest) setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : info.packageType === "appimage" ? "appimage" : "deb" });
         })
         .catch(() => {});
     }, 4000);
@@ -724,8 +724,20 @@ export default function App() {
             <>
               <span>
                 LoLTerm <strong>v{update.latest}</strong> está en GitHub. Instala el{" "}
-                <code>{update.packageType === "rpm" ? ".rpm" : ".deb"}</code> (
-                {update.packageType === "rpm" ? "Fedora" : "Ubuntu"})
+                <code>
+                  {update.packageType === "rpm"
+                    ? ".rpm"
+                    : update.packageType === "appimage"
+                      ? ".AppImage"
+                      : ".deb"}
+                </code>{" "}
+                (
+                {update.packageType === "rpm"
+                  ? "Fedora"
+                  : update.packageType === "appimage"
+                    ? "portable"
+                    : "Ubuntu"}
+                )
                 después de verificar SHA256.
               </span>
               <button

@@ -433,8 +433,18 @@ if (!gotLock) {
       }),
     );
     ipcMain.handle("app-relaunch", () => {
-      app.relaunch();
-      app.quit();
+      if (process.env.APPIMAGE) {
+        // app.relaunch() re-ejecuta el binario montado (stale), no el .AppImage.
+        const child = spawn(process.env.APPIMAGE, process.argv.slice(1), {
+          detached: true,
+          stdio: "ignore",
+        });
+        child.unref();
+        app.quit();
+      } else {
+        app.relaunch();
+        app.quit();
+      }
     });
     createWindow();
   });

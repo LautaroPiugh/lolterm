@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createWriteStream, readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, createWriteStream, readFileSync, renameSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -59,6 +59,17 @@ export function pickRpmAsset(assets, arch = process.arch) {
   return list.find((asset) => {
     const name = String(asset?.name ?? "");
     if (!name.endsWith(".rpm") || !name.includes("linux")) return false;
+    if (wantArm) return name.includes("arm64") || name.includes("aarch64");
+    return name.includes("amd64") || name.includes("x64") || name.includes("x86_64");
+  });
+}
+
+export function pickAppImageAsset(assets, arch = process.arch) {
+  const list = Array.isArray(assets) ? assets : [];
+  const wantArm = arch === "arm64";
+  return list.find((asset) => {
+    const name = String(asset?.name ?? "");
+    if (!name.endsWith(".AppImage") || !name.includes("linux")) return false;
     if (wantArm) return name.includes("arm64") || name.includes("aarch64");
     return name.includes("amd64") || name.includes("x64") || name.includes("x86_64");
   });
@@ -137,6 +148,7 @@ function run(command, args) {
 }
 
 export async function defaultInstall(pkgPath, type = "deb") {
+  if (type === "appimage") return installAppImage(pkgPath);
   // Los rpms todavía no van firmados con GPG, así que dnf exige --nogpgcheck.
   // La integridad ya quedó verificada por SHA256 contra SHA256SUMS.txt.
   const args = type === "rpm"
@@ -149,6 +161,19 @@ export async function defaultInstall(pkgPath, type = "deb") {
     await run("xdg-open", [pkgPath]);
     return "xdg-open";
   }
+}
+
+function installAppImage(pkgPath) {
+  const target = process.env.APPIMAGE;
+  if (!target) throw new Error("no está corriendo desde un AppImage");
+  // Copia a un staging en el mismo directorio (el temp puede estar en otro
+  // filesystem) y hace rename atómico sobre el AppImage en ejecución para
+  // evitar ETXTBSY. La integridad ya quedó verificada por SHA256.
+  const staging = path.join(path.dirname(target), ".lolterm-update.AppImage");
+  copyFileSync(pkgPath, staging);
+  chmodSync(staging, 0o755);
+  renameSync(staging, target);
+  return "appimage";
 }
 
 const RPM_IDS = new Set([
@@ -174,7 +199,10 @@ function classifyOsRelease(text) {
 }
 
 export function detectPackageType(opts = {}) {
-  if (opts.packageType === "rpm" || opts.packageType === "deb") return opts.packageType;
+  if (opts.packageType === "rpm" || opts.packageType === "deb" || opts.packageType === "appimage") {
+    return opts.packageType;
+  }
+  if (process.env.APPIMAGE) return "appimage";
   if (opts.osReleaseText != null) return classifyOsRelease(String(opts.osReleaseText));
   if (process.platform !== "linux") return "deb";
   try {
@@ -210,7 +238,11 @@ export async function checkLinuxUpdate(opts = {}) {
   const release = fetched.body;
   const latest = String(release.tag_name ?? release.name ?? "").replace(/^v/i, "");
   if (!latest) return { available: false, reason: "no-tag" };
-  const picker = packageType === "rpm" ? pickRpmAsset : pickDebAsset;
+  const picker = packageType === "rpm"
+    ? pickRpmAsset
+    : packageType === "appimage"
+      ? pickAppImageAsset
+      : pickDebAsset;
   const asset = picker(release.assets, opts.arch ?? process.arch);
   const sums = (release.assets ?? []).find((item) => item.name === "SHA256SUMS.txt");
   if (!asset?.browser_download_url || !sums?.browser_download_url) {

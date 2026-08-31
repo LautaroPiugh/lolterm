@@ -39,16 +39,16 @@ Uso recomendado:
 - no lo expongas directo a Internet;
 - cambiá la password si compartiste la red o el equipo.
 
-## Updates (`.deb` / `.rpm`)
+## Updates (`.deb` / `.rpm` / `.AppImage`)
 
-El updater de Linux detecta la distro, consulta la última release estable de GitHub, descarga el paquete correspondiente (`.deb` en Ubuntu/Debian, `.rpm` en Fedora) de esa misma release y verifica `SHA256SUMS.txt` antes de instalar.
+El updater de Linux detecta el formato, consulta la última release estable de GitHub, descarga el paquete correspondiente (`.deb` en Ubuntu/Debian, `.rpm` en Fedora, `.AppImage` portable) de esa misma release y verifica `SHA256SUMS.txt` antes de instalar.
 
 Estado actual:
 
 - origen permitido: GitHub por HTTPS;
-- artefacto esperado: `LoLTerm-*-linux-*.deb` o `LoLTerm-*-linux-*.rpm`;
+- artefacto esperado: `LoLTerm-*-linux-*.deb`, `LoLTerm-*-linux-*.rpm` o `LoLTerm-*-linux-*.AppImage`;
 - integridad: SHA256;
-- instalación: acción explícita del usuario con `pkexec apt-get install` (deb) o `pkexec dnf install --nogpgcheck` (rpm, sin firma GPG todavía), o instalador del sistema;
+- instalación: acción explícita del usuario con `pkexec apt-get install` (deb), `pkexec dnf install --nogpgcheck` (rpm, sin firma GPG todavía), o instalador del sistema. El `.AppImage` no usa `pkexec`: se reemplaza el archivo en ejecución y se reinicia la app;
 - firma GPG/apt repo: todavía no.
 
 SHA256 detecta corrupción o reemplazo accidental del artefacto, pero no reemplaza una firma criptográfica de release. Por eso el `.rpm` se instala con `--nogpgcheck`: la integridad ya viene del SHA256 contra `SHA256SUMS.txt`, no de una firma de paquete.

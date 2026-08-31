@@ -34,7 +34,7 @@ pnpm run build
 
 Genera `apps/desktop/dist/`, ignorado por Git.
 
-## Pack Linux `.deb` y `.rpm`
+## Pack Linux `.deb`, `.rpm` y `.AppImage`
 
 ```bash
 cd apps/desktop

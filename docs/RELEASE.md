@@ -30,7 +30,7 @@ El workflow `.github/workflows/pack.yml` corre en tags `v*` y `workflow_dispatch
 1. instala toolchains/dependencias;
 2. ejecuta `pnpm install --frozen-lockfile` y `pnpm run pack` en `apps/desktop`;
 3. genera `SHA256SUMS.txt`;
-4. sube el `.deb`, el `.rpm` y checksums como artifact;
+4. sube el `.deb`, el `.rpm`, el `.AppImage` y checksums como artifact;
 5. si el evento es tag, adjunta los artefactos a la GitHub Release.
 
 Artefactos esperados:
@@ -38,19 +38,23 @@ Artefactos esperados:
 ```text
 LoLTerm-<version>-linux-<arch>.deb
 LoLTerm-<version>-linux-<arch>.rpm
+LoLTerm-<version>-linux-<arch>.AppImage
 SHA256SUMS.txt
 ```
 
 ## Updater
 
-El updater detecta la distro (`deb` vs `rpm`), busca la última release estable de GitHub, elige el paquete compatible, descarga `SHA256SUMS.txt`, verifica SHA256 y recién después instala con `pkexec` (o el instalador del sistema).
+El updater detecta el formato (`deb` vs `rpm` vs `appimage`), busca la última release estable de GitHub, elige el paquete compatible, descarga `SHA256SUMS.txt` y verifica SHA256 antes de instalar.
+
+- `.deb` / `.rpm`: `pkexec` (`apt-get` / `dnf`) o el instalador del sistema.
+- `.AppImage`: reemplaza el archivo en ejecución y reinicia la app (sin `pkexec`).
 
 No hay firma GPG ni apt repo propio todavía. Si eso cambia, actualizar `SECURITY.md`, README y este documento en el mismo PR.
 
 ## Checklist manual antes de publicar
 
 - CI verde.
-- Release contiene `.deb`, `.rpm` y `SHA256SUMS.txt`.
+- Release contiene `.deb`, `.rpm`, `.AppImage` y `SHA256SUMS.txt`.
 - SHA256 coincide.
 - `/update` detecta la release latest.
 - GNOME muestra el icono `lolterm`, no el icono genérico de Electron.
