@@ -5,13 +5,13 @@
 - Linux para el flujo principal actual.
 - Rust stable con componentes `rustfmt` y `clippy`.
 - Node.js 22.
-- npm.
+- pnpm.
 
 ## Instalar dependencias
 
 ```bash
 cd apps/desktop
-npm ci
+pnpm install --frozen-lockfile
 ```
 
 Rust usa el workspace de la raíz y resuelve dependencias con Cargo.
@@ -20,7 +20,7 @@ Rust usa el workspace de la raíz y resuelve dependencias con Cargo.
 
 ```bash
 cd apps/desktop
-npm run dev
+pnpm run dev
 ```
 
 Esto levanta Vite para el renderer y abre Electron. En desarrollo puede usarse `--no-sandbox` porque el binario local de Electron no siempre tiene el helper SUID de Chromium configurado. El paquete `.deb` usa otra ruta de sandbox.
@@ -29,16 +29,16 @@ Esto levanta Vite para el renderer y abre Electron. En desarrollo puede usarse `
 
 ```bash
 cd apps/desktop
-npm run build
+pnpm run build
 ```
 
 Genera `apps/desktop/dist/`, ignorado por Git.
 
-## Pack Linux `.deb`
+## Pack Linux `.deb` y `.rpm`
 
 ```bash
 cd apps/desktop
-npm run pack
+pnpm run pack
 ```
 
 El script compila el sidecar Rust, sincroniza iconos/metainfo y crea artefactos en `apps/desktop/release/`. Esa carpeta está ignorada por Git.
@@ -55,8 +55,8 @@ cargo test --workspace
 
 ```bash
 cd apps/desktop
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 ## Archivos generados ignorados

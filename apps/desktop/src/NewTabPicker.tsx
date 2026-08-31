@@ -66,7 +66,7 @@ export function NewTabPicker({
       }}
     >
       <p className="new-tab-hint">
-        clic abre un PTY. Si no está en PATH, instalalo en Ajustes. Un agente abre en git worktree y ve $LOLTERM_CONTEXT.
+        clic abre un PTY. Si no está en PATH, instalalo en Ajustes. Un agente usa git worktree o el directorio real según Ajustes.
       </p>
       <Section title="Sesión" rows={core} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />
       <Section title="Herramientas" rows={tools} snap={snap} onLaunch={onLaunch} onSetDefault={onSetDefault} />

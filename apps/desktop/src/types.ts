@@ -107,9 +107,12 @@ export type Snapshot = {
   workspaces: { name: string; root: string; root_label?: string; current: boolean }[];
   startup: { program: string; args: string[] }[];
   env: { key: string; value: string }[];
+  /** Nombres de API keys guardadas (nunca los valores). */
+  api_keys?: string[];
   meta: { stack: string[]; git_remote: string | null; notes: string };
   machines: { name: string; target: string; user: string | null; kind: string }[];
   new_tab: string;
+  agent_worktrees?: boolean;
   agents?: { program: string; tab: number; tab_name: string; worktree?: string | null; focused: boolean; attention?: boolean }[];
   agent_log?: { ts: number; workspace: string; program: string; worktree?: string | null }[];
   installs?: { pane: number; tool: string; command: string; state: string; exit_code?: number | null; output: string }[];
@@ -196,6 +199,7 @@ declare global {
           latest?: string;
           notes?: string;
           reason?: string;
+          packageType?: "deb" | "rpm";
         }>;
         install: () => Promise<{ ok: boolean; version?: string; method?: string }>;
         relaunch: () => Promise<void>;

@@ -4,7 +4,7 @@ LoLTerm es un **workspace local-first de terminales**: una aplicación desktop p
 
 > LoLTerm es el entorno desde el que trabajás; las herramientas siguen siendo las herramientas.
 
-Hoy el paquete oficial es un **`.deb` para Ubuntu/Debian**. Linux es la plataforma principal. macOS, Windows, AppImage, apt repo y firmas GPG quedan para una etapa posterior.
+Hoy el paquete oficial es un **`.deb` para Ubuntu/Debian** y un **`.rpm` para Fedora**. Linux es la plataforma principal. macOS, Windows, AppImage, apt repo y firmas GPG quedan para una etapa posterior.
 
 ## Qué hace
 
@@ -37,8 +37,8 @@ LoLTerm **organiza** herramientas existentes. No las reemplaza.
 | Workspaces | raíz, layouts, startup commands y contexto local |
 | Remote | SSH/Tailscale/tmux en desarrollo activo |
 | CLI | `lolterm`, `context`, `panes`, `processes`, `workspace`, `ssh`, `run` |
-| Distribución | `.deb` Linux en GitHub Releases |
-| Updates | `/update` descarga `.deb` latest y verifica SHA256 |
+| Distribución | `.deb` (Ubuntu/Debian) y `.rpm` (Fedora) en GitHub Releases |
+| Updates | `/update` detecta distro (deb/rpm) y verifica SHA256 |
 | Seguridad | local-first; HTTP LAN es opt-in y sin TLS propio |
 
 ## Arquitectura corta
@@ -88,6 +88,17 @@ Actualizar:
 - o desde el aviso cuando hay una versión nueva.
 
 El updater baja el `.deb` de la release latest, verifica `SHA256SUMS.txt` y recién después instala. No hay apt repo ni firma GPG todavía. Detalles: [`docs/RELEASE.md`](docs/RELEASE.md) y [`SECURITY.md`](SECURITY.md).
+
+## Instalar en Fedora
+
+1. Bajá el `.rpm` de la [última release](https://github.com/LautaroPiugh/lolterm/releases/latest).
+2. Instalalo:
+
+```bash
+sudo dnf install ./LoLTerm-*-linux-x86_64.rpm
+```
+
+Queda en el menú de aplicaciones y deja `lolterm` en el PATH. Después podés actualizar desde la paleta (`/update`) o desde el aviso cuando hay versión nueva.
 
 ## Uso básico
 
@@ -177,9 +188,9 @@ cargo test --workspace
 
 # Desktop
 cd apps/desktop
-npm ci
-npm run build
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run dev
 ```
 
 Guía completa: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
@@ -187,7 +198,7 @@ Contribuciones: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Release
 
-Release Please mantiene versiones y changelog. Los tags `v*` empaquetan Linux `.deb` y adjuntan `SHA256SUMS.txt` a GitHub Releases.
+Release Please mantiene versiones y changelog. Los tags `v*` empaquetan Linux `.deb` y `.rpm`, y adjuntan `SHA256SUMS.txt` a GitHub Releases.
 
 Ver [`docs/RELEASE.md`](docs/RELEASE.md).
 

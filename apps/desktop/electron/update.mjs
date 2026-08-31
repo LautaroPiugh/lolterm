@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, readFileSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -49,6 +49,17 @@ export function pickDebAsset(assets, arch = process.arch) {
     const name = String(asset?.name ?? "");
     if (!name.endsWith(".deb") || !name.includes("linux")) return false;
     if (wantArm) return name.includes("arm64");
+    return name.includes("amd64") || name.includes("x64") || name.includes("x86_64");
+  });
+}
+
+export function pickRpmAsset(assets, arch = process.arch) {
+  const list = Array.isArray(assets) ? assets : [];
+  const wantArm = arch === "arm64";
+  return list.find((asset) => {
+    const name = String(asset?.name ?? "");
+    if (!name.endsWith(".rpm") || !name.includes("linux")) return false;
+    if (wantArm) return name.includes("arm64") || name.includes("aarch64");
     return name.includes("amd64") || name.includes("x64") || name.includes("x86_64");
   });
 }
@@ -125,20 +136,59 @@ function run(command, args) {
   });
 }
 
-export async function defaultInstallDeb(debPath) {
+export async function defaultInstall(pkgPath, type = "deb") {
+  // Los rpms todavía no van firmados con GPG, así que dnf exige --nogpgcheck.
+  // La integridad ya quedó verificada por SHA256 contra SHA256SUMS.txt.
+  const args = type === "rpm"
+    ? ["dnf", "install", "-y", "--nogpgcheck", pkgPath]
+    : ["apt-get", "install", "-y", pkgPath];
   try {
-    await run("pkexec", ["apt-get", "install", "-y", debPath]);
+    await run("pkexec", args);
     return "pkexec";
   } catch {
-    await run("xdg-open", [debPath]);
+    await run("xdg-open", [pkgPath]);
     return "xdg-open";
   }
 }
 
-export async function checkLinuxDebUpdate(opts = {}) {
+const RPM_IDS = new Set([
+  "fedora",
+  "rhel",
+  "centos",
+  "rocky",
+  "almalinux",
+  "ol",
+  "amzn",
+  "opensuse",
+  "opensuse-leap",
+  "opensuse-tumbleweed",
+  "sles",
+  "sle-micro",
+]);
+
+function classifyOsRelease(text) {
+  const id = /^ID="?([^"\s]+)"?\s*$/m.exec(text)?.[1]?.toLowerCase() ?? "";
+  const idLike = /^ID_LIKE="?([^"\n]+)"?/m.exec(text)?.[1]?.toLowerCase() ?? "";
+  if (RPM_IDS.has(id) || /\b(rhel|fedora|centos|suse)\b/.test(idLike)) return "rpm";
+  return "deb";
+}
+
+export function detectPackageType(opts = {}) {
+  if (opts.packageType === "rpm" || opts.packageType === "deb") return opts.packageType;
+  if (opts.osReleaseText != null) return classifyOsRelease(String(opts.osReleaseText));
+  if (process.platform !== "linux") return "deb";
+  try {
+    return classifyOsRelease(readFileSync("/etc/os-release", "utf8"));
+  } catch {
+    return "deb";
+  }
+}
+
+export async function checkLinuxUpdate(opts = {}) {
   if (process.platform !== "linux" && !opts.allowNonLinux) {
     return { available: false, reason: "linux-only" };
   }
+  const packageType = detectPackageType(opts);
   const current = String(opts.currentVersion ?? "0.0.0").replace(/^v/i, "");
   const repo = opts.repo ?? DEFAULT_REPO;
   const fetchFn = opts.fetchFn ?? fetch;
@@ -160,14 +210,16 @@ export async function checkLinuxDebUpdate(opts = {}) {
   const release = fetched.body;
   const latest = String(release.tag_name ?? release.name ?? "").replace(/^v/i, "");
   if (!latest) return { available: false, reason: "no-tag" };
-  const deb = pickDebAsset(release.assets, opts.arch ?? process.arch);
-  const sums = (release.assets ?? []).find((asset) => asset.name === "SHA256SUMS.txt");
-  if (!deb?.browser_download_url || !sums?.browser_download_url) {
+  const picker = packageType === "rpm" ? pickRpmAsset : pickDebAsset;
+  const asset = picker(release.assets, opts.arch ?? process.arch);
+  const sums = (release.assets ?? []).find((item) => item.name === "SHA256SUMS.txt");
+  if (!asset?.browser_download_url || !sums?.browser_download_url) {
     return {
       available: false,
       current,
       latest,
-      reason: "no-deb",
+      reason: "no-package",
+      packageType,
     };
   }
   return {
@@ -176,38 +228,39 @@ export async function checkLinuxDebUpdate(opts = {}) {
     latest,
     notes: String(release.body ?? "").slice(0, 400),
     tag: release.tag_name,
-    debName: deb.name,
-    debUrl: deb.browser_download_url,
+    packageType,
+    assetName: asset.name,
+    assetUrl: asset.browser_download_url,
     sumsUrl: sums.browser_download_url,
   };
 }
 
-export async function installLinuxDebUpdate(opts) {
-  const info = await checkLinuxDebUpdate(opts);
+export async function installLinuxUpdate(opts = {}) {
+  const info = await checkLinuxUpdate(opts);
   if (!info.available) {
-    throw new Error(info.reason === "no-deb" ? "esta release no tiene .deb + SHA256SUMS" : "no hay actualización");
+    throw new Error(info.reason === "no-package" ? "esta release no tiene paquete + SHA256SUMS" : "no hay actualización");
   }
   const destDir = opts.destDir;
   const fetchFn = opts.fetchFn ?? fetch;
   const userAgent = opts.userAgent ?? `LoLTerm/${info.current}`;
   const token = tokenFromEnv(opts.token);
-  const debPath = path.join(destDir, info.debName);
+  const pkgPath = path.join(destDir, info.assetName);
   const sumsPath = path.join(destDir, "SHA256SUMS.txt");
   try {
-    const digest = await downloadFile(info.debUrl, debPath, fetchFn, userAgent, token);
+    const digest = await downloadFile(info.assetUrl, pkgPath, fetchFn, userAgent, token);
     await downloadFile(info.sumsUrl, sumsPath, fetchFn, userAgent, token);
     const sumsText = await readFile(sumsPath, "utf8");
-    const expected = sha256ForName(sumsText, info.debName);
+    const expected = sha256ForName(sumsText, info.assetName);
     if (!expected || expected !== digest) {
-      await unlink(debPath).catch(() => {});
-      throw new Error(expected ? "SHA256 no coincide; no se instala" : "el .deb no está en SHA256SUMS.txt");
+      await unlink(pkgPath).catch(() => {});
+      throw new Error(expected ? "SHA256 no coincide; no se instala" : "el paquete no está en SHA256SUMS.txt");
     }
-    const install = opts.installFn ?? defaultInstallDeb;
-    const method = await install(debPath);
+    const install = opts.installFn ?? ((pkg) => defaultInstall(pkg, info.packageType));
+    const method = await install(pkgPath);
     if (method !== "xdg-open" && !opts.keepFiles) {
-      await unlink(debPath).catch(() => {});
+      await unlink(pkgPath).catch(() => {});
     }
-    return { ok: true, version: info.latest, path: debPath, method: method ?? "pkexec" };
+    return { ok: true, version: info.latest, path: pkgPath, method: method ?? "pkexec", packageType: info.packageType };
   } finally {
     if (!opts.keepFiles) {
       await unlink(sumsPath).catch(() => {});

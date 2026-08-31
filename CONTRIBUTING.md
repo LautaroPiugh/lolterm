@@ -20,7 +20,7 @@ Requisitos:
 
 - Rust stable con `rustfmt` y `clippy`;
 - Node.js 22;
-- npm.
+- pnpm.
 
 Comandos principales:
 
@@ -32,16 +32,16 @@ cargo test --workspace
 
 # desktop
 cd apps/desktop
-npm ci
-npm run build
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run dev
 ```
 
-`npm run dev` levanta Vite y Electron para desarrollo. El paquete Linux se genera con:
+`pnpm run dev` levanta Vite y Electron para desarrollo. El paquete Linux se genera con:
 
 ```bash
 cd apps/desktop
-npm run pack
+pnpm run pack
 ```
 
 ## Commits

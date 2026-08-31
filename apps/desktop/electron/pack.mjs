@@ -44,7 +44,7 @@ writeFileSync(
     .replaceAll("{{DATE}}", new Date().toISOString().slice(0, 10)),
 );
 
-await run("npx", ["vite", "build"], appRoot);
-await run("npx", ["electron-builder", "--linux", "deb", "--publish", "never"], appRoot);
+await run("pnpm", ["exec", "vite", "build"], appRoot);
+await run("pnpm", ["exec", "electron-builder", "--linux", "deb", "rpm", "--publish", "never"], appRoot);
 
 console.log("paquetes en apps/desktop/release/");

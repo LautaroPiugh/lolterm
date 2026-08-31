@@ -24,6 +24,7 @@ pub mod pty;
 pub mod quota;
 pub mod registry;
 pub mod rest;
+pub mod secrets;
 pub mod session;
 pub mod sink;
 pub mod ssh;

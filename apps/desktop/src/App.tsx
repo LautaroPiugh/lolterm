@@ -141,7 +141,7 @@ export default function App() {
   const [copiedFlash, setCopiedFlash] = useState(0);
   const [update, setUpdate] = useState<
     | null
-    | { kind: "available"; latest: string }
+    | { kind: "available"; latest: string; packageType: "deb" | "rpm" }
     | { kind: "busy"; label: string }
     | { kind: "done"; latest: string; method: string }
     | { kind: "error"; error: string }
@@ -357,19 +357,19 @@ export default function App() {
         try {
           const info = await window.lolterm.update.check();
           if (info.available && info.latest) {
-            setUpdate({ kind: "available", latest: info.latest });
+            setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : "deb" });
           } else {
             setUpdate(null);
             if (info.reason === "github-404") {
               setBanner("GitHub no devolvió una release latest pública para buscar actualizaciones.");
             } else if (info.reason === "github-403") {
               setBanner("GitHub 403: rate limit o sin permiso para leer releases.");
-            } else if (info.reason === "no-deb") {
-              setBanner(`v${info.latest} no trae .deb + SHA256SUMS.txt`);
+            } else if (info.reason === "no-package") {
+              setBanner(`v${info.latest} no trae paquete + SHA256SUMS.txt para esta distro`);
             } else if (info.current) {
               setBanner(`ya estás en v${info.current}`);
             } else {
-              setBanner("no hay .deb nuevo en GitHub");
+              setBanner("no hay paquete nuevo en GitHub");
             }
           }
         } catch (err) {
@@ -428,7 +428,7 @@ export default function App() {
       void window.lolterm.update
         .check()
         .then((info) => {
-          if (info.available && info.latest) setUpdate({ kind: "available", latest: info.latest });
+          if (info.available && info.latest) setUpdate({ kind: "available", latest: info.latest, packageType: info.packageType === "rpm" ? "rpm" : "deb" });
         })
         .catch(() => {});
     }, 4000);
@@ -723,7 +723,9 @@ export default function App() {
           {update.kind === "available" && (
             <>
               <span>
-                LoLTerm <strong>v{update.latest}</strong> está en GitHub. Instala el <code>.deb</code> (Ubuntu)
+                LoLTerm <strong>v{update.latest}</strong> está en GitHub. Instala el{" "}
+                <code>{update.packageType === "rpm" ? ".rpm" : ".deb"}</code> (
+                {update.packageType === "rpm" ? "Fedora" : "Ubuntu"})
                 después de verificar SHA256.
               </span>
               <button
@@ -1228,6 +1230,7 @@ export default function App() {
                   focused={tab.focused}
                   zoomed={tab.zoomed}
                   onFocus={(id) => void call("focus", { pane: id })}
+                  onClosePane={(id) => void call("closePane", { pane: id })}
                 />
               ))
             )}

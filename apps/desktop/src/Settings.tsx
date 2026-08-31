@@ -17,6 +17,15 @@ export type SettingsTab = "look" | "tools" | "workspace" | "net";
 
 type Call = (method: string, params?: unknown) => Promise<unknown>;
 
+const API_KEY_PRESETS: { key: string; hint: string }[] = [
+  { key: "OPENCODE_API_KEY", hint: "OpenCode Zen (pi · omp · opencode)" },
+  { key: "ANTHROPIC_API_KEY", hint: "Anthropic (Claude)" },
+  { key: "OPENAI_API_KEY", hint: "OpenAI" },
+  { key: "DEEPSEEK_API_KEY", hint: "DeepSeek" },
+  { key: "GOOGLE_API_KEY", hint: "Google Gemini" },
+  { key: "OPENROUTER_API_KEY", hint: "OpenRouter" },
+];
+
 export function Settings({
   snap,
   tab,
@@ -39,10 +48,13 @@ export function Settings({
   const tools = snap.tools ?? snap.agent_tools ?? [];
   const clis = tools.filter((tool) => tool.kind !== "agent");
   const agents = tools.filter((tool) => tool.kind === "agent" || tool.kind == null);
+  const agentWorktrees = snap.agent_worktrees ?? true;
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
   const [notes, setNotes] = useState(snap.meta?.notes ?? "");
   const [httpPass, setHttpPass] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyVal, setApiKeyVal] = useState("");
 
   useEffect(() => {
     setNotes(snap.meta?.notes ?? "");
@@ -131,6 +143,31 @@ export function Settings({
                 onClose();
               }}
             />
+            <section className="settings-agent-mode">
+              <h3 className="settings-h">Dónde abren los agentes</h3>
+              <p className="settings-lead">
+                Worktree mantiene el working tree de nvim limpio; directorio real trabaja sobre el proyecto.
+              </p>
+              <div className="settings-chips">
+                <button
+                  type="button"
+                  className={agentWorktrees ? "settings-chip on" : "settings-chip"}
+                  title="agentes en git worktree"
+                  onClick={() => void call("setAgentWorktrees", { enabled: true })}
+                >
+                  worktree
+                </button>
+                <button
+                  type="button"
+                  className={!agentWorktrees ? "settings-chip on" : "settings-chip"}
+                  title="agentes en el directorio real del proyecto"
+                  onClick={() => void call("setAgentWorktrees", { enabled: false })}
+                >
+                  directorio real
+                </button>
+              </div>
+            </section>
+            <ApiKeysSection snap={snap} call={call} apiKey={apiKey} apiKeyVal={apiKeyVal} onApiKey={setApiKey} onApiKeyVal={setApiKeyVal} />
             <InstallHistory installs={snap.installs ?? []} />
           </>
         )}
@@ -350,6 +387,91 @@ function ToolGroup({
           )}
         </div>
       ))}
+    </section>
+  );
+}
+
+function ApiKeysSection({
+  snap,
+  call,
+  apiKey,
+  apiKeyVal,
+  onApiKey,
+  onApiKeyVal,
+}: {
+  snap: Snapshot;
+  call: Call;
+  apiKey: string;
+  apiKeyVal: string;
+  onApiKey: (value: string) => void;
+  onApiKeyVal: (value: string) => void;
+}) {
+  const saved = snap.api_keys ?? [];
+  return (
+    <section className="settings-api-keys">
+      <h3 className="settings-h">API keys</h3>
+      <p className="settings-lead">
+        Se guardan solo en esta máquina y se inyectan únicamente en panes de agente (pi, omp, hermes…). Nunca se muestran ni salen al contexto.
+      </p>
+      <div className="settings-chips">
+        {saved.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className="settings-chip on"
+            title="quitar"
+            onClick={() => void call("removeApiKey", { key })}
+          >
+            {key}
+            <X size={10} />
+          </button>
+        ))}
+        {saved.length === 0 ? <span className="settings-lead" style={{ margin: 0 }}>sin claves guardadas</span> : null}
+      </div>
+      <form
+        className="env-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const key = apiKey.trim();
+          if (!key) return;
+          void call("setApiKey", { key, value: apiKeyVal }).then(() => {
+            onApiKey("");
+            onApiKeyVal("");
+          });
+        }}
+      >
+        <input
+          value={apiKey}
+          onChange={(e) => onApiKey(e.target.value)}
+          placeholder="OPENCODE_API_KEY"
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <input
+          type="password"
+          value={apiKeyVal}
+          onChange={(e) => onApiKeyVal(e.target.value)}
+          placeholder="valor"
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <button type="submit" className="open-folder-btn" disabled={!apiKey.trim()}>
+          Guardar
+        </button>
+      </form>
+      <div className="settings-chips">
+        {API_KEY_PRESETS.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            className="settings-chip"
+            title={preset.hint}
+            onClick={() => onApiKey(preset.key)}
+          >
+            {preset.key}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

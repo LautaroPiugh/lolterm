@@ -40,6 +40,9 @@ pub const RUN_CLIS: &[&str] = &[
     "agy",
     "cline",
     "copilot",
+    "pi",
+    "omp",
+    "omh",
 ];
 
 fn is_run_cli(name: &str) -> bool {
@@ -75,9 +78,11 @@ pub struct Snapshot {
     pub active_projects: Vec<ProjectSnap>,
     pub startup: Vec<session::StartupCmd>,
     pub env: Vec<session::EnvVar>,
+    pub api_keys: Vec<String>,
     pub meta: ProjectMeta,
     pub machines: Vec<Machine>,
     pub new_tab: String,
+    pub agent_worktrees: bool,
     pub agents: Vec<AgentSnap>,
     pub agent_log: Vec<crate::agents::SessionRecord>,
     pub installs: Vec<InstallSnap>,
@@ -404,7 +409,7 @@ impl Mux {
         let id = self.next_id;
         self.next_id += 1;
         let (cwd, worktree) = self.prepare_agent_cwd(cwd, program, stamp);
-        let env = self.context_env(worktree.as_deref());
+        let env = self.context_env(worktree.as_deref(), crate::agents::is_agent(program));
         let (bin, spawn_args) = files::spawn_argv(program, args);
         let spawn_args = if program == Some("ssh") {
             ssh::ensure_alive_opts(&spawn_args)
@@ -471,7 +476,11 @@ impl Mux {
         let Some(name) = program else {
             return (cwd.to_path_buf(), None);
         };
-        if !self.agent_worktrees || !crate::agents::is_agent(Some(name)) {
+        if !crate::agents::is_agent(Some(name)) {
+            return (cwd.to_path_buf(), None);
+        }
+        if !self.agent_worktrees {
+            self.notice = Some(format!("{name} en el directorio real"));
             return (cwd.to_path_buf(), None);
         }
         let Some(repo) = git::toplevel(&self.root) else {
@@ -490,7 +499,7 @@ impl Mux {
         }
     }
 
-    fn context_env(&self, worktree: Option<&Path>) -> Vec<(String, String)> {
+    fn context_env(&self, worktree: Option<&Path>, agent: bool) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self
             .env
             .iter()
@@ -527,6 +536,14 @@ impl Mux {
             && let Some(path) = files::effective_path()
         {
             out.push(("PATH".into(), path));
+        }
+        if agent {
+            for (key, value) in crate::secrets::all() {
+                if key.starts_with("LOLTERM_") || out.iter().any(|(seen, _)| seen == &key) {
+                    continue;
+                }
+                out.push((key, value));
+            }
         }
         out
     }
@@ -652,6 +669,7 @@ impl Mux {
             active_projects: self.active_project_snaps(),
             startup: self.startup.clone(),
             env: self.env.clone(),
+            api_keys: crate::secrets::names(),
             meta: ProjectMeta {
                 stack: files::detect_stack(&self.root),
                 git_remote: heavy.then(|| git::origin_label(&self.root)).flatten(),
@@ -659,6 +677,7 @@ impl Mux {
             },
             machines: self.machines.clone(),
             new_tab: self.new_tab.clone(),
+            agent_worktrees: self.agent_worktrees,
             agents: self.agent_snaps(),
             agent_log: if heavy {
                 crate::agents::recent_sessions(8)
@@ -986,6 +1005,11 @@ impl Mux {
 
     pub fn set_new_tab(&mut self, kind: &str) -> Result<()> {
         self.new_tab = sanitize_new_tab(kind);
+        self.write_config()
+    }
+
+    pub fn set_agent_worktrees(&mut self, enabled: bool) -> Result<()> {
+        self.agent_worktrees = enabled;
         self.write_config()
     }
 
@@ -1875,6 +1899,14 @@ impl Mux {
         self.env.retain(|item| item.key != key);
         self.persist();
         Ok(())
+    }
+
+    pub fn set_api_key(&self, key: &str, value: &str) -> Result<()> {
+        crate::secrets::set(key, value).map_err(|err| eyre!(err))
+    }
+
+    pub fn remove_api_key(&self, key: &str) -> Result<()> {
+        crate::secrets::remove(key).map_err(|err| eyre!(err))
     }
 
     pub fn ssh(&mut self, dest: &str) -> Result<u64> {

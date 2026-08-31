@@ -22,6 +22,9 @@ pub const NAMES: &[&str] = &[
     "agy",
     "cline",
     "copilot",
+    "pi",
+    "omp",
+    "omh",
 ];
 
 const HISTORY_CAP: usize = 40;

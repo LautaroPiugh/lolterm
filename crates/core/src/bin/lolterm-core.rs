@@ -239,6 +239,17 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
             mux.remove_env(params["key"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
         }
+        "setApiKey" => {
+            mux.set_api_key(
+                params["key"].as_str().unwrap_or(""),
+                params["value"].as_str().unwrap_or(""),
+            )?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "removeApiKey" => {
+            mux.remove_api_key(params["key"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
         "renameWorkspace" => {
             mux.rename_workspace(params["name"].as_str().unwrap_or(""))?;
             serde_json::to_value(mux.snapshot())?
@@ -435,6 +446,10 @@ fn handle(mux: &Arc<Mutex<Mux>>, req: &Request) -> Result<Value> {
         }
         "setNewTab" => {
             mux.set_new_tab(params["kind"].as_str().unwrap_or(""))?;
+            serde_json::to_value(mux.snapshot())?
+        }
+        "setAgentWorktrees" => {
+            mux.set_agent_worktrees(params["enabled"].as_bool().unwrap_or(true))?;
             serde_json::to_value(mux.snapshot())?
         }
         "saveExtCommand" => {

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Menu, app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
-import { checkLinuxDebUpdate, installLinuxDebUpdate } from "./update.mjs";
+import { checkLinuxUpdate, installLinuxUpdate } from "./update.mjs";
 import { installDevDesktopEntry } from "./linux-desktop.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -418,14 +418,14 @@ if (!gotLock) {
       return invoke("openProject", { path: picked.filePaths[0] });
     });
     ipcMain.handle("update-check", () =>
-      checkLinuxDebUpdate({
+      checkLinuxUpdate({
         currentVersion: app.getVersion(),
         userAgent: `LoLTerm/${app.getVersion()}`,
         token: githubToken(),
       }),
     );
     ipcMain.handle("update-install", () =>
-      installLinuxDebUpdate({
+      installLinuxUpdate({
         currentVersion: app.getVersion(),
         destDir: app.getPath("temp"),
         userAgent: `LoLTerm/${app.getVersion()}`,

@@ -52,6 +52,27 @@ pub const TOOLS: &[Tool] = &[
         install: "npm install -g opencode-ai",
     },
     Tool {
+        name: "pi",
+        kind: ToolKind::Agent,
+        hint: "Pi (pi.dev)",
+        version_flag: "--version",
+        install: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+    },
+    Tool {
+        name: "omp",
+        kind: ToolKind::Agent,
+        hint: "Oh My Pi",
+        version_flag: "--version",
+        install: "curl -fsSL https://omp.sh/install | sh",
+    },
+    Tool {
+        name: "omh",
+        kind: ToolKind::Agent,
+        hint: "Oh My Hermes",
+        version_flag: "--version",
+        install: "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh",
+    },
+    Tool {
         name: "hermes",
         kind: ToolKind::Agent,
         hint: "Hermes Agent (Nous Research)",

@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
+import { X } from "./icons";
 import { bindingFor } from "./chords";
 import { maybeCopySelection, writeClipboard } from "./copyOnSelect";
 import { parseTheme, type ThemeId, xtermTheme } from "./themes";
@@ -324,10 +325,14 @@ export function TerminalPane({
   pane,
   focused,
   onFocus,
+  closable = false,
+  onClose,
 }: {
   pane: number;
   focused: boolean;
   onFocus: () => void;
+  closable?: boolean;
+  onClose?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
@@ -399,6 +404,20 @@ export function TerminalPane({
       }}
       ref={host}
     >
+      {closable && onClose ? (
+        <button
+          type="button"
+          className="term-close"
+          title="Cerrar terminal"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          <X size={11} />
+        </button>
+      ) : null}
       <div className="term-scroll" hidden ref={track}>
         <div className="term-scroll-thumb" />
       </div>
