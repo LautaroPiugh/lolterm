@@ -17,12 +17,26 @@ pub enum ToolKind {
 }
 
 #[derive(Clone, Copy)]
+pub enum Install {
+    /// Comando universal: igual en cualquier distro (npm, cargo, go, curl...).
+    Cmd(&'static str),
+    /// Variantes por gestor de paquetes del sistema. Se elige según qué
+    /// binario está en PATH; si no hay ninguno, se usa la variante apt.
+    Pkg {
+        apt: &'static str,
+        dnf: &'static str,
+        pacman: &'static str,
+        zypper: &'static str,
+    },
+}
+
+#[derive(Clone, Copy)]
 pub struct Tool {
     pub name: &'static str,
     pub kind: ToolKind,
     pub hint: &'static str,
     pub version_flag: &'static str,
-    pub install: &'static str,
+    pub install: Install,
 }
 
 pub fn is_known(name: &str) -> bool {
@@ -35,168 +49,212 @@ pub const TOOLS: &[Tool] = &[
         kind: ToolKind::Agent,
         hint: "Claude Code",
         version_flag: "--version",
-        install: "npm install -g @anthropic-ai/claude-code",
+        install: Install::Cmd("npm install -g @anthropic-ai/claude-code"),
     },
     Tool {
         name: "codex",
         kind: ToolKind::Agent,
         hint: "OpenAI Codex CLI",
         version_flag: "--version",
-        install: "npm install -g @openai/codex",
+        install: Install::Cmd("npm install -g @openai/codex"),
     },
     Tool {
         name: "opencode",
         kind: ToolKind::Agent,
         hint: "OpenCode",
         version_flag: "--version",
-        install: "npm install -g opencode-ai",
+        install: Install::Cmd("npm install -g opencode-ai"),
     },
     Tool {
         name: "pi",
         kind: ToolKind::Agent,
         hint: "Pi (pi.dev)",
         version_flag: "--version",
-        install: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+        install: Install::Cmd("npm install -g --ignore-scripts @earendil-works/pi-coding-agent"),
     },
     Tool {
         name: "omp",
         kind: ToolKind::Agent,
         hint: "Oh My Pi",
         version_flag: "--version",
-        install: "curl -fsSL https://omp.sh/install | sh",
+        install: Install::Cmd("curl -fsSL https://omp.sh/install | sh"),
     },
     Tool {
         name: "omh",
         kind: ToolKind::Agent,
         hint: "Oh My Hermes",
         version_flag: "--version",
-        install: "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh",
+        install: Install::Cmd(
+            "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh",
+        ),
     },
     Tool {
         name: "hermes",
         kind: ToolKind::Agent,
         hint: "Hermes Agent (Nous Research)",
         version_flag: "--version",
-        install: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+        install: Install::Cmd("curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"),
     },
     Tool {
         name: "goose",
         kind: ToolKind::Agent,
         hint: "Goose (Block / AAIF)",
         version_flag: "--version",
-        install: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash",
+        install: Install::Cmd(
+            "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash",
+        ),
     },
     Tool {
         name: "aider",
         kind: ToolKind::Agent,
         hint: "Aider",
         version_flag: "--version",
-        install: "python -m pip install aider-install && aider-install",
+        install: Install::Cmd("python -m pip install aider-install && aider-install"),
     },
     Tool {
         name: "crush",
         kind: ToolKind::Agent,
         hint: "Crush (Charmbracelet)",
         version_flag: "--version",
-        install: "go install github.com/charmbracelet/crush@latest",
+        install: Install::Cmd("go install github.com/charmbracelet/crush@latest"),
     },
     Tool {
         name: "qwen",
         kind: ToolKind::Agent,
         hint: "Qwen Code",
         version_flag: "--version",
-        install: "npm install -g @qwen-code/qwen-code@latest",
+        install: Install::Cmd("npm install -g @qwen-code/qwen-code@latest"),
     },
     Tool {
         name: "openhands",
         kind: ToolKind::Agent,
         hint: "OpenHands CLI",
         version_flag: "--version",
-        install: "uv tool install openhands --python 3.12",
+        install: Install::Cmd("uv tool install openhands --python 3.12"),
     },
     Tool {
         name: "agy",
         kind: ToolKind::Agent,
         hint: "Antigravity CLI (Google)",
         version_flag: "--version",
-        install: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        install: Install::Cmd("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
     },
     Tool {
         name: "cline",
         kind: ToolKind::Agent,
         hint: "Cline CLI",
         version_flag: "--version",
-        install: "npm install -g cline",
+        install: Install::Cmd("npm install -g cline"),
     },
     Tool {
         name: "copilot",
         kind: ToolKind::Agent,
         hint: "GitHub Copilot CLI",
         version_flag: "--version",
-        install: "gh extension install github/gh-copilot",
+        install: Install::Cmd("gh extension install github/gh-copilot"),
     },
     Tool {
         name: "lazygit",
         kind: ToolKind::Cli,
         hint: "TUI de git",
         version_flag: "--version",
-        install: "sudo apt-get install -y lazygit || go install github.com/jesseduffield/lazygit@latest",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y lazygit || go install github.com/jesseduffield/lazygit@latest",
+            dnf: "sudo dnf install -y lazygit || go install github.com/jesseduffield/lazygit@latest",
+            pacman: "sudo pacman -S --noconfirm --needed lazygit || go install github.com/jesseduffield/lazygit@latest",
+            zypper: "sudo zypper --non-interactive install lazygit || go install github.com/jesseduffield/lazygit@latest",
+        },
     },
     Tool {
         name: "nvim",
         kind: ToolKind::Cli,
         hint: "Neovim",
         version_flag: "--version",
-        install: "sudo apt-get install -y neovim",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y neovim",
+            dnf: "sudo dnf install -y neovim",
+            pacman: "sudo pacman -S --noconfirm --needed neovim",
+            zypper: "sudo zypper --non-interactive install neovim",
+        },
     },
     Tool {
         name: "btop",
         kind: ToolKind::Cli,
         hint: "monitor del sistema",
         version_flag: "--version",
-        install: "sudo apt-get install -y btop",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y btop",
+            dnf: "sudo dnf install -y btop",
+            pacman: "sudo pacman -S --noconfirm --needed btop",
+            zypper: "sudo zypper --non-interactive install btop",
+        },
     },
     Tool {
         name: "yazi",
         kind: ToolKind::Cli,
         hint: "file manager TUI",
         version_flag: "--version",
-        install: "cargo install --locked yazi-fm yazi-cli",
+        install: Install::Cmd("cargo install --locked yazi-fm yazi-cli"),
     },
     Tool {
         name: "fzf",
         kind: ToolKind::Cli,
         hint: "fuzzy finder",
         version_flag: "--version",
-        install: "sudo apt-get install -y fzf",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y fzf",
+            dnf: "sudo dnf install -y fzf",
+            pacman: "sudo pacman -S --noconfirm --needed fzf",
+            zypper: "sudo zypper --non-interactive install fzf",
+        },
     },
     Tool {
         name: "gh",
         kind: ToolKind::Cli,
         hint: "GitHub CLI",
         version_flag: "--version",
-        install: "sudo apt-get install -y gh",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y gh",
+            dnf: "sudo dnf install -y gh",
+            pacman: "sudo pacman -S --noconfirm --needed github-cli",
+            zypper: "sudo zypper --non-interactive install gh",
+        },
     },
     Tool {
         name: "tmux",
         kind: ToolKind::Cli,
         hint: "sesiones remotas",
         version_flag: "-V",
-        install: "sudo apt-get install -y tmux",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y tmux",
+            dnf: "sudo dnf install -y tmux",
+            pacman: "sudo pacman -S --noconfirm --needed tmux",
+            zypper: "sudo zypper --non-interactive install tmux",
+        },
     },
     Tool {
         name: "rg",
         kind: ToolKind::Cli,
         hint: "ripgrep",
         version_flag: "--version",
-        install: "sudo apt-get install -y ripgrep",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y ripgrep",
+            dnf: "sudo dnf install -y ripgrep",
+            pacman: "sudo pacman -S --noconfirm --needed ripgrep",
+            zypper: "sudo zypper --non-interactive install ripgrep",
+        },
     },
     Tool {
         name: "delta",
         kind: ToolKind::Cli,
         hint: "pager de diffs git",
         version_flag: "--version",
-        install: "sudo apt-get install -y git-delta",
+        install: Install::Pkg {
+            apt: "sudo apt-get install -y git-delta",
+            dnf: "sudo dnf install -y git-delta",
+            pacman: "sudo pacman -S --noconfirm --needed git-delta",
+            zypper: "sudo zypper --non-interactive install git-delta",
+        },
     },
 ];
 
@@ -248,11 +306,38 @@ fn listing_inner(want_versions: bool) -> Vec<ToolInfo> {
     rows
 }
 
-pub fn install_cmd(name: &str) -> Option<&'static str> {
+pub fn install_cmd(name: &str) -> Option<String> {
     TOOLS
         .iter()
         .find(|tool| tool.name == name)
-        .map(|tool| tool.install)
+        .map(|tool| resolve_install(tool.install))
+}
+
+/// Elige la variante del comando según el gestor de paquetes disponible.
+/// El orden va de más común a menos; sin gestor conocido, apt mantiene el
+/// comportamiento previo al soporte multi-distro.
+fn resolve_install(spec: Install) -> String {
+    match spec {
+        Install::Cmd(cmd) => cmd.to_string(),
+        Install::Pkg {
+            apt,
+            dnf,
+            pacman,
+            zypper,
+        } => {
+            if files::command_on_path("apt-get") {
+                apt.to_string()
+            } else if files::command_on_path("dnf") {
+                dnf.to_string()
+            } else if files::command_on_path("pacman") {
+                pacman.to_string()
+            } else if files::command_on_path("zypper") {
+                zypper.to_string()
+            } else {
+                apt.to_string()
+            }
+        }
+    }
 }
 
 pub fn invalidate() {
@@ -284,7 +369,7 @@ fn probe(tool: &Tool, versions: bool) -> ToolInfo {
         hint: tool.hint.into(),
         available,
         version: version.flatten(),
-        install: tool.install.into(),
+        install: resolve_install(tool.install),
     }
 }
 
@@ -320,5 +405,24 @@ mod tests {
                 .iter()
                 .any(|tool| tool.name == "lazygit" && tool.kind == ToolKind::Cli)
         );
+    }
+
+    #[test]
+    fn every_tool_resolves_a_non_empty_install_cmd() {
+        for tool in TOOLS {
+            let cmd = install_cmd(tool.name).unwrap_or_default();
+            assert!(
+                !cmd.trim().is_empty(),
+                "{} sin comando de install",
+                tool.name
+            );
+        }
+        assert!(install_cmd("nope").is_none());
+    }
+
+    #[test]
+    fn universal_install_is_used_verbatim() {
+        let cmd = resolve_install(Install::Cmd("cargo install demo"));
+        assert_eq!(cmd, "cargo install demo");
     }
 }

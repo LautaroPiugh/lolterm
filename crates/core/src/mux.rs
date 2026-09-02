@@ -191,6 +191,9 @@ struct LivePane {
     pty: BytePty,
     worktree: Option<PathBuf>,
     opened_path: Option<PathBuf>,
+    /// Install panes: al terminar el proceso el pane queda visible con todo
+    /// el output hasta que el usuario lo cierre manualmente.
+    keep_on_exit: bool,
 }
 
 #[derive(Clone)]
@@ -460,6 +463,7 @@ impl Mux {
                 pty,
                 worktree,
                 opened_path: files::editor_file_arg(args).map(PathBuf::from),
+                keep_on_exit: false,
             },
         ))
     }
@@ -1576,11 +1580,17 @@ impl Mux {
             .ok_or_else(|| eyre!("herramienta desconocida: {name}"))?;
         crate::registry::invalidate();
         self.notice = Some(format!("instalando {name}"));
-        let id = self.new_tab(Some("bash"), None, &["-lc".into(), cmd.to_string()], false)?;
+        let id = self.new_tab(Some("bash"), None, &["-lc".into(), cmd.clone()], false)?;
+        if let Some(tab) = self.tabs.last_mut() {
+            tab.name = Some(format!("install: {name}"));
+            if let Some(pane) = tab.panes.get_mut(&id) {
+                pane.keep_on_exit = true;
+            }
+        }
         self.installs.push(InstallTask {
             pane: id,
             tool: name.to_string(),
-            command: cmd.to_string(),
+            command: cmd,
             state: "running".into(),
             exit_code: None,
             output: String::new(),
@@ -2507,6 +2517,7 @@ impl Mux {
                     pane.pty.exit_code(),
                     pane.program.clone(),
                     pane.args.clone(),
+                    pane.keep_on_exit,
                 ));
             }
         }
@@ -2514,7 +2525,7 @@ impl Mux {
         let mut ended = Vec::new();
         let mut restart_ssh = Vec::new();
         let mut dead = Vec::new();
-        for (index, id, exited, exit_code, program, args) in poll {
+        for (index, id, exited, exit_code, program, args, keep) in poll {
             if !exited {
                 if program.as_deref() == Some("ssh")
                     && let Some(dest) = ssh::ssh_dest_from_args(&args)
@@ -2536,6 +2547,24 @@ impl Mux {
                 && let Some(name) = program
             {
                 ended.push(name);
+            }
+            if keep {
+                // Pane de instalación: registra el resultado pero no lo
+                // elimina; el usuario cierra la pestaña cuando quiera.
+                let was_running = self
+                    .installs
+                    .iter()
+                    .any(|task| task.pane == id && task.state == "running");
+                self.finish_install(id, exit_code);
+                if was_running {
+                    let code = exit_code
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "?".into());
+                    self.notice = Some(format!(
+                        "instalación terminó (exit {code}) · cerrá la pestaña cuando quieras"
+                    ));
+                }
+                continue;
             }
             self.finish_install(id, exit_code);
             dead.push((index, id));
@@ -2635,18 +2664,21 @@ fn drop_exited_in_tabs(tabs: &mut Vec<Tab>) -> Vec<(u64, Option<u32>)> {
     let mut finished = Vec::new();
     for (index, tab) in tabs.iter_mut().enumerate() {
         drop_panes_not_in_layout(tab);
-        let dead: Vec<(u64, Option<u32>)> = tab
+        let dead: Vec<(u64, Option<u32>, bool)> = tab
             .panes
             .iter_mut()
             .filter_map(|(id, pane)| {
                 let _ = pane.pty.poll_exit();
                 pane.pty
                     .child_exited()
-                    .then_some((*id, pane.pty.exit_code()))
+                    .then_some((*id, pane.pty.exit_code(), pane.keep_on_exit))
             })
             .collect();
-        for (id, exit_code) in dead {
+        for (id, exit_code, keep) in dead {
             finished.push((id, exit_code));
+            if keep {
+                continue;
+            }
             tab.panes.remove(&id);
             tab.layout.remove_pane(id);
             tab.focused = tab.layout.first_leaf().unwrap_or(id);
