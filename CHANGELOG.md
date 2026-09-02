@@ -2,6 +2,20 @@
 
 Los cambios versionados los escribe [Release Please](https://github.com/googleapis/release-please) a partir de Conventional Commits.
 
+## [0.16.0](https://github.com/LautaroPiugh/lolterm/compare/v0.15.0...v0.16.0) (2026-09-02)
+
+### Features
+
+* instalar herramientas con el gestor de paquetes de cada distro (apt, dnf, pacman, zypper) en vez de forzar apt
+* la pestaña de instalación permanece visible con todo el output hasta cerrarla manualmente, y se nombra `install: <herramienta>`
+* el historial de instalaciones registra el resultado con exit code aunque se cierre la app o el pase a segundo plano
+
+## [0.15.0](https://github.com/LautaroPiugh/lolterm/compare/v0.14.0...v0.15.0) (2026-09-01)
+
+### Features
+
+* empaquetar `.AppImage` portable junto al `.deb` y `.rpm`, con auto-update para AppImage (se reemplaza a sí mismo y reinicia, sin `pkexec`)
+
 ## [0.14.0](https://github.com/LautaroPiugh/lolterm/compare/v0.13.4...v0.14.0) (2026-08-31)
 
 ### Features
